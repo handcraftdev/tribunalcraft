@@ -5,7 +5,6 @@ import {
   Transaction,
   VersionedTransaction,
   SendTransactionError,
-  TransactionSignature,
 } from "@solana/web3.js";
 import { AnchorError, ProgramError } from "@coral-xyz/anchor";
 
@@ -51,6 +50,8 @@ const SOLANA_ERRORS: Record<string, string> = {
   "custom program error": "Program execution error",
   "AccountNotInitialized": "Account has not been initialized",
   "already in use": "This account is already in use",
+  "Transaction was not confirmed": "Transaction was not confirmed. Please try again.",
+  "block height exceeded": "Transaction expired. Please try again.",
 };
 
 export interface TransactionError {
@@ -58,6 +59,7 @@ export interface TransactionError {
   name: string;
   message: string;
   raw?: string;
+  logs?: string[];
 }
 
 export interface SimulationResult {
@@ -68,25 +70,66 @@ export interface SimulationResult {
 }
 
 /**
+ * Parse error code from various error formats
+ */
+function extractErrorCode(input: string | object): number | null {
+  if (typeof input === "string") {
+    // Try hex format: 0x1770 (6000 in decimal)
+    const hexMatch = input.match(/0x([0-9a-fA-F]+)/);
+    if (hexMatch) {
+      const code = parseInt(hexMatch[1], 16);
+      if (code >= 6000 && code <= 6100) return code;
+    }
+
+    // Try decimal format
+    const decMatch = input.match(/\b(6\d{3})\b/);
+    if (decMatch) {
+      return parseInt(decMatch[1], 10);
+    }
+
+    // Try "custom program error: 0x..." format
+    const customMatch = input.match(/custom program error: 0x([0-9a-fA-F]+)/i);
+    if (customMatch) {
+      return parseInt(customMatch[1], 16);
+    }
+  }
+
+  if (typeof input === "object" && input !== null) {
+    // Handle { InstructionError: [index, { Custom: code }] }
+    if ("InstructionError" in input) {
+      const [, instructionError] = (input as any).InstructionError;
+      if (typeof instructionError === "object" && "Custom" in instructionError) {
+        return instructionError.Custom;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parse an error from transaction simulation or execution
  */
 export function parseTransactionError(error: unknown): TransactionError {
   // Handle Anchor errors
   if (error instanceof AnchorError) {
-    const programError = PROGRAM_ERRORS[error.error.errorCode.number];
+    const errorCode = error.error.errorCode.number;
+    const programError = PROGRAM_ERRORS[errorCode];
     if (programError) {
       return {
-        code: error.error.errorCode.number,
+        code: errorCode,
         name: programError.name,
         message: programError.message,
         raw: error.message,
+        logs: error.logs,
       };
     }
     return {
-      code: error.error.errorCode.number,
+      code: errorCode,
       name: error.error.errorCode.code,
       message: error.error.errorMessage || error.message,
       raw: error.message,
+      logs: error.logs,
     };
   }
 
@@ -112,11 +155,11 @@ export function parseTransactionError(error: unknown): TransactionError {
   // Handle SendTransactionError
   if (error instanceof SendTransactionError) {
     const errorMsg = error.message;
+    const logs = (error as any).logs as string[] | undefined;
 
-    // Try to extract custom program error code
-    const customErrorMatch = errorMsg.match(/custom program error: 0x([0-9a-fA-F]+)/);
-    if (customErrorMatch) {
-      const errorCode = parseInt(customErrorMatch[1], 16);
+    // Try to extract error code
+    const errorCode = extractErrorCode(errorMsg);
+    if (errorCode !== null) {
       const programError = PROGRAM_ERRORS[errorCode];
       if (programError) {
         return {
@@ -124,7 +167,44 @@ export function parseTransactionError(error: unknown): TransactionError {
           name: programError.name,
           message: programError.message,
           raw: errorMsg,
+          logs,
         };
+      }
+    }
+
+    // Check logs for error code
+    if (logs) {
+      for (const log of logs) {
+        const logErrorCode = extractErrorCode(log);
+        if (logErrorCode !== null) {
+          const programError = PROGRAM_ERRORS[logErrorCode];
+          if (programError) {
+            return {
+              code: logErrorCode,
+              name: programError.name,
+              message: programError.message,
+              raw: errorMsg,
+              logs,
+            };
+          }
+        }
+
+        // Check for "Error Code:" format in logs
+        const errorCodeMatch = log.match(/Error Code: (\w+)/);
+        if (errorCodeMatch) {
+          const errorName = errorCodeMatch[1];
+          for (const [code, err] of Object.entries(PROGRAM_ERRORS)) {
+            if (err.name === errorName) {
+              return {
+                code: parseInt(code),
+                name: err.name,
+                message: err.message,
+                raw: errorMsg,
+                logs,
+              };
+            }
+          }
+        }
       }
     }
 
@@ -136,6 +216,7 @@ export function parseTransactionError(error: unknown): TransactionError {
           name: key,
           message,
           raw: errorMsg,
+          logs,
         };
       }
     }
@@ -145,17 +226,18 @@ export function parseTransactionError(error: unknown): TransactionError {
       name: "TransactionError",
       message: errorMsg,
       raw: errorMsg,
+      logs,
     };
   }
 
   // Handle generic Error
   if (error instanceof Error) {
     const errorMsg = error.message;
+    const logs = (error as any).logs as string[] | undefined;
 
-    // Try to extract custom program error code
-    const customErrorMatch = errorMsg.match(/custom program error: 0x([0-9a-fA-F]+)/);
-    if (customErrorMatch) {
-      const errorCode = parseInt(customErrorMatch[1], 16);
+    // Try to extract error code from message
+    const errorCode = extractErrorCode(errorMsg);
+    if (errorCode !== null) {
       const programError = PROGRAM_ERRORS[errorCode];
       if (programError) {
         return {
@@ -163,7 +245,27 @@ export function parseTransactionError(error: unknown): TransactionError {
           name: programError.name,
           message: programError.message,
           raw: errorMsg,
+          logs,
         };
+      }
+    }
+
+    // Check logs for error code
+    if (logs) {
+      for (const log of logs) {
+        const logErrorCode = extractErrorCode(log);
+        if (logErrorCode !== null) {
+          const programError = PROGRAM_ERRORS[logErrorCode];
+          if (programError) {
+            return {
+              code: logErrorCode,
+              name: programError.name,
+              message: programError.message,
+              raw: errorMsg,
+              logs,
+            };
+          }
+        }
       }
     }
 
@@ -175,6 +277,7 @@ export function parseTransactionError(error: unknown): TransactionError {
           name: err.name,
           message: err.message,
           raw: errorMsg,
+          logs,
         };
       }
     }
@@ -187,6 +290,7 @@ export function parseTransactionError(error: unknown): TransactionError {
           name: key,
           message,
           raw: errorMsg,
+          logs,
         };
       }
     }
@@ -198,6 +302,7 @@ export function parseTransactionError(error: unknown): TransactionError {
         name: "InsufficientFunds",
         message: "Insufficient SOL balance to complete this transaction",
         raw: errorMsg,
+        logs,
       };
     }
 
@@ -206,6 +311,7 @@ export function parseTransactionError(error: unknown): TransactionError {
       name: "Error",
       message: errorMsg,
       raw: errorMsg,
+      logs,
     };
   }
 
@@ -215,6 +321,87 @@ export function parseTransactionError(error: unknown): TransactionError {
     name: "UnknownError",
     message: String(error),
     raw: String(error),
+  };
+}
+
+/**
+ * Parse simulation response error
+ */
+export function parseSimulationError(
+  err: any,
+  logs?: string[]
+): TransactionError {
+  // Handle InstructionError format
+  if (typeof err === "object" && err !== null) {
+    const errorCode = extractErrorCode(err);
+    if (errorCode !== null) {
+      const programError = PROGRAM_ERRORS[errorCode];
+      if (programError) {
+        return {
+          code: errorCode,
+          name: programError.name,
+          message: programError.message,
+          raw: JSON.stringify(err),
+          logs,
+        };
+      }
+    }
+  }
+
+  // Check logs for error info
+  if (logs) {
+    for (const log of logs) {
+      const errorCode = extractErrorCode(log);
+      if (errorCode !== null) {
+        const programError = PROGRAM_ERRORS[errorCode];
+        if (programError) {
+          return {
+            code: errorCode,
+            name: programError.name,
+            message: programError.message,
+            raw: log,
+            logs,
+          };
+        }
+      }
+
+      // Check for "Error Code:" format
+      const errorCodeMatch = log.match(/Error Code: (\w+)/);
+      if (errorCodeMatch) {
+        const errorName = errorCodeMatch[1];
+        for (const [code, errDef] of Object.entries(PROGRAM_ERRORS)) {
+          if (errDef.name === errorName) {
+            return {
+              code: parseInt(code),
+              name: errDef.name,
+              message: errDef.message,
+              raw: log,
+              logs,
+            };
+          }
+        }
+      }
+
+      // Check for "Error Message:" format
+      const errorMsgMatch = log.match(/Error Message: (.+)/);
+      if (errorMsgMatch) {
+        return {
+          code: null,
+          name: "ProgramError",
+          message: errorMsgMatch[1],
+          raw: log,
+          logs,
+        };
+      }
+    }
+  }
+
+  return {
+    code: null,
+    name: "SimulationFailed",
+    message: "Transaction simulation failed",
+    raw: JSON.stringify(err),
+    logs,
   };
 }
 
@@ -238,87 +425,13 @@ export async function simulateTransaction(
     }
 
     if (simulation.value.err) {
-      // Parse the simulation error
-      const errObj = simulation.value.err;
-
-      // Handle InstructionError format
-      if (typeof errObj === "object" && "InstructionError" in errObj) {
-        const [_idx, instructionError] = (errObj as any).InstructionError;
-
-        if (typeof instructionError === "object" && "Custom" in instructionError) {
-          const errorCode = instructionError.Custom;
-          const programError = PROGRAM_ERRORS[errorCode];
-
-          if (programError) {
-            return {
-              success: false,
-              error: {
-                code: errorCode,
-                name: programError.name,
-                message: programError.message,
-                raw: JSON.stringify(errObj),
-              },
-              logs: simulation.value.logs || undefined,
-              unitsConsumed: simulation.value.unitsConsumed || undefined,
-            };
-          }
-        }
-      }
-
-      // Try to find error in logs
-      const logs = simulation.value.logs || [];
-      for (const log of logs) {
-        // Check for "Error Code:" format in logs
-        const errorCodeMatch = log.match(/Error Code: (\w+)/);
-        if (errorCodeMatch) {
-          const errorName = errorCodeMatch[1];
-          for (const [code, err] of Object.entries(PROGRAM_ERRORS)) {
-            if (err.name === errorName) {
-              return {
-                success: false,
-                error: {
-                  code: parseInt(code),
-                  name: err.name,
-                  message: err.message,
-                  raw: log,
-                },
-                logs,
-                unitsConsumed: simulation.value.unitsConsumed || undefined,
-              };
-            }
-          }
-        }
-
-        // Check for custom program error in hex
-        const customMatch = log.match(/custom program error: 0x([0-9a-fA-F]+)/i);
-        if (customMatch) {
-          const errorCode = parseInt(customMatch[1], 16);
-          const programError = PROGRAM_ERRORS[errorCode];
-          if (programError) {
-            return {
-              success: false,
-              error: {
-                code: errorCode,
-                name: programError.name,
-                message: programError.message,
-                raw: log,
-              },
-              logs,
-              unitsConsumed: simulation.value.unitsConsumed || undefined,
-            };
-          }
-        }
-      }
-
       return {
         success: false,
-        error: {
-          code: null,
-          name: "SimulationFailed",
-          message: "Transaction simulation failed",
-          raw: JSON.stringify(errObj),
-        },
-        logs,
+        error: parseSimulationError(
+          simulation.value.err,
+          simulation.value.logs || undefined
+        ),
+        logs: simulation.value.logs || undefined,
         unitsConsumed: simulation.value.unitsConsumed || undefined,
       };
     }
@@ -337,29 +450,13 @@ export async function simulateTransaction(
 }
 
 /**
- * Execute a transaction with simulation
- */
-export async function executeWithSimulation<T>(
-  execute: () => Promise<T>,
-  options?: {
-    skipSimulation?: boolean;
-  }
-): Promise<T> {
-  try {
-    return await execute();
-  } catch (error) {
-    const parsed = parseTransactionError(error);
-    throw new TribunalError(parsed);
-  }
-}
-
-/**
  * Custom error class with parsed error info
  */
 export class TribunalError extends Error {
   code: number | null;
   errorName: string;
   raw?: string;
+  logs?: string[];
 
   constructor(error: TransactionError) {
     super(error.message);
@@ -367,5 +464,18 @@ export class TribunalError extends Error {
     this.code = error.code;
     this.errorName = error.name;
     this.raw = error.raw;
+    this.logs = error.logs;
+  }
+}
+
+/**
+ * Wrap a function that may throw and convert errors to TribunalError
+ */
+export async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    const parsed = parseTransactionError(error);
+    throw new TribunalError(parsed);
   }
 }
