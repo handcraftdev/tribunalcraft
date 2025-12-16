@@ -40,6 +40,24 @@ const PROGRAM_ERRORS: Record<number, { name: string; message: string }> = {
   6027: { name: "DivisionByZero", message: "Calculation error: division by zero" },
 };
 
+// Common Solana/Anchor errors with user-friendly messages
+const ANCHOR_ERRORS: Record<string, string> = {
+  "AccountNotInitialized": "Protocol not initialized. Please contact the administrator.",
+  "AccountDidNotDeserialize": "Invalid account data. The account may be corrupted.",
+  "AccountDidNotSerialize": "Failed to save account data.",
+  "AccountOwnedByWrongProgram": "Account belongs to a different program.",
+  "InvalidProgramId": "Invalid program ID.",
+  "InvalidProgramExecutable": "Program is not executable.",
+  "AccountMismatch": "Account does not match expected address.",
+  "expected this account to be already initialized": "Protocol not initialized. Please contact the administrator.",
+  "ConstraintMut": "Account is not mutable.",
+  "ConstraintHasOne": "Account constraint violated.",
+  "ConstraintSigner": "Missing required signature.",
+  "ConstraintRaw": "Constraint check failed.",
+  "ConstraintOwner": "Account owner mismatch.",
+  "ConstraintSeeds": "PDA seeds mismatch.",
+};
+
 // Common Solana errors
 const SOLANA_ERRORS: Record<string, string> = {
   "Blockhash not found": "Transaction expired. Please try again.",
@@ -48,7 +66,6 @@ const SOLANA_ERRORS: Record<string, string> = {
   "Transaction simulation failed": "Transaction simulation failed",
   "Account not found": "Required account not found on chain",
   "custom program error": "Program execution error",
-  "AccountNotInitialized": "Account has not been initialized",
   "already in use": "This account is already in use",
   "Transaction was not confirmed": "Transaction was not confirmed. Please try again.",
   "block height exceeded": "Transaction expired. Please try again.",
@@ -351,6 +368,7 @@ export function parseSimulationError(
   // Check logs for error info
   if (logs) {
     for (const log of logs) {
+      // Check for program error codes first
       const errorCode = extractErrorCode(log);
       if (errorCode !== null) {
         const programError = PROGRAM_ERRORS[errorCode];
@@ -365,10 +383,12 @@ export function parseSimulationError(
         }
       }
 
-      // Check for "Error Code:" format
+      // Check for "Error Code:" format (custom program errors)
       const errorCodeMatch = log.match(/Error Code: (\w+)/);
       if (errorCodeMatch) {
         const errorName = errorCodeMatch[1];
+
+        // Check program errors
         for (const [code, errDef] of Object.entries(PROGRAM_ERRORS)) {
           if (errDef.name === errorName) {
             return {
@@ -380,15 +400,55 @@ export function parseSimulationError(
             };
           }
         }
+
+        // Check Anchor errors
+        const anchorMsg = ANCHOR_ERRORS[errorName];
+        if (anchorMsg) {
+          return {
+            code: null,
+            name: errorName,
+            message: anchorMsg,
+            raw: log,
+            logs,
+          };
+        }
+      }
+
+      // Check for known Anchor error patterns in log message
+      for (const [pattern, message] of Object.entries(ANCHOR_ERRORS)) {
+        if (log.includes(pattern)) {
+          return {
+            code: null,
+            name: pattern.replace(/\s+/g, ""),
+            message,
+            raw: log,
+            logs,
+          };
+        }
       }
 
       // Check for "Error Message:" format
       const errorMsgMatch = log.match(/Error Message: (.+)/);
       if (errorMsgMatch) {
+        const errorMsg = errorMsgMatch[1];
+
+        // Check if this matches any known Anchor error
+        for (const [pattern, message] of Object.entries(ANCHOR_ERRORS)) {
+          if (errorMsg.includes(pattern)) {
+            return {
+              code: null,
+              name: pattern.replace(/\s+/g, ""),
+              message,
+              raw: log,
+              logs,
+            };
+          }
+        }
+
         return {
           code: null,
           name: "ProgramError",
-          message: errorMsgMatch[1],
+          message: errorMsg,
           raw: log,
           logs,
         };
