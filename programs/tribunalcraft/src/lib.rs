@@ -10,17 +10,31 @@ pub use errors::*;
 pub use state::*;
 pub use instructions::*;
 
-declare_id!("9oS7XD7b14j8BjHuzytiiK8iEYVzd1MtVdfUhrJVsM5j");
+declare_id!("4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX");
 
 #[program]
 pub mod tribunalcraft {
     use super::*;
 
     // =========================================================================
-    // Staker Pool Instructions
+    // Protocol Config Instructions
     // =========================================================================
 
-    /// Create a staker pool with initial stake
+    /// Initialize protocol config (one-time setup by deployer)
+    pub fn initialize_config(ctx: Context<InitializeConfig>) -> Result<()> {
+        instructions::initialize_config(ctx)
+    }
+
+    /// Update treasury address (admin only)
+    pub fn update_treasury(ctx: Context<UpdateTreasury>, new_treasury: Pubkey) -> Result<()> {
+        instructions::update_treasury(ctx, new_treasury)
+    }
+
+    // =========================================================================
+    // Defender Pool Instructions
+    // =========================================================================
+
+    /// Create a defender pool with initial stake
     pub fn create_pool(
         ctx: Context<CreatePool>,
         initial_stake: u64,
@@ -57,13 +71,12 @@ pub mod tribunalcraft {
         match_mode: bool,
         free_case: bool,
         voting_period: i64,
-        winner_reward_bps: u16,
         stake: u64,
     ) -> Result<()> {
-        instructions::create_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period, winner_reward_bps, stake)
+        instructions::create_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period, stake)
     }
 
-    /// Create a subject linked to a staker pool
+    /// Create a subject linked to a defender pool
     pub fn create_linked_subject(
         ctx: Context<CreateLinkedSubject>,
         subject_id: Pubkey,
@@ -72,9 +85,8 @@ pub mod tribunalcraft {
         match_mode: bool,
         free_case: bool,
         voting_period: i64,
-        winner_reward_bps: u16,
     ) -> Result<()> {
-        instructions::create_linked_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period, winner_reward_bps)
+        instructions::create_linked_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period)
     }
 
     /// Create a free subject (no stake required, just Subject account)
@@ -163,6 +175,22 @@ pub mod tribunalcraft {
     }
 
     // =========================================================================
+    // Appeal Instructions
+    // =========================================================================
+
+    /// Submit an appeal against an invalidated subject
+    /// Appeals allow community to reverse previous invalidation decisions
+    /// Appellant stakes (no bond required), voting period is 2x previous
+    pub fn submit_appeal(
+        ctx: Context<SubmitAppeal>,
+        dispute_type: DisputeType,
+        details_cid: String,
+        stake_amount: u64,
+    ) -> Result<()> {
+        instructions::submit_appeal(ctx, dispute_type, details_cid, stake_amount)
+    }
+
+    // =========================================================================
     // Voting Instructions
     // =========================================================================
 
@@ -174,6 +202,18 @@ pub mod tribunalcraft {
         rationale_cid: String,
     ) -> Result<()> {
         instructions::vote_on_dispute(ctx, choice, stake_allocation, rationale_cid)
+    }
+
+    /// Vote on an appeal with stake allocation
+    /// ForRestoration = vote to restore subject to Active
+    /// AgainstRestoration = vote to keep subject Invalidated
+    pub fn vote_on_appeal(
+        ctx: Context<VoteOnAppeal>,
+        choice: AppealVoteChoice,
+        stake_allocation: u64,
+        rationale_cid: String,
+    ) -> Result<()> {
+        instructions::vote_on_appeal(ctx, choice, stake_allocation, rationale_cid)
     }
 
     /// Add more stake to an existing vote
@@ -216,11 +256,11 @@ pub mod tribunalcraft {
         instructions::claim_challenger_reward(ctx)
     }
 
-    /// Claim staker reward (if dispute dismissed)
-    pub fn claim_staker_reward(
-        ctx: Context<ClaimStakerReward>,
+    /// Claim defender reward (if dispute dismissed)
+    pub fn claim_defender_reward(
+        ctx: Context<ClaimDefenderReward>,
     ) -> Result<()> {
-        instructions::claim_staker_reward(ctx)
+        instructions::claim_defender_reward(ctx)
     }
 
     /// Claim pool reward (linked mode - pool owner claims if dispute dismissed)

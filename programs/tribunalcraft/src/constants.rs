@@ -42,16 +42,34 @@ pub const STAKE_UNLOCK_BUFFER: i64 = 604_800;
 pub const BASE_CHALLENGER_BOND: u64 = 10_000_000;
 
 // =============================================================================
+// FIXED FEE CONSTANTS (Protocol-wide, non-configurable)
+// =============================================================================
+
+/// Total fee from combined pool (20% = 2000 bps)
+/// Fee is collected from defender stake + challenger bond combined
+pub const TOTAL_FEE_BPS: u16 = 2000;
+
+/// Platform share of fees (5% of fees = 1% of total pool = 500 bps of fees)
+pub const PLATFORM_SHARE_BPS: u16 = 500;
+
+/// Juror share of fees (95% of fees = 19% of total pool = 9500 bps of fees)
+pub const JUROR_SHARE_BPS: u16 = 9500;
+
+/// Winner share of loser's contribution (80% = 8000 bps)
+pub const WINNER_SHARE_BPS: u16 = 8000;
+
+// =============================================================================
 // PDA SEEDS (Global - no config dependency)
 // =============================================================================
 
-pub const STAKER_POOL_SEED: &[u8] = b"staker_pool";
+pub const PROTOCOL_CONFIG_SEED: &[u8] = b"protocol_config";
+pub const DEFENDER_POOL_SEED: &[u8] = b"defender_pool";
 pub const SUBJECT_SEED: &[u8] = b"subject";
 pub const JUROR_ACCOUNT_SEED: &[u8] = b"juror";
 pub const CHALLENGER_ACCOUNT_SEED: &[u8] = b"challenger";
 pub const DISPUTE_SEED: &[u8] = b"dispute";
 pub const CHALLENGER_RECORD_SEED: &[u8] = b"challenger_record";
-pub const STAKER_RECORD_SEED: &[u8] = b"staker_record";
+pub const DEFENDER_RECORD_SEED: &[u8] = b"defender_record";
 pub const VOTE_RECORD_SEED: &[u8] = b"vote";
 
 // =============================================================================

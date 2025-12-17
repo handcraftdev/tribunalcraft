@@ -1,13 +1,17 @@
-pub mod staker_pool;
+pub mod config;
+pub mod defender_pool;
 pub mod subject;
 pub mod juror;
 pub mod challenger;
 pub mod vote;
 pub mod resolve;
+pub mod appeal;
 
-pub use staker_pool::*;
+pub use config::*;
+pub use defender_pool::*;
 pub use subject::*;
 pub use juror::*;
 pub use challenger::*;
 pub use vote::*;
 pub use resolve::*;
+pub use appeal::*;
