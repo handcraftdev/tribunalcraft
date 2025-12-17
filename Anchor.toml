@@ -6,13 +6,16 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-marshalcraft = "8YELzww62rbPHT9k1LwwwMmUGMHQvrWAAjvWXPCsa3r1"
+tribunalcraft = "9oS7XD7b14j8BjHuzytiiK8iEYVzd1MtVdfUhrJVsM5j"
+
+[programs.devnet]
+tribunalcraft = "9oS7XD7b14j8BjHuzytiiK8iEYVzd1MtVdfUhrJVsM5j"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
