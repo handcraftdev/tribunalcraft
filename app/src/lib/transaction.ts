@@ -8,7 +8,7 @@ import {
 } from "@solana/web3.js";
 import { AnchorError, ProgramError } from "@coral-xyz/anchor";
 
-// Program error codes from IDL
+// Program error codes from IDL (must match programs/tribunalcraft/src/errors/mod.rs)
 const PROGRAM_ERRORS: Record<number, { name: string; message: string }> = {
   6000: { name: "Unauthorized", message: "You are not authorized to perform this action" },
   6001: { name: "InvalidConfig", message: "Invalid configuration parameter" },
@@ -20,24 +20,26 @@ const PROGRAM_ERRORS: Record<number, { name: string; message: string }> = {
   6007: { name: "BondExceedsAvailable", message: "Bond amount exceeds your available stake" },
   6008: { name: "SubjectCannotBeStaked", message: "This subject cannot accept additional stakes" },
   6009: { name: "SubjectCannotBeDisputed", message: "This subject cannot be disputed at this time" },
-  6010: { name: "CannotSelfDispute", message: "You cannot dispute your own subject" },
-  6011: { name: "DisputeAlreadyExists", message: "A dispute already exists for this subject" },
-  6012: { name: "DisputeNotFound", message: "The dispute was not found" },
-  6013: { name: "DisputeAlreadyResolved", message: "This dispute has already been resolved" },
-  6014: { name: "VotingNotEnded", message: "The voting period has not ended yet" },
-  6015: { name: "VotingEnded", message: "The voting period has already ended" },
-  6016: { name: "CannotVoteOnOwnDispute", message: "You cannot vote on your own dispute" },
-  6017: { name: "AlreadyVoted", message: "You have already voted on this dispute" },
-  6018: { name: "VoteAllocationBelowMinimum", message: "Vote stake allocation is below the minimum" },
-  6019: { name: "InvalidVoteChoice", message: "Invalid vote choice" },
-  6020: { name: "JurorNotActive", message: "You must be an active juror to perform this action" },
-  6021: { name: "JurorAlreadyRegistered", message: "You are already registered as a juror" },
-  6022: { name: "ChallengerNotFound", message: "Challenger record not found" },
-  6023: { name: "RewardAlreadyClaimed", message: "This reward has already been claimed" },
-  6024: { name: "NotEligibleForReward", message: "You are not eligible for this reward" },
-  6025: { name: "ReputationAlreadyProcessed", message: "Reputation has already been processed for this vote" },
-  6026: { name: "ArithmeticOverflow", message: "Calculation error: arithmetic overflow" },
-  6027: { name: "DivisionByZero", message: "Calculation error: division by zero" },
+  6010: { name: "SubjectCannotBeAppealed", message: "This subject cannot be appealed at this time" },
+  6011: { name: "AppealStakeBelowMinimum", message: "Appeal stake must match previous dispute total" },
+  6012: { name: "CannotSelfDispute", message: "You cannot dispute your own subject" },
+  6013: { name: "DisputeAlreadyExists", message: "A dispute already exists for this subject" },
+  6014: { name: "DisputeNotFound", message: "The dispute was not found" },
+  6015: { name: "DisputeAlreadyResolved", message: "This dispute has already been resolved" },
+  6016: { name: "VotingNotEnded", message: "The voting period has not ended yet" },
+  6017: { name: "VotingEnded", message: "The voting period has already ended" },
+  6018: { name: "CannotVoteOnOwnDispute", message: "You cannot vote on your own dispute" },
+  6019: { name: "AlreadyVoted", message: "You have already voted on this dispute" },
+  6020: { name: "VoteAllocationBelowMinimum", message: "Vote stake allocation is below the minimum" },
+  6021: { name: "InvalidVoteChoice", message: "Invalid vote choice" },
+  6022: { name: "JurorNotActive", message: "You must be an active juror to perform this action" },
+  6023: { name: "JurorAlreadyRegistered", message: "You are already registered as a juror" },
+  6024: { name: "ChallengerNotFound", message: "Challenger record not found" },
+  6025: { name: "RewardAlreadyClaimed", message: "This reward has already been claimed" },
+  6026: { name: "NotEligibleForReward", message: "You are not eligible for this reward" },
+  6027: { name: "ReputationAlreadyProcessed", message: "Reputation has already been processed for this vote" },
+  6028: { name: "ArithmeticOverflow", message: "Calculation error: arithmetic overflow" },
+  6029: { name: "DivisionByZero", message: "Calculation error: division by zero" },
 };
 
 // Common Solana/Anchor errors with user-friendly messages
