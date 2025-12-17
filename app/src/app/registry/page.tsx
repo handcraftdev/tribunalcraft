@@ -136,12 +136,14 @@ export default function RegistryPage() {
     createFreeSubject,
     submitDispute,
     submitFreeDispute,
+    addToDispute,
     resolveDispute,
     addToStake,
     fetchAllSubjects,
     fetchAllDisputes,
     fetchSubject,
     getDefenderPoolPDA,
+    getDisputePDA,
     fetchDefenderPool,
     fetchChallengersByDispute,
     voteOnDispute,
@@ -177,9 +179,10 @@ export default function RegistryPage() {
 
   // Voting state
   const [voteStake, setVoteStake] = useState("0.01");
-  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forChallenger");
+  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forDefender");
   const [voteRationale, setVoteRationale] = useState("");
   const [addStakeAmount, setAddStakeAmount] = useState("0.1");
+  const [addBondAmount, setAddBondAmount] = useState("0.05");
 
   // Section filter
   const [activeFilter, setActiveFilter] = useState<"active" | "disputed" | "voted">("active");
@@ -437,6 +440,28 @@ export default function RegistryPage() {
     setActionLoading(false);
   };
 
+  const handleJoinChallengers = async (subjectKey: string) => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const subject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
+      if (!subject) throw new Error("Subject not found");
+
+      const bond = new BN(parseFloat(addBondAmount) * LAMPORTS_PER_SOL);
+      const [disputePda] = getDisputePDA(subject.publicKey, subject.account.disputeCount - 1);
+      const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
+
+      await addToDispute(subject.publicKey, disputePda, defenderPool, "", bond);
+      setSuccess(`Added ${addBondAmount} SOL bond`);
+      setAddBondAmount("0.05");
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to join challengers");
+    }
+    setActionLoading(false);
+  };
+
   const handleResolve = async (disputeKey: string) => {
     if (!publicKey) return;
     setActionLoading(true);
@@ -521,36 +546,48 @@ export default function RegistryPage() {
         {activeDispute && (
           <div className="mb-2 pt-2 border-t border-slate-light/50">
             <div className="flex items-center justify-between text-[10px] mb-1">
-              <span className="text-gold">{disputeContent?.title || getDisputeTypeLabel(activeDispute.account.disputeType)}</span>
+              <span className="text-crimson font-medium">{disputeContent?.title || getDisputeTypeLabel(activeDispute.account.disputeType)}</span>
               {existingVote && <span className="text-emerald flex items-center gap-0.5"><CheckIcon /> Voted</span>}
             </div>
             <p className="text-xs text-steel truncate mb-2">{disputeContent?.reason?.slice(0, 50) || "..."}</p>
-            <div className="h-1 rounded overflow-hidden flex mb-1">
-              <div className="h-full" style={{ width: `${favorPercent}%`, backgroundColor: '#10b981' }} />
-              <div className="h-full" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }} />
+            {/* Power bar - Defender (blue) left, Challenger (red) right */}
+            <div className="h-1.5 rounded overflow-hidden flex mb-1 bg-obsidian">
+              <div className="h-full transition-all" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
+              <div className="h-full transition-all" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
             </div>
-            <div className="flex items-center justify-between text-[10px] text-steel">
-              <span className="flex items-center gap-1">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
+              <span className="text-steel flex items-center gap-1">
                 <ClockIcon />
                 <Countdown endTime={activeDispute.account.votingEndsAt.toNumber() * 1000} />
               </span>
-              <span>{activeDispute.account.voteCount} votes</span>
+              <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
             </div>
           </div>
         )}
 
         {/* Footer - unified for all card types */}
-        <div className="grid grid-cols-3 text-[10px] text-steel pt-2 border-t border-slate-light/50">
+        <div className="grid grid-cols-3 text-[10px] pt-2 border-t border-slate-light/50">
           <span>
             {!subject.account.freeCase && (
-              <>
-                {`${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
-                {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && ` (max ${(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})`}
-                {activeDispute && ` / ${(activeDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
-              </>
+              activeDispute ? (
+                <>
+                  <span className="text-sky-400">{((activeDispute.account.stakeHeld.toNumber() + activeDispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)}</span>
+                  <span className="text-steel"> / </span>
+                  <span className="text-crimson">{(activeDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sky-400">{(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}</span>
+                  {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && <span className="text-steel"> (max {(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})</span>}
+                </>
+              )
             )}
           </span>
-          <span className="text-center">{subject.account.defenderCount}{activeDispute ? ` vs ${activeDispute.account.challengerCount}` : ""}</span>
+          <span className="text-center">
+            <span className="text-sky-400">{subject.account.defenderCount}</span>
+            {activeDispute && <><span className="text-steel"> vs </span><span className="text-crimson">{activeDispute.account.challengerCount}</span></>}
+          </span>
           <span className="text-gold text-right">{jurorFees}</span>
         </div>
       </div>
@@ -622,16 +659,19 @@ export default function RegistryPage() {
           </div>
 
           <div className="p-4 space-y-4">
-            {/* ========== SUBJECT SECTION ========== */}
+            {/* ========== SUBJECT SECTION (DEFENDER SIDE) ========== */}
             <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Subject</h4>
-              <div className="p-4 bg-obsidian border border-slate-light space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-4 bg-sky-500 rounded"></div>
+                <h4 className="text-xs font-semibold text-sky-400 uppercase tracking-wider">Subject (Defender Side)</h4>
+              </div>
+              <div className="p-4 bg-obsidian border border-sky-500/30 space-y-3">
                 {subjectContent?.description && <p className="text-steel text-sm">{subjectContent.description}</p>}
-                {/* Stats grid matching card footer */}
-                <div className="grid grid-cols-3 text-sm pt-2 border-t border-slate-light/50">
+                {/* Stats grid */}
+                <div className="grid grid-cols-2 text-sm pt-2 border-t border-slate-light/50">
                   <div>
                     <p className="text-steel text-xs">Stake</p>
-                    <p className="text-parchment">
+                    <p className="text-sky-400">
                       {!subject.account.freeCase ? (
                         <>
                           {`${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
@@ -640,19 +680,18 @@ export default function RegistryPage() {
                       ) : "-"}
                     </p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-steel text-xs">Defenders</p>
-                    <p className="text-parchment">{subject.account.defenderCount}</p>
-                  </div>
                   <div className="text-right">
-                    <p className="text-steel text-xs">Juror Fees</p>
-                    <p className="text-gold">{subjectJurorFees}</p>
+                    <p className="text-steel text-xs">Defenders</p>
+                    <p className="text-sky-400">{subject.account.defenderCount}</p>
                   </div>
                 </div>
                 {/* Subject Actions */}
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
                   {!subject.account.freeCase && (
                     <>
+                      <button onClick={() => handleAddStake(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400">
+                        <span className="text-sky-400">Join Defenders</span>
+                      </button>
                       <input
                         type="text"
                         value={addStakeAmount}
@@ -660,9 +699,6 @@ export default function RegistryPage() {
                         className="input flex-1 text-sm py-1.5"
                         placeholder="Amount"
                       />
-                      <button onClick={() => handleAddStake(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm">
-                        Add Stake
-                      </button>
                     </>
                   )}
                   {subject.account.status.active && (
@@ -674,14 +710,74 @@ export default function RegistryPage() {
               </div>
             </div>
 
-            {/* ========== DISPUTE SECTION ========== */}
+            {/* ========== VS / POWER BAR SECTION (NEUTRAL) ========== */}
             {dispute && (
               <div className="space-y-3">
-                <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Dispute</h4>
-                <div className="p-4 bg-obsidian border border-slate-light space-y-3">
+                <div className="p-4 bg-slate-light/20 border border-slate-light space-y-3">
+                  {/* Side labels with counts */}
+                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
+                    <span className="text-sky-400">{subject.account.defenderCount} Defender{subject.account.defenderCount !== 1 ? 's' : ''}</span>
+                    <span className="text-steel">VS</span>
+                    <span className="text-crimson">{dispute.account.challengerCount} Challenger{dispute.account.challengerCount !== 1 ? 's' : ''}</span>
+                  </div>
+                  {/* Stakes/Bond amounts */}
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="text-sky-400">
+                      {!subject.account.freeCase ? (
+                        <>
+                          <span>{((dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
+                          <span className="text-steel text-xs ml-1">(matched)</span>
+                        </>
+                      ) : '-'}
+                    </div>
+                    <span className="text-crimson">
+                      {(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                    </span>
+                  </div>
+                  {/* Power bar - Defender (blue) on left, Challenger (red) on right */}
+                  <div className="space-y-1">
+                    <div className="h-3 rounded overflow-hidden flex bg-obsidian">
+                      <div className="h-full transition-all" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
+                      <div className="h-full transition-all" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
+                    </div>
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}% for Defender</span>
+                      <span className="text-crimson">{favorPercent.toFixed(0)}% for Challenger</span>
+                    </div>
+                  </div>
+                  {/* Neutral data: Timer, Votes, Juror Fees */}
+                  <div className="grid grid-cols-3 text-sm pt-2 border-t border-slate-light/50">
+                    <div>
+                      <p className="text-steel text-xs">Time Left</p>
+                      <p className="text-parchment flex items-center gap-1">
+                        <ClockIcon />
+                        <Countdown endTime={dispute.account.votingEndsAt.toNumber() * 1000} />
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-steel text-xs">Votes</p>
+                      <p className="text-parchment">{dispute.account.voteCount}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-steel text-xs">Juror Pot</p>
+                      <p className="text-gold">{disputeJurorFees}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========== DISPUTE SECTION (CHALLENGER SIDE) ========== */}
+            {dispute && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-4 bg-crimson rounded"></div>
+                  <h4 className="text-xs font-semibold text-crimson uppercase tracking-wider">Dispute (Challenger Side)</h4>
+                </div>
+                <div className="p-4 bg-obsidian border border-crimson/30 space-y-3">
                   {/* Title row with voted badge */}
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-gold font-medium">{disputeContent?.title || getDisputeTypeLabel(dispute.account.disputeType)}</p>
+                    <p className="text-sm text-crimson font-medium">{disputeContent?.title || getDisputeTypeLabel(dispute.account.disputeType)}</p>
                     <div className="flex items-center gap-2">
                       {outcome && <span className={`text-xs font-medium ${outcome.class}`}>{outcome.label}</span>}
                       {existingVote && <span className="text-emerald flex items-center gap-0.5 text-xs"><CheckIcon /> Voted</span>}
@@ -689,30 +785,15 @@ export default function RegistryPage() {
                   </div>
                   {/* Reason */}
                   {disputeContent?.reason && <p className="text-sm text-steel">{disputeContent.reason}</p>}
-                  {/* Vote Progress */}
-                  <div className="pt-2 border-t border-slate-light/50">
-                    <div className="h-1 rounded overflow-hidden flex mb-1">
-                      <div className="h-full" style={{ width: `${favorPercent}%`, backgroundColor: '#10b981' }} />
-                      <div className="h-full" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }} />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-steel">
-                      <span className="flex items-center gap-1"><ClockIcon /> <Countdown endTime={dispute.account.votingEndsAt.toNumber() * 1000} /></span>
-                      <span>{dispute.account.voteCount} votes</span>
-                    </div>
-                  </div>
-                  {/* Stats grid matching card footer */}
-                  <div className="grid grid-cols-3 text-sm pt-2 border-t border-slate-light/50">
+                  {/* Stats grid */}
+                  <div className="grid grid-cols-2 text-sm pt-2 border-t border-slate-light/50">
                     <div>
-                      <p className="text-steel text-xs">Bond</p>
-                      <p className="text-parchment">{(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-steel text-xs">Participants</p>
-                      <p className="text-parchment">{subject.account.defenderCount} vs {dispute.account.challengerCount}</p>
+                      <p className="text-steel text-xs">Total Bond</p>
+                      <p className="text-crimson">{(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-steel text-xs">Juror Fees</p>
-                      <p className="text-gold">{disputeJurorFees}</p>
+                      <p className="text-steel text-xs">Challengers</p>
+                      <p className="text-crimson">{dispute.account.challengerCount}</p>
                     </div>
                   </div>
                   {/* Dispute Actions */}
@@ -723,10 +804,19 @@ export default function RegistryPage() {
                           {actionLoading ? "..." : "Resolve"}
                         </button>
                       )}
-                      {!subject.account.freeCase && (
-                        <button onClick={() => { setSelectedItem(null); setShowCreateDispute(subjectKey); }} className="btn btn-secondary py-1.5 px-3 text-sm">
-                          Add to Dispute
-                        </button>
+                      {!subject.account.freeCase && !canResolve && (
+                        <>
+                          <input
+                            type="text"
+                            value={addBondAmount}
+                            onChange={(e) => setAddBondAmount(e.target.value)}
+                            className="input flex-1 text-sm py-1.5"
+                            placeholder="Bond"
+                          />
+                          <button onClick={() => handleJoinChallengers(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-crimson/50 hover:border-crimson">
+                            <span className="text-crimson">Join Challengers</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -750,7 +840,7 @@ export default function RegistryPage() {
                       {existingVote && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-steel">Your Vote:</span>
-                          <span className="text-emerald font-medium">
+                          <span className={`font-medium ${existingVote.choice.forChallenger ? "text-crimson" : "text-sky-400"}`}>
                             {existingVote.choice.forChallenger ? "FOR CHALLENGER" : existingVote.choice.forDefender ? "FOR DEFENDER" : "ABSTAIN"} - {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
                           </span>
                         </div>
@@ -760,18 +850,18 @@ export default function RegistryPage() {
                       ) : (
                         <>
                           <div className="flex gap-2">
-                            {(["forChallenger", "forDefender"] as const).map((choice) => (
+                            {(["forDefender", "forChallenger"] as const).map((choice) => (
                               <button
                                 key={choice}
                                 onClick={() => setVoteChoice(choice)}
                                 className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
                                   voteChoice === choice
-                                    ? choice === "forChallenger" ? "bg-emerald text-obsidian"
+                                    ? choice === "forDefender" ? "bg-sky-500 text-obsidian"
                                     : "bg-crimson text-ivory"
                                     : "bg-slate-light hover:bg-slate text-parchment"
                                 }`}
                               >
-                                {choice === "forChallenger" ? "For Challenger" : "For Defender"}
+                                {choice === "forDefender" ? "For Defender" : "For Challenger"}
                               </button>
                             ))}
                           </div>
@@ -926,7 +1016,7 @@ export default function RegistryPage() {
     </div>
   ) : null;
 
-  // Create Dispute Modal
+  // Create Dispute Modal (for filing new disputes only)
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
 
