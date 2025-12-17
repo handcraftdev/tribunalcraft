@@ -35,15 +35,14 @@ const SUBJECT_CATEGORIES = [
 const getStatusBadge = (status: any) => {
   if (status.active) return { label: "Active", class: "bg-emerald/20 text-emerald" };
   if (status.disputed) return { label: "Disputed", class: "bg-gold/20 text-gold" };
-  if (status.validated) return { label: "Validated", class: "bg-steel/20 text-steel" };
   if (status.invalidated) return { label: "Invalidated", class: "bg-crimson/20 text-crimson" };
   return { label: "Unknown", class: "bg-steel/20 text-steel" };
 };
 
 const getOutcomeLabel = (outcome: any) => {
   if (outcome.none) return { label: "Voting", class: "text-gold" };
-  if (outcome.upheld) return { label: "Upheld", class: "text-emerald" };
-  if (outcome.dismissed) return { label: "Dismissed", class: "text-crimson" };
+  if (outcome.challengerWins) return { label: "Challenger Wins", class: "text-emerald" };
+  if (outcome.defenderWins) return { label: "Defender Wins", class: "text-crimson" };
   if (outcome.noParticipation) return { label: "No Quorum", class: "text-steel" };
   return { label: "Unknown", class: "text-steel" };
 };
@@ -142,8 +141,8 @@ export default function RegistryPage() {
     fetchAllSubjects,
     fetchAllDisputes,
     fetchSubject,
-    getStakerPoolPDA,
-    fetchStakerPool,
+    getDefenderPoolPDA,
+    fetchDefenderPool,
     fetchChallengersByDispute,
     voteOnDispute,
     addToVote,
@@ -178,7 +177,7 @@ export default function RegistryPage() {
 
   // Voting state
   const [voteStake, setVoteStake] = useState("0.01");
-  const [voteChoice, setVoteChoice] = useState<"uphold" | "dismiss">("uphold");
+  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forChallenger");
   const [voteRationale, setVoteRationale] = useState("");
   const [addStakeAmount, setAddStakeAmount] = useState("0.1");
 
@@ -195,7 +194,6 @@ export default function RegistryPage() {
     maxStake: "1",
     matchMode: false,
     votingPeriod: "24",
-    winnerReward: "6000",
     initialStake: "0.1",
   });
 
@@ -245,9 +243,9 @@ export default function RegistryPage() {
       }
 
       if (publicKey) {
-        const [poolPda] = getStakerPoolPDA(publicKey);
+        const [poolPda] = getDefenderPoolPDA(publicKey);
         try {
-          setPool(await fetchStakerPool(poolPda));
+          setPool(await fetchDefenderPool(poolPda));
         } catch {
           setPool(null);
         }
@@ -289,7 +287,7 @@ export default function RegistryPage() {
   const disputedItems = disputes.filter(d => d.account.status.pending && !votedKeys.has(d.publicKey.toBase58()));
 
   // Dismissed disputes only (upheld disputes return subject to active)
-  const dismissedDisputes = disputes.filter(d => d.account.status.resolved && d.account.outcome.dismissed);
+  const dismissedDisputes = disputes.filter(d => d.account.status.resolved && d.account.outcome.defenderWins);
 
   // Get items based on active filter - all return subjects with optional dispute
   const getActiveItems = () => {
@@ -326,7 +324,6 @@ export default function RegistryPage() {
 
       const maxStake = new BN(parseFloat(subjectForm.maxStake) * LAMPORTS_PER_SOL);
       const votingPeriod = new BN(parseInt(subjectForm.votingPeriod) * 3600);
-      const winnerRewardBps = parseInt(subjectForm.winnerReward);
 
       const subjectKeypair = Keypair.generate();
       const subjectId = subjectKeypair.publicKey;
@@ -335,16 +332,16 @@ export default function RegistryPage() {
         await createFreeSubject(subjectId, uploadResult.cid, votingPeriod);
       } else if (subjectType === "linked") {
         if (!publicKey) throw new Error("Wallet not connected");
-        const [stakerPool] = getStakerPoolPDA(publicKey);
-        await createLinkedSubject(stakerPool, subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod, winnerRewardBps);
+        const [defenderPool] = getDefenderPoolPDA(publicKey);
+        await createLinkedSubject(defenderPool, subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod);
       } else {
         const initialStake = new BN(parseFloat(subjectForm.initialStake) * LAMPORTS_PER_SOL);
-        await createSubject(subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod, winnerRewardBps, initialStake);
+        await createSubject(subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod, initialStake);
       }
 
       setSuccess("Subject created");
       setShowCreateSubject(false);
-      setSubjectForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: false, votingPeriod: "24", winnerReward: "6000", initialStake: "0.1" });
+      setSubjectForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: false, votingPeriod: "24", initialStake: "0.1" });
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to create subject");
@@ -382,7 +379,7 @@ export default function RegistryPage() {
       } else {
         await submitDispute(
           subject.publicKey,
-          { disputeCount: subject.account.disputeCount, stakerPool: subject.account.stakerPool },
+          { disputeCount: subject.account.disputeCount, defenderPool: subject.account.defenderPool },
           disputeType,
           uploadResult.cid,
           bond
@@ -448,8 +445,8 @@ export default function RegistryPage() {
       const dispute = disputes.find(d => d.publicKey.toBase58() === disputeKey);
       if (!dispute) throw new Error("Dispute not found");
       const subjectData = await fetchSubject(dispute.account.subject);
-      const stakerPool = subjectData && !subjectData.stakerPool.equals(PublicKey.default) ? subjectData.stakerPool : null;
-      await resolveDispute(new PublicKey(disputeKey), dispute.account.subject, stakerPool);
+      const defenderPool = subjectData && !subjectData.defenderPool.equals(PublicKey.default) ? subjectData.defenderPool : null;
+      await resolveDispute(new PublicKey(disputeKey), dispute.account.subject, defenderPool);
       setSuccess("Dispute resolved");
       setSelectedItem(null);
       await loadData();
@@ -477,12 +474,26 @@ export default function RegistryPage() {
     const totalVotes = activeDispute ? activeDispute.account.votesFavorWeight.toNumber() + activeDispute.account.votesAgainstWeight.toNumber() : 0;
     const favorPercent = totalVotes > 0 ? (activeDispute.account.votesFavorWeight.toNumber() / totalVotes) * 100 : 50;
 
-    // Juror fees calculation
-    const jurorFees = subject.account.freeCase
-      ? "FREE"
-      : activeDispute
-        ? `${((activeDispute.account.totalBond.toNumber() * (10000 - subject.account.winnerRewardBps)) / 10000 / LAMPORTS_PER_SOL).toFixed(3)} SOL`
-        : `${((subject.account.totalStake.toNumber() * (10000 - subject.account.winnerRewardBps)) / 10000 / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
+    // Juror fees display - fixed 20% protocol fee (19% jurors, 1% platform)
+    const PROTOCOL_FEE_BPS = 2000; // 20%
+    const JUROR_SHARE_BPS = 9500; // 95% of fees = 19% of total
+    let jurorFees = "FREE";
+    if (!subject.account.freeCase) {
+      if (activeDispute) {
+        // With active dispute: calculate 19% of total pool
+        const bondPool = activeDispute.account.totalBond.toNumber();
+        const matchedStake = subject.account.matchMode
+          ? activeDispute.account.stakeHeld.toNumber() + activeDispute.account.directStakeHeld.toNumber()
+          : activeDispute.account.snapshotTotalStake.toNumber();
+        const totalPool = bondPool + matchedStake;
+        const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
+        const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
+        jurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
+      } else {
+        // Before dispute: show fixed 20% fee
+        jurorFees = "20%";
+      }
+    }
 
     return (
       <div
@@ -533,15 +544,13 @@ export default function RegistryPage() {
           <span>
             {!subject.account.freeCase && (
               <>
-                {subject.account.matchMode
-                  ? `${(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`
-                  : `${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`
-                }
+                {`${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
+                {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && ` (max ${(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})`}
                 {activeDispute && ` / ${(activeDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
               </>
             )}
           </span>
-          <span className="text-center">{subject.account.stakerCount}{activeDispute ? ` vs ${activeDispute.account.challengerCount}` : ""}</span>
+          <span className="text-center">{subject.account.defenderCount}{activeDispute ? ` vs ${activeDispute.account.challengerCount}` : ""}</span>
           <span className="text-gold text-right">{jurorFees}</span>
         </div>
       </div>
@@ -575,12 +584,25 @@ export default function RegistryPage() {
     const totalVotes = dispute ? dispute.account.votesFavorWeight.toNumber() + dispute.account.votesAgainstWeight.toNumber() : 0;
     const favorPercent = totalVotes > 0 ? (dispute.account.votesFavorWeight.toNumber() / totalVotes) * 100 : 50;
 
-    // Calculate juror fees for modal
-    const modalJurorFees = subject.account.freeCase
-      ? "FREE"
-      : dispute
-        ? `${((dispute.account.totalBond.toNumber() * (10000 - subject.account.winnerRewardBps)) / 10000 / LAMPORTS_PER_SOL).toFixed(3)} SOL`
-        : `${((subject.account.totalStake.toNumber() * (10000 - subject.account.winnerRewardBps)) / 10000 / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
+    // Juror fees for modal - fixed 20% protocol fee (19% jurors, 1% platform)
+    const MODAL_PROTOCOL_FEE_BPS = 2000; // 20%
+    const MODAL_JUROR_SHARE_BPS = 9500; // 95% of fees = 19% of total
+
+    // Subject section: always show fixed percentage
+    const subjectJurorFees = subject.account.freeCase ? "FREE" : "20%";
+
+    // Dispute section: show calculated SOL when there's a dispute
+    let disputeJurorFees = "FREE";
+    if (!subject.account.freeCase && dispute) {
+      const bondPool = dispute.account.totalBond.toNumber();
+      const matchedStake = subject.account.matchMode
+        ? dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()
+        : dispute.account.snapshotTotalStake.toNumber();
+      const totalPool = bondPool + matchedStake;
+      const totalFees = totalPool * MODAL_PROTOCOL_FEE_BPS / 10000;
+      const jurorPot = totalFees * MODAL_JUROR_SHARE_BPS / 10000;
+      disputeJurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
+    }
 
     return (
       <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
@@ -611,19 +633,20 @@ export default function RegistryPage() {
                     <p className="text-steel text-xs">Stake</p>
                     <p className="text-parchment">
                       {!subject.account.freeCase ? (
-                        subject.account.matchMode
-                          ? `${(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`
-                          : `${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`
+                        <>
+                          {`${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
+                          {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && <span className="text-steel text-xs"> (max {(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})</span>}
+                        </>
                       ) : "-"}
                     </p>
                   </div>
                   <div className="text-center">
-                    <p className="text-steel text-xs">Stakers</p>
-                    <p className="text-parchment">{subject.account.stakerCount}</p>
+                    <p className="text-steel text-xs">Defenders</p>
+                    <p className="text-parchment">{subject.account.defenderCount}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-steel text-xs">Juror Fees</p>
-                    <p className="text-gold">{modalJurorFees}</p>
+                    <p className="text-gold">{subjectJurorFees}</p>
                   </div>
                 </div>
                 {/* Subject Actions */}
@@ -685,11 +708,11 @@ export default function RegistryPage() {
                     </div>
                     <div className="text-center">
                       <p className="text-steel text-xs">Participants</p>
-                      <p className="text-parchment">{subject.account.stakerCount} vs {dispute.account.challengerCount}</p>
+                      <p className="text-parchment">{subject.account.defenderCount} vs {dispute.account.challengerCount}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-steel text-xs">Juror Fees</p>
-                      <p className="text-gold">{modalJurorFees}</p>
+                      <p className="text-gold">{disputeJurorFees}</p>
                     </div>
                   </div>
                   {/* Dispute Actions */}
@@ -728,7 +751,7 @@ export default function RegistryPage() {
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-steel">Your Vote:</span>
                           <span className="text-emerald font-medium">
-                            {existingVote.choice.uphold ? "UPHOLD" : existingVote.choice.dismiss ? "DISMISS" : "ABSTAIN"} - {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                            {existingVote.choice.forChallenger ? "FOR CHALLENGER" : existingVote.choice.forDefender ? "FOR DEFENDER" : "ABSTAIN"} - {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
                           </span>
                         </div>
                       )}
@@ -737,18 +760,18 @@ export default function RegistryPage() {
                       ) : (
                         <>
                           <div className="flex gap-2">
-                            {(["uphold", "dismiss"] as const).map((choice) => (
+                            {(["forChallenger", "forDefender"] as const).map((choice) => (
                               <button
                                 key={choice}
                                 onClick={() => setVoteChoice(choice)}
                                 className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
                                   voteChoice === choice
-                                    ? choice === "uphold" ? "bg-emerald text-obsidian"
+                                    ? choice === "forChallenger" ? "bg-emerald text-obsidian"
                                     : "bg-crimson text-ivory"
                                     : "bg-slate-light hover:bg-slate text-parchment"
                                 }`}
                               >
-                                {choice}
+                                {choice === "forChallenger" ? "For Challenger" : "For Defender"}
                               </button>
                             ))}
                           </div>
@@ -869,8 +892,8 @@ export default function RegistryPage() {
               </div>
               {subjectType !== "free" && (
                 <div>
-                  <label className="text-xs text-steel mb-1 block">Winner Reward (%)</label>
-                  <input value={(parseInt(subjectForm.winnerReward) / 100).toString()} onChange={e => setSubjectForm(f => ({ ...f, winnerReward: (parseFloat(e.target.value) * 100).toString() }))} className="input w-full" />
+                  <label className="text-xs text-steel mb-1 block">Protocol Fee</label>
+                  <div className="input w-full bg-slate-light/50 text-steel cursor-not-allowed">20% (19% jurors, 1% platform)</div>
                 </div>
               )}
             </div>
@@ -927,10 +950,22 @@ export default function RegistryPage() {
           <input value={disputeForm.title} onChange={e => setDisputeForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" />
           <textarea value={disputeForm.reason} onChange={e => setDisputeForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason" className="input w-full h-20" />
           <textarea value={disputeForm.requestedOutcome} onChange={e => setDisputeForm(f => ({ ...f, requestedOutcome: e.target.value }))} placeholder="Requested Outcome" className="input w-full h-16" />
-          <div>
-            <label className="text-xs text-steel">Bond Amount (SOL)</label>
-            <input value={disputeForm.bondAmount} onChange={e => setDisputeForm(f => ({ ...f, bondAmount: e.target.value }))} className="input w-full" />
-          </div>
+          {!disputeSubject?.account.freeCase && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-steel">Bond Amount (SOL)</label>
+                {disputeSubject?.account.matchMode && (
+                  <span className="text-xs text-gold">
+                    Max: {(disputeSubject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                  </span>
+                )}
+              </div>
+              <input value={disputeForm.bondAmount} onChange={e => setDisputeForm(f => ({ ...f, bondAmount: e.target.value }))} className="input w-full" />
+              {disputeSubject?.account.matchMode && (
+                <p className="text-[10px] text-steel mt-1">Match mode: bond cannot exceed defender stake</p>
+              )}
+            </div>
+          )}
           <button onClick={() => handleCreateDispute(showCreateDispute)} disabled={actionLoading || isUploading} className="btn btn-primary w-full">
             {actionLoading || isUploading ? "Submitting..." : "Submit Dispute"}
           </button>

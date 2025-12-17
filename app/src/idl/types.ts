@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 
-export interface StakerPool {
+export interface DefenderPool {
   owner: PublicKey;
   totalStake: BN;
   available: BN;
@@ -15,27 +15,33 @@ export interface StakerPool {
 
 export interface Subject {
   subjectId: PublicKey;
-  stakerPool: PublicKey;
+  defenderPool: PublicKey;
   detailsCid: string;
   status: SubjectStatus;
   totalStake: BN;
   maxStake: BN;
-  stakerCount: number;
+  votingPeriod: BN;
+  defenderCount: number;
   disputeCount: number;
   matchMode: boolean;
   freeCase: boolean;
-  votingPeriod: BN;
-  winnerRewardBps: number;
   dispute: PublicKey;
   bump: number;
   createdAt: BN;
   updatedAt: BN;
+  lastDisputeTotal: BN;
+  lastVotingPeriod: BN;
+}
+
+export interface ProtocolConfig {
+  authority: PublicKey;
+  treasury: PublicKey;
+  bump: number;
 }
 
 export type SubjectStatus =
   | { active: {} }
   | { disputed: {} }
-  | { validated: {} }
   | { invalidated: {} };
 
 export interface Dispute {
@@ -43,17 +49,26 @@ export interface Dispute {
   disputeType: DisputeType;
   totalBond: BN;
   stakeHeld: BN;
+  directStakeHeld: BN;
   challengerCount: number;
   status: DisputeStatus;
   outcome: ResolutionOutcome;
   votesFavorWeight: BN;
   votesAgainstWeight: BN;
   voteCount: number;
+  votingStarted: boolean;
+  votingStartsAt: BN;
   votingEndsAt: BN;
   resolvedAt: BN;
   bump: number;
   createdAt: BN;
   poolRewardClaimed: boolean;
+  snapshotTotalStake: BN;
+  snapshotDefenderCount: number;
+  challengersClaimed: number;
+  defendersClaimed: number;
+  isAppeal: boolean;
+  appealStake: BN;
 }
 
 export type DisputeStatus =
@@ -62,8 +77,8 @@ export type DisputeStatus =
 
 export type ResolutionOutcome =
   | { none: {} }
-  | { upheld: {} }
-  | { dismissed: {} }
+  | { challengerWins: {} }
+  | { defenderWins: {} }
   | { noParticipation: {} };
 
 export type DisputeType =
@@ -94,6 +109,8 @@ export interface VoteRecord {
   juror: PublicKey;
   jurorAccount: PublicKey;
   choice: VoteChoice;
+  appealChoice: AppealVoteChoice;
+  isAppealVote: boolean;
   stakeAllocated: BN;
   votingPower: BN;
   unlockAt: BN;
@@ -106,8 +123,12 @@ export interface VoteRecord {
 }
 
 export type VoteChoice =
-  | { uphold: {} }
-  | { dismiss: {} };
+  | { forChallenger: {} }
+  | { forDefender: {} };
+
+export type AppealVoteChoice =
+  | { forRestoration: {} }
+  | { againstRestoration: {} };
 
 export interface ChallengerAccount {
   challenger: PublicKey;
@@ -131,9 +152,9 @@ export interface ChallengerRecord {
   challengedAt: BN;
 }
 
-export interface StakerRecord {
+export interface DefenderRecord {
   subject: PublicKey;
-  staker: PublicKey;
+  defender: PublicKey;
   stake: BN;
   rewardClaimed: boolean;
   bump: number;

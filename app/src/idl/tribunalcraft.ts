@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/tribunalcraft.json`.
  */
 export type Tribunalcraft = {
-  "address": "9oS7XD7b14j8BjHuzytiiK8iEYVzd1MtVdfUhrJVsM5j",
+  "address": "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX",
   "metadata": {
     "name": "tribunalcraft",
     "version": "0.1.0",
@@ -100,9 +100,9 @@ export type Tribunalcraft = {
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -218,17 +218,19 @@ export type Tribunalcraft = {
           "writable": true
         },
         {
-          "name": "stakerRecord",
+          "name": "defenderRecord",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -419,9 +421,9 @@ export type Tribunalcraft = {
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -436,6 +438,85 @@ export type Tribunalcraft = {
         {
           "name": "challengerRecord",
           "writable": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claimDefenderReward",
+      "docs": [
+        "Claim defender reward (if dispute dismissed)"
+      ],
+      "discriminator": [
+        189,
+        13,
+        90,
+        154,
+        251,
+        183,
+        166,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "defender",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "defenderRecord"
+          ]
+        },
+        {
+          "name": "subject",
+          "writable": true,
+          "relations": [
+            "dispute",
+            "defenderRecord"
+          ]
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "defenderRecord",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "defender"
+              }
+            ]
+          }
         },
         {
           "name": "systemProgram",
@@ -476,9 +557,9 @@ export type Tribunalcraft = {
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -522,7 +603,7 @@ export type Tribunalcraft = {
           "writable": true,
           "signer": true,
           "relations": [
-            "stakerPool"
+            "defenderPool"
           ]
         },
         {
@@ -532,17 +613,19 @@ export type Tribunalcraft = {
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -561,53 +644,6 @@ export type Tribunalcraft = {
         },
         {
           "name": "dispute",
-          "writable": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "claimStakerReward",
-      "docs": [
-        "Claim staker reward (if dispute dismissed)"
-      ],
-      "discriminator": [
-        109,
-        108,
-        213,
-        141,
-        176,
-        71,
-        101,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "staker",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "stakerRecord"
-          ]
-        },
-        {
-          "name": "subject",
-          "writable": true,
-          "relations": [
-            "dispute",
-            "stakerRecord"
-          ]
-        },
-        {
-          "name": "dispute",
-          "writable": true
-        },
-        {
-          "name": "stakerRecord",
           "writable": true
         },
         {
@@ -685,7 +721,7 @@ export type Tribunalcraft = {
     {
       "name": "createLinkedSubject",
       "docs": [
-        "Create a subject linked to a staker pool"
+        "Create a subject linked to a defender pool"
       ],
       "discriminator": [
         42,
@@ -703,21 +739,23 @@ export type Tribunalcraft = {
           "writable": true,
           "signer": true,
           "relations": [
-            "stakerPool"
+            "defenderPool"
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -787,17 +825,13 @@ export type Tribunalcraft = {
         {
           "name": "votingPeriod",
           "type": "i64"
-        },
-        {
-          "name": "winnerRewardBps",
-          "type": "u16"
         }
       ]
     },
     {
       "name": "createPool",
       "docs": [
-        "Create a staker pool with initial stake"
+        "Create a defender pool with initial stake"
       ],
       "discriminator": [
         233,
@@ -816,17 +850,19 @@ export type Tribunalcraft = {
           "signer": true
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -901,17 +937,19 @@ export type Tribunalcraft = {
           }
         },
         {
-          "name": "stakerRecord",
+          "name": "defenderRecord",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -965,14 +1003,66 @@ export type Tribunalcraft = {
           "type": "i64"
         },
         {
-          "name": "winnerRewardBps",
-          "type": "u16"
-        },
-        {
           "name": "stake",
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "initializeConfig",
+      "docs": [
+        "Initialize protocol config (one-time setup by deployer)"
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "processVoteResult",
@@ -1128,12 +1218,46 @@ export type Tribunalcraft = {
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "docs": [
-            "Optional: staker pool if subject is linked (for releasing/slashing held stake)"
+            "Optional: defender pool if subject is linked (for releasing/slashing held stake)"
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "protocolConfig",
+          "docs": [
+            "Protocol config for treasury address"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -1163,21 +1287,23 @@ export type Tribunalcraft = {
           "writable": true,
           "signer": true,
           "relations": [
-            "stakerPool"
+            "defenderPool"
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -1202,6 +1328,86 @@ export type Tribunalcraft = {
       "args": [
         {
           "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "submitAppeal",
+      "docs": [
+        "Submit an appeal against an invalidated subject",
+        "Appeals allow community to reverse previous invalidation decisions",
+        "Appellant stakes (no bond required), voting period is 2x previous"
+      ],
+      "discriminator": [
+        119,
+        88,
+        95,
+        156,
+        252,
+        220,
+        32,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "appellant",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "subject",
+          "writable": true
+        },
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.dispute_count",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "disputeType",
+          "type": {
+            "defined": {
+              "name": "disputeType"
+            }
+          }
+        },
+        {
+          "name": "detailsCid",
+          "type": "string"
+        },
+        {
+          "name": "stakeAmount",
           "type": "u64"
         }
       ]
@@ -1232,9 +1438,9 @@ export type Tribunalcraft = {
           "writable": true
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -1485,6 +1691,173 @@ export type Tribunalcraft = {
       "args": []
     },
     {
+      "name": "updateTreasury",
+      "docs": [
+        "Update treasury address (admin only)"
+      ],
+      "discriminator": [
+        60,
+        16,
+        243,
+        66,
+        96,
+        59,
+        254,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newTreasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "voteOnAppeal",
+      "docs": [
+        "Vote on an appeal with stake allocation",
+        "ForRestoration = vote to restore subject to Active",
+        "AgainstRestoration = vote to keep subject Invalidated"
+      ],
+      "discriminator": [
+        50,
+        167,
+        54,
+        13,
+        106,
+        100,
+        219,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "juror",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "jurorAccount"
+          ]
+        },
+        {
+          "name": "jurorAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "subject",
+          "relations": [
+            "dispute"
+          ]
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "voteRecord",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "choice",
+          "type": {
+            "defined": {
+              "name": "appealVoteChoice"
+            }
+          }
+        },
+        {
+          "name": "stakeAllocation",
+          "type": "u64"
+        },
+        {
+          "name": "rationaleCid",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "voteOnDispute",
       "docs": [
         "Vote on a dispute with stake allocation"
@@ -1668,21 +2041,23 @@ export type Tribunalcraft = {
           "writable": true,
           "signer": true,
           "relations": [
-            "stakerPool"
+            "defenderPool"
           ]
         },
         {
-          "name": "stakerPool",
+          "name": "defenderPool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -1740,6 +2115,32 @@ export type Tribunalcraft = {
       ]
     },
     {
+      "name": "defenderPool",
+      "discriminator": [
+        227,
+        100,
+        92,
+        157,
+        203,
+        252,
+        63,
+        118
+      ]
+    },
+    {
+      "name": "defenderRecord",
+      "discriminator": [
+        14,
+        3,
+        219,
+        215,
+        38,
+        254,
+        254,
+        92
+      ]
+    },
+    {
       "name": "dispute",
       "discriminator": [
         36,
@@ -1766,29 +2167,16 @@ export type Tribunalcraft = {
       ]
     },
     {
-      "name": "stakerPool",
+      "name": "protocolConfig",
       "discriminator": [
         207,
-        63,
-        70,
-        232,
-        194,
-        216,
-        61,
-        88
-      ]
-    },
-    {
-      "name": "stakerRecord",
-      "discriminator": [
-        32,
-        233,
-        136,
-        62,
-        39,
-        209,
-        227,
-        86
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
       ]
     },
     {
@@ -1871,96 +2259,123 @@ export type Tribunalcraft = {
     },
     {
       "code": 6010,
+      "name": "subjectCannotBeAppealed",
+      "msg": "Subject cannot be appealed"
+    },
+    {
+      "code": 6011,
+      "name": "appealStakeBelowMinimum",
+      "msg": "Appeal stake below minimum (must match previous dispute total)"
+    },
+    {
+      "code": 6012,
       "name": "cannotSelfDispute",
       "msg": "Cannot dispute own subject"
     },
     {
-      "code": 6011,
+      "code": 6013,
       "name": "disputeAlreadyExists",
       "msg": "Dispute already exists for this subject"
     },
     {
-      "code": 6012,
+      "code": 6014,
       "name": "disputeNotFound",
       "msg": "Dispute not found"
     },
     {
-      "code": 6013,
+      "code": 6015,
       "name": "disputeAlreadyResolved",
       "msg": "Dispute already resolved"
     },
     {
-      "code": 6014,
+      "code": 6016,
       "name": "votingNotEnded",
       "msg": "Voting period not ended"
     },
     {
-      "code": 6015,
+      "code": 6017,
       "name": "votingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6016,
+      "code": 6018,
       "name": "cannotVoteOnOwnDispute",
       "msg": "Cannot vote on own dispute"
     },
     {
-      "code": 6017,
+      "code": 6019,
       "name": "alreadyVoted",
       "msg": "Already voted on this dispute"
     },
     {
-      "code": 6018,
+      "code": 6020,
       "name": "voteAllocationBelowMinimum",
       "msg": "Vote allocation below minimum"
     },
     {
-      "code": 6019,
+      "code": 6021,
       "name": "invalidVoteChoice",
       "msg": "Invalid vote choice"
     },
     {
-      "code": 6020,
+      "code": 6022,
       "name": "jurorNotActive",
       "msg": "Juror not active"
     },
     {
-      "code": 6021,
+      "code": 6023,
       "name": "jurorAlreadyRegistered",
       "msg": "Juror already registered"
     },
     {
-      "code": 6022,
+      "code": 6024,
       "name": "challengerNotFound",
       "msg": "Challenger not found"
     },
     {
-      "code": 6023,
+      "code": 6025,
       "name": "rewardAlreadyClaimed",
       "msg": "Reward already claimed"
     },
     {
-      "code": 6024,
+      "code": 6026,
       "name": "notEligibleForReward",
       "msg": "Not eligible for reward"
     },
     {
-      "code": 6025,
+      "code": 6027,
       "name": "reputationAlreadyProcessed",
       "msg": "Reputation already processed"
     },
     {
-      "code": 6026,
+      "code": 6028,
       "name": "arithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6027,
+      "code": 6029,
       "name": "divisionByZero",
       "msg": "Division by zero"
     }
   ],
   "types": [
+    {
+      "name": "appealVoteChoice",
+      "docs": [
+        "Vote choice for appeals (separate enum for clearer semantics)"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "forRestoration"
+          },
+          {
+            "name": "againstRestoration"
+          }
+        ]
+      }
+    },
     {
       "name": "challengerAccount",
       "docs": [
@@ -2097,6 +2512,134 @@ export type Tribunalcraft = {
       }
     },
     {
+      "name": "defenderPool",
+      "docs": [
+        "Defender's pool that can back multiple subjects - global per wallet"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "Pool owner's wallet address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "totalStake",
+            "docs": [
+              "Total stake deposited"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "available",
+            "docs": [
+              "Available stake (not held by disputes)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "held",
+            "docs": [
+              "Held stake (locked by pending disputes)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "subjectCount",
+            "docs": [
+              "Number of subjects linked to this pool"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pendingDisputes",
+            "docs": [
+              "Number of pending disputes against subjects in this pool"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updatedAt",
+            "docs": [
+              "Last update timestamp"
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "defenderRecord",
+      "docs": [
+        "Individual defender's contribution to backing a subject",
+        "Supports cumulative staking where multiple defenders back a subject"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "subject",
+            "docs": [
+              "The subject this record belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "defender",
+            "docs": [
+              "Defender's wallet address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "stake",
+            "docs": [
+              "Amount staked to back the subject"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "rewardClaimed",
+            "docs": [
+              "Whether reward has been claimed"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stakedAt",
+            "docs": [
+              "Timestamp when this defender joined"
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "dispute",
       "docs": [
         "Dispute (supports cumulative challengers)"
@@ -2175,14 +2718,14 @@ export type Tribunalcraft = {
           {
             "name": "votesFavorWeight",
             "docs": [
-              "Cumulative voting power for \"Uphold\" votes (favor challenger)"
+              "Cumulative voting power for \"ForChallenger\" votes"
             ],
             "type": "u64"
           },
           {
             "name": "votesAgainstWeight",
             "docs": [
-              "Cumulative voting power for \"Dismiss\" votes (favor staker)"
+              "Cumulative voting power for \"ForDefender\" votes"
             ],
             "type": "u64"
           },
@@ -2241,6 +2784,48 @@ export type Tribunalcraft = {
               "Pool reward claimed (for linked mode)"
             ],
             "type": "bool"
+          },
+          {
+            "name": "snapshotTotalStake",
+            "docs": [
+              "Snapshot of subject's total_stake at dispute creation"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "snapshotDefenderCount",
+            "docs": [
+              "Snapshot of subject's defender_count at dispute creation"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "challengersClaimed",
+            "docs": [
+              "Number of challengers who have claimed their reward/refund"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "defendersClaimed",
+            "docs": [
+              "Number of direct defenders who have claimed their reward/refund"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "isAppeal",
+            "docs": [
+              "True if this dispute is an appeal (reverses the meaning of outcomes)"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "appealStake",
+            "docs": [
+              "Stake posted by appellant (for appeals only)"
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -2379,6 +2964,39 @@ export type Tribunalcraft = {
       }
     },
     {
+      "name": "protocolConfig",
+      "docs": [
+        "Protocol-wide configuration account",
+        "Stores treasury address and admin authority for fee collection"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Admin who can update config (deployer initially)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Platform fee recipient address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "resolutionOutcome",
       "docs": [
         "Resolution outcome"
@@ -2390,10 +3008,10 @@ export type Tribunalcraft = {
             "name": "none"
           },
           {
-            "name": "upheld"
+            "name": "challengerWins"
           },
           {
-            "name": "dismissed"
+            "name": "defenderWins"
           },
           {
             "name": "noParticipation"
@@ -2402,137 +3020,9 @@ export type Tribunalcraft = {
       }
     },
     {
-      "name": "stakerPool",
-      "docs": [
-        "Staker's pool that can back multiple subjects - global per wallet"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "docs": [
-              "Pool owner's wallet address"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "totalStake",
-            "docs": [
-              "Total stake deposited"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "available",
-            "docs": [
-              "Available stake (not held by disputes)"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "held",
-            "docs": [
-              "Held stake (locked by pending disputes)"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "subjectCount",
-            "docs": [
-              "Number of subjects linked to this pool"
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "pendingDisputes",
-            "docs": [
-              "Number of pending disputes against subjects in this pool"
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "updatedAt",
-            "docs": [
-              "Last update timestamp"
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "stakerRecord",
-      "docs": [
-        "Individual staker's contribution to backing a subject",
-        "Supports cumulative staking where multiple stakers back a subject"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "subject",
-            "docs": [
-              "The subject this record belongs to"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "staker",
-            "docs": [
-              "Staker's wallet address"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "stake",
-            "docs": [
-              "Amount staked to back the subject"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "rewardClaimed",
-            "docs": [
-              "Whether reward has been claimed"
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "stakedAt",
-            "docs": [
-              "Timestamp when this staker joined"
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
       "name": "subject",
       "docs": [
-        "Subject that stakers back - global (identified by subject_id)"
+        "Subject that defenders back - global (identified by subject_id)"
       ],
       "type": {
         "kind": "struct",
@@ -2545,9 +3035,9 @@ export type Tribunalcraft = {
             "type": "pubkey"
           },
           {
-            "name": "stakerPool",
+            "name": "defenderPool",
             "docs": [
-              "Optional staker pool (default = standalone mode, set = linked to pool)"
+              "Optional defender pool (default = standalone mode, set = linked to pool)"
             ],
             "type": "pubkey"
           },
@@ -2591,17 +3081,9 @@ export type Tribunalcraft = {
             "type": "i64"
           },
           {
-            "name": "winnerRewardBps",
+            "name": "defenderCount",
             "docs": [
-              "Winner reward percentage of loser's funds (basis points)",
-              "Remainder goes to jurors"
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "stakerCount",
-            "docs": [
-              "Number of stakers (standalone mode only)"
+              "Number of defenders (standalone mode only)"
             ],
             "type": "u16"
           },
@@ -2653,6 +3135,20 @@ export type Tribunalcraft = {
               "Last update timestamp"
             ],
             "type": "i64"
+          },
+          {
+            "name": "lastDisputeTotal",
+            "docs": [
+              "Previous dispute's (stake + bond) - minimum stake required for appeal"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lastVotingPeriod",
+            "docs": [
+              "Previous dispute's voting period - appeals use 2x this value"
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -2680,16 +3176,16 @@ export type Tribunalcraft = {
     {
       "name": "voteChoice",
       "docs": [
-        "Vote choice"
+        "Vote choice for regular disputes"
       ],
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "uphold"
+            "name": "forChallenger"
           },
           {
-            "name": "dismiss"
+            "name": "forDefender"
           }
         ]
       }
@@ -2726,13 +3222,31 @@ export type Tribunalcraft = {
           {
             "name": "choice",
             "docs": [
-              "Vote choice"
+              "Vote choice for regular disputes"
             ],
             "type": {
               "defined": {
                 "name": "voteChoice"
               }
             }
+          },
+          {
+            "name": "appealChoice",
+            "docs": [
+              "Vote choice for appeals (only used when is_appeal_vote is true)"
+            ],
+            "type": {
+              "defined": {
+                "name": "appealVoteChoice"
+              }
+            }
+          },
+          {
+            "name": "isAppealVote",
+            "docs": [
+              "Whether this is an appeal vote"
+            ],
+            "type": "bool"
           },
           {
             "name": "stakeAllocated",

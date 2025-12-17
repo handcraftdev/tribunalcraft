@@ -5,7 +5,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
 import type { Tribunalcraft } from "@/idl/tribunalcraft";
-import type { DisputeType, VoteChoice } from "@/idl/types";
+import type { DisputeType, VoteChoice, AppealVoteChoice } from "@/idl/types";
 import {
   simulateTransaction,
   parseTransactionError,
@@ -15,15 +15,16 @@ import idl from "@/idl/tribunalcraft.json";
 
 const PROGRAM_ID = new PublicKey(idl.address);
 
-// Seeds for PDA derivation - Global (no config dependency)
-const STAKER_POOL_SEED = Buffer.from("staker_pool");
+// Seeds for PDA derivation - match generated IDL
+const DEFENDER_POOL_SEED = Buffer.from("defender_pool");
 const SUBJECT_SEED = Buffer.from("subject");
 const JUROR_SEED = Buffer.from("juror");
 const DISPUTE_SEED = Buffer.from("dispute");
 const CHALLENGER_SEED = Buffer.from("challenger");
 const CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
-const STAKER_RECORD_SEED = Buffer.from("staker_record");
+const DEFENDER_RECORD_SEED = Buffer.from("defender_record");
 const VOTE_RECORD_SEED = Buffer.from("vote");
+const PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 
 export const useTribunalcraft = () => {
   const { connection } = useConnection();
@@ -43,7 +44,6 @@ export const useTribunalcraft = () => {
 
   /**
    * Execute a transaction with simulation first
-   * Builds the transaction, simulates it, then sends if simulation passes
    */
   const executeWithSimulation = useCallback(
     async <T>(
@@ -55,16 +55,12 @@ export const useTribunalcraft = () => {
       }
 
       try {
-        // Build the transaction
         const tx = await methodBuilder.transaction();
-
-        // Get recent blockhash
         const { blockhash, lastValidBlockHeight } =
           await connection.getLatestBlockhash("confirmed");
         tx.recentBlockhash = blockhash;
         tx.feePayer = wallet.publicKey;
 
-        // Simulate first
         const simulation = await simulateTransaction(connection, tx);
 
         if (!simulation.success) {
@@ -72,15 +68,12 @@ export const useTribunalcraft = () => {
           throw new TribunalError(simulation.error!);
         }
 
-        // Simulation passed, now send
         const signature = await methodBuilder.rpc();
         return signature;
       } catch (error) {
-        // If already a TribunalError, rethrow
         if (error instanceof TribunalError) {
           throw error;
         }
-        // Parse and wrap other errors
         const parsed = parseTransactionError(error);
         throw new TribunalError(parsed);
       }
@@ -88,10 +81,10 @@ export const useTribunalcraft = () => {
     [program, wallet.publicKey, provider, connection]
   );
 
-  // PDA derivations - Global (no config in seeds)
-  const getStakerPoolPDA = useCallback((owner: PublicKey) => {
+  // PDA derivations
+  const getDefenderPoolPDA = useCallback((owner: PublicKey) => {
     return PublicKey.findProgramAddressSync(
-      [STAKER_POOL_SEED, owner.toBuffer()],
+      [DEFENDER_POOL_SEED, owner.toBuffer()],
       PROGRAM_ID
     );
   }, []);
@@ -139,10 +132,10 @@ export const useTribunalcraft = () => {
     []
   );
 
-  const getStakerRecordPDA = useCallback(
-    (subject: PublicKey, staker: PublicKey) => {
+  const getDefenderRecordPDA = useCallback(
+    (subject: PublicKey, defender: PublicKey) => {
       return PublicKey.findProgramAddressSync(
-        [STAKER_RECORD_SEED, subject.toBuffer(), staker.toBuffer()],
+        [DEFENDER_RECORD_SEED, subject.toBuffer(), defender.toBuffer()],
         PROGRAM_ID
       );
     },
@@ -159,22 +152,54 @@ export const useTribunalcraft = () => {
     []
   );
 
-  // Pool Management - Global PDAs
+  const getProtocolConfigPDA = useCallback(() => {
+    return PublicKey.findProgramAddressSync(
+      [PROTOCOL_CONFIG_SEED],
+      PROGRAM_ID
+    );
+  }, []);
+
+  // Protocol Config
+  const initializeConfig = useCallback(async () => {
+    if (!program || !wallet.publicKey)
+      throw new Error("Wallet not connected");
+
+    const [protocolConfig] = getProtocolConfigPDA();
+
+    const tx = await executeWithSimulation(
+      program.methods.initializeConfig(),
+      "initializeConfig"
+    );
+
+    return { tx, protocolConfig };
+  }, [program, wallet.publicKey, getProtocolConfigPDA, executeWithSimulation]);
+
+  const fetchProtocolConfig = useCallback(async () => {
+    if (!program) return null;
+    const [protocolConfig] = getProtocolConfigPDA();
+    try {
+      return await program.account.protocolConfig.fetch(protocolConfig);
+    } catch {
+      return null;
+    }
+  }, [program, getProtocolConfigPDA]);
+
+  // Pool Management
   const createPool = useCallback(
     async (initialStake: BN) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
 
-      const [stakerPool] = getStakerPoolPDA(wallet.publicKey);
+      const [defenderPool] = getDefenderPoolPDA(wallet.publicKey);
 
       const tx = await executeWithSimulation(
         program.methods.createPool(initialStake),
         "createPool"
       );
 
-      return { tx, stakerPool };
+      return { tx, defenderPool };
     },
-    [program, wallet.publicKey, getStakerPoolPDA, executeWithSimulation]
+    [program, wallet.publicKey, getDefenderPoolPDA, executeWithSimulation]
   );
 
   const stakePool = useCallback(
@@ -215,14 +240,13 @@ export const useTribunalcraft = () => {
       maxStake: BN,
       matchMode: boolean,
       votingPeriod: BN,
-      winnerRewardBps: number,
       stake: BN
     ) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
 
       const [subject] = getSubjectPDA(subjectId);
-      const [stakerRecord] = getStakerRecordPDA(subject, wallet.publicKey);
+      const [defenderRecord] = getDefenderRecordPDA(subject, wallet.publicKey);
 
       const tx = await executeWithSimulation(
         program.methods.createSubject(
@@ -232,32 +256,30 @@ export const useTribunalcraft = () => {
           matchMode,
           false, // freeCase = false for regular subjects
           votingPeriod,
-          winnerRewardBps,
           stake
         ),
         "createSubject"
       );
 
-      return { tx, subject, stakerRecord };
+      return { tx, subject, defenderRecord };
     },
     [
       program,
       wallet.publicKey,
       getSubjectPDA,
-      getStakerRecordPDA,
+      getDefenderRecordPDA,
       executeWithSimulation,
     ]
   );
 
   const createLinkedSubject = useCallback(
     async (
-      stakerPool: PublicKey,
+      defenderPool: PublicKey,
       subjectId: PublicKey,
       detailsCid: string,
       maxStake: BN,
       matchMode: boolean,
-      votingPeriod: BN,
-      winnerRewardBps: number
+      votingPeriod: BN
     ) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
@@ -272,11 +294,10 @@ export const useTribunalcraft = () => {
             maxStake,
             matchMode,
             false, // freeCase = false for linked subjects
-            votingPeriod,
-            winnerRewardBps
+            votingPeriod
           )
           .accountsPartial({
-            stakerPool,
+            defenderPool,
           }),
         "createLinkedSubject"
       );
@@ -387,7 +408,7 @@ export const useTribunalcraft = () => {
   const submitDispute = useCallback(
     async (
       subject: PublicKey,
-      subjectData: { disputeCount: number; stakerPool: PublicKey },
+      subjectData: { disputeCount: number; defenderPool: PublicKey },
       disputeType: DisputeType,
       detailsCid: string,
       bond: BN
@@ -401,14 +422,14 @@ export const useTribunalcraft = () => {
         wallet.publicKey
       );
 
-      const isLinked = !subjectData.stakerPool.equals(PublicKey.default);
+      const isLinked = !subjectData.defenderPool.equals(PublicKey.default);
 
       const tx = await executeWithSimulation(
         program.methods
           .submitDispute(disputeType, detailsCid, bond)
           .accountsPartial({
             subject,
-            stakerPool: isLinked ? subjectData.stakerPool : null,
+            defenderPool: isLinked ? subjectData.defenderPool : null,
           }),
         "submitDispute"
       );
@@ -460,11 +481,43 @@ export const useTribunalcraft = () => {
     ]
   );
 
+  const submitAppeal = useCallback(
+    async (
+      subject: PublicKey,
+      subjectData: { disputeCount: number },
+      disputeType: DisputeType,
+      detailsCid: string,
+      stakeAmount: BN
+    ) => {
+      if (!program || !wallet.publicKey)
+        throw new Error("Wallet not connected");
+
+      const [dispute] = getDisputePDA(subject, subjectData.disputeCount);
+
+      const tx = await executeWithSimulation(
+        program.methods
+          .submitAppeal(disputeType, detailsCid, stakeAmount)
+          .accountsPartial({
+            subject,
+          }),
+        "submitAppeal"
+      );
+
+      return { tx, dispute };
+    },
+    [
+      program,
+      wallet.publicKey,
+      getDisputePDA,
+      executeWithSimulation,
+    ]
+  );
+
   const addToDispute = useCallback(
     async (
       subject: PublicKey,
       dispute: PublicKey,
-      stakerPool: PublicKey | null,
+      defenderPool: PublicKey | null,
       detailsCid: string,
       bond: BN
     ) => {
@@ -480,7 +533,7 @@ export const useTribunalcraft = () => {
         program.methods.addToDispute(detailsCid, bond).accountsPartial({
           subject,
           dispute,
-          stakerPool: stakerPool || null,
+          defenderPool: defenderPool || null,
         }),
         "addToDispute"
       );
@@ -517,6 +570,32 @@ export const useTribunalcraft = () => {
     [program, wallet.publicKey, getVoteRecordPDA, executeWithSimulation]
   );
 
+  const voteOnAppeal = useCallback(
+    async (
+      dispute: PublicKey,
+      choice: AppealVoteChoice,
+      stakeAllocation: BN,
+      rationaleCid: string = ""
+    ) => {
+      if (!program || !wallet.publicKey)
+        throw new Error("Wallet not connected");
+
+      const [voteRecord] = getVoteRecordPDA(dispute, wallet.publicKey);
+
+      const tx = await executeWithSimulation(
+        program.methods
+          .voteOnAppeal(choice, stakeAllocation, rationaleCid)
+          .accountsPartial({
+            dispute,
+          }),
+        "voteOnAppeal"
+      );
+
+      return { tx, voteRecord };
+    },
+    [program, wallet.publicKey, getVoteRecordPDA, executeWithSimulation]
+  );
+
   const addToVote = useCallback(
     async (dispute: PublicKey, additionalStake: BN) => {
       if (!program || !wallet.publicKey)
@@ -543,23 +622,30 @@ export const useTribunalcraft = () => {
     async (
       dispute: PublicKey,
       subject: PublicKey,
-      stakerPool: PublicKey | null
+      defenderPool: PublicKey | null
     ) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
+
+      const [protocolConfig] = getProtocolConfigPDA();
+
+      // Fetch protocol config to get treasury address
+      const configAccount = await program.account.protocolConfig.fetch(protocolConfig);
 
       const tx = await executeWithSimulation(
         program.methods.resolveDispute().accountsPartial({
           dispute,
           subject,
-          stakerPool: stakerPool || null,
+          defenderPool: defenderPool || null,
+          protocolConfig,
+          treasury: configAccount.treasury,
         }),
         "resolveDispute"
       );
 
       return { tx };
     },
-    [program, wallet.publicKey, executeWithSimulation]
+    [program, wallet.publicKey, getProtocolConfigPDA, executeWithSimulation]
   );
 
   const processVoteResult = useCallback(
@@ -628,18 +714,18 @@ export const useTribunalcraft = () => {
     [program, wallet.publicKey, executeWithSimulation]
   );
 
-  const claimStakerReward = useCallback(
-    async (dispute: PublicKey, subject: PublicKey, stakerRecord: PublicKey) => {
+  const claimDefenderReward = useCallback(
+    async (dispute: PublicKey, subject: PublicKey, defenderRecord: PublicKey) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
 
       const tx = await executeWithSimulation(
-        program.methods.claimStakerReward().accountsPartial({
+        program.methods.claimDefenderReward().accountsPartial({
           dispute,
           subject,
-          stakerRecord,
+          defenderRecord,
         }),
-        "claimStakerReward"
+        "claimDefenderReward"
       );
 
       return { tx };
@@ -648,7 +734,7 @@ export const useTribunalcraft = () => {
   );
 
   const claimPoolReward = useCallback(
-    async (dispute: PublicKey, subject: PublicKey, stakerPool: PublicKey) => {
+    async (dispute: PublicKey, subject: PublicKey, defenderPool: PublicKey) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
 
@@ -656,7 +742,7 @@ export const useTribunalcraft = () => {
         program.methods.claimPoolReward().accountsPartial({
           dispute,
           subject,
-          stakerPool,
+          defenderPool,
         }),
         "claimPoolReward"
       );
@@ -667,10 +753,10 @@ export const useTribunalcraft = () => {
   );
 
   // Fetch accounts
-  const fetchStakerPool = useCallback(
-    async (stakerPool: PublicKey) => {
+  const fetchDefenderPool = useCallback(
+    async (defenderPool: PublicKey) => {
       if (!program) return null;
-      return program.account.stakerPool.fetch(stakerPool);
+      return program.account.defenderPool.fetch(defenderPool);
     },
     [program]
   );
@@ -723,18 +809,18 @@ export const useTribunalcraft = () => {
     [program]
   );
 
-  const fetchStakerRecord = useCallback(
-    async (stakerRecord: PublicKey) => {
+  const fetchDefenderRecord = useCallback(
+    async (defenderRecord: PublicKey) => {
       if (!program) return null;
-      return program.account.stakerRecord.fetch(stakerRecord);
+      return program.account.defenderRecord.fetch(defenderRecord);
     },
     [program]
   );
 
-  // List all accounts (global - no config filter)
-  const fetchAllStakerPools = useCallback(async () => {
+  // List all accounts
+  const fetchAllDefenderPools = useCallback(async () => {
     if (!program) return [];
-    return program.account.stakerPool.all();
+    return program.account.defenderPool.all();
   }, [program]);
 
   const fetchAllSubjects = useCallback(async () => {
@@ -786,15 +872,19 @@ export const useTribunalcraft = () => {
   return {
     program,
     provider,
-    // PDAs (Global)
-    getStakerPoolPDA,
+    // PDAs
+    getDefenderPoolPDA,
     getSubjectPDA,
     getJurorPDA,
     getDisputePDA,
     getChallengerPDA,
     getChallengerRecordPDA,
-    getStakerRecordPDA,
+    getDefenderRecordPDA,
     getVoteRecordPDA,
+    getProtocolConfigPDA,
+    // Protocol Config
+    initializeConfig,
+    fetchProtocolConfig,
     // Pool
     createPool,
     stakePool,
@@ -812,9 +902,11 @@ export const useTribunalcraft = () => {
     // Dispute
     submitDispute,
     submitFreeDispute,
+    submitAppeal,
     addToDispute,
     // Voting
     voteOnDispute,
+    voteOnAppeal,
     addToVote,
     // Resolution
     resolveDispute,
@@ -822,19 +914,19 @@ export const useTribunalcraft = () => {
     // Rewards
     claimJurorReward,
     claimChallengerReward,
-    claimStakerReward,
+    claimDefenderReward,
     claimPoolReward,
     // Fetch single
-    fetchStakerPool,
+    fetchDefenderPool,
     fetchSubject,
     fetchDispute,
     fetchJurorAccount,
     fetchChallengerAccount,
     fetchVoteRecord,
     fetchChallengerRecord,
-    fetchStakerRecord,
+    fetchDefenderRecord,
     // Fetch all
-    fetchAllStakerPools,
+    fetchAllDefenderPools,
     fetchAllSubjects,
     fetchAllDisputes,
     fetchAllJurors,

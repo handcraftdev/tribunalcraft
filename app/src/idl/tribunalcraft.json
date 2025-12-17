@@ -1,5 +1,5 @@
 {
-  "address": "9oS7XD7b14j8BjHuzytiiK8iEYVzd1MtVdfUhrJVsM5j",
+  "address": "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX",
   "metadata": {
     "name": "tribunalcraft",
     "version": "0.1.0",
@@ -94,9 +94,9 @@
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -212,17 +212,19 @@
           "writable": true
         },
         {
-          "name": "staker_record",
+          "name": "defender_record",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -413,9 +415,9 @@
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -430,6 +432,85 @@
         {
           "name": "challenger_record",
           "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_defender_reward",
+      "docs": [
+        "Claim defender reward (if dispute dismissed)"
+      ],
+      "discriminator": [
+        189,
+        13,
+        90,
+        154,
+        251,
+        183,
+        166,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "defender",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "defender_record"
+          ]
+        },
+        {
+          "name": "subject",
+          "writable": true,
+          "relations": [
+            "dispute",
+            "defender_record"
+          ]
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "defender_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "defender"
+              }
+            ]
+          }
         },
         {
           "name": "system_program",
@@ -470,9 +551,9 @@
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -516,7 +597,7 @@
           "writable": true,
           "signer": true,
           "relations": [
-            "staker_pool"
+            "defender_pool"
           ]
         },
         {
@@ -526,17 +607,19 @@
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -555,53 +638,6 @@
         },
         {
           "name": "dispute",
-          "writable": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "claim_staker_reward",
-      "docs": [
-        "Claim staker reward (if dispute dismissed)"
-      ],
-      "discriminator": [
-        109,
-        108,
-        213,
-        141,
-        176,
-        71,
-        101,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "staker",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "staker_record"
-          ]
-        },
-        {
-          "name": "subject",
-          "writable": true,
-          "relations": [
-            "dispute",
-            "staker_record"
-          ]
-        },
-        {
-          "name": "dispute",
-          "writable": true
-        },
-        {
-          "name": "staker_record",
           "writable": true
         },
         {
@@ -679,7 +715,7 @@
     {
       "name": "create_linked_subject",
       "docs": [
-        "Create a subject linked to a staker pool"
+        "Create a subject linked to a defender pool"
       ],
       "discriminator": [
         42,
@@ -697,21 +733,23 @@
           "writable": true,
           "signer": true,
           "relations": [
-            "staker_pool"
+            "defender_pool"
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -781,17 +819,13 @@
         {
           "name": "voting_period",
           "type": "i64"
-        },
-        {
-          "name": "winner_reward_bps",
-          "type": "u16"
         }
       ]
     },
     {
       "name": "create_pool",
       "docs": [
-        "Create a staker pool with initial stake"
+        "Create a defender pool with initial stake"
       ],
       "discriminator": [
         233,
@@ -810,17 +844,19 @@
           "signer": true
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -895,17 +931,19 @@
           }
         },
         {
-          "name": "staker_record",
+          "name": "defender_record",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -959,14 +997,66 @@
           "type": "i64"
         },
         {
-          "name": "winner_reward_bps",
-          "type": "u16"
-        },
-        {
           "name": "stake",
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "Initialize protocol config (one-time setup by deployer)"
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "process_vote_result",
@@ -1122,12 +1212,46 @@
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "docs": [
-            "Optional: staker pool if subject is linked (for releasing/slashing held stake)"
+            "Optional: defender pool if subject is linked (for releasing/slashing held stake)"
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "protocol_config",
+          "docs": [
+            "Protocol config for treasury address"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
         },
         {
           "name": "system_program",
@@ -1157,21 +1281,23 @@
           "writable": true,
           "signer": true,
           "relations": [
-            "staker_pool"
+            "defender_pool"
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -1196,6 +1322,86 @@
       "args": [
         {
           "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "submit_appeal",
+      "docs": [
+        "Submit an appeal against an invalidated subject",
+        "Appeals allow community to reverse previous invalidation decisions",
+        "Appellant stakes (no bond required), voting period is 2x previous"
+      ],
+      "discriminator": [
+        119,
+        88,
+        95,
+        156,
+        252,
+        220,
+        32,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "appellant",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "subject",
+          "writable": true
+        },
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.dispute_count",
+                "account": "Subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "dispute_type",
+          "type": {
+            "defined": {
+              "name": "DisputeType"
+            }
+          }
+        },
+        {
+          "name": "details_cid",
+          "type": "string"
+        },
+        {
+          "name": "stake_amount",
           "type": "u64"
         }
       ]
@@ -1226,9 +1432,9 @@
           "writable": true
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "docs": [
-            "Optional: staker pool if subject is linked"
+            "Optional: defender pool if subject is linked"
           ],
           "writable": true,
           "optional": true
@@ -1479,6 +1685,173 @@
       "args": []
     },
     {
+      "name": "update_treasury",
+      "docs": [
+        "Update treasury address (admin only)"
+      ],
+      "discriminator": [
+        60,
+        16,
+        243,
+        66,
+        96,
+        59,
+        254,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "vote_on_appeal",
+      "docs": [
+        "Vote on an appeal with stake allocation",
+        "ForRestoration = vote to restore subject to Active",
+        "AgainstRestoration = vote to keep subject Invalidated"
+      ],
+      "discriminator": [
+        50,
+        167,
+        54,
+        13,
+        106,
+        100,
+        219,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "juror",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "juror_account"
+          ]
+        },
+        {
+          "name": "juror_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "subject",
+          "relations": [
+            "dispute"
+          ]
+        },
+        {
+          "name": "dispute",
+          "writable": true
+        },
+        {
+          "name": "vote_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "choice",
+          "type": {
+            "defined": {
+              "name": "AppealVoteChoice"
+            }
+          }
+        },
+        {
+          "name": "stake_allocation",
+          "type": "u64"
+        },
+        {
+          "name": "rationale_cid",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "vote_on_dispute",
       "docs": [
         "Vote on a dispute with stake allocation"
@@ -1662,21 +2035,23 @@
           "writable": true,
           "signer": true,
           "relations": [
-            "staker_pool"
+            "defender_pool"
           ]
         },
         {
-          "name": "staker_pool",
+          "name": "defender_pool",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  116,
-                  97,
-                  107,
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
                   101,
                   114,
                   95,
@@ -1734,6 +2109,32 @@
       ]
     },
     {
+      "name": "DefenderPool",
+      "discriminator": [
+        227,
+        100,
+        92,
+        157,
+        203,
+        252,
+        63,
+        118
+      ]
+    },
+    {
+      "name": "DefenderRecord",
+      "discriminator": [
+        14,
+        3,
+        219,
+        215,
+        38,
+        254,
+        254,
+        92
+      ]
+    },
+    {
       "name": "Dispute",
       "discriminator": [
         36,
@@ -1760,29 +2161,16 @@
       ]
     },
     {
-      "name": "StakerPool",
+      "name": "ProtocolConfig",
       "discriminator": [
         207,
-        63,
-        70,
-        232,
-        194,
-        216,
-        61,
-        88
-      ]
-    },
-    {
-      "name": "StakerRecord",
-      "discriminator": [
-        32,
-        233,
-        136,
-        62,
-        39,
-        209,
-        227,
-        86
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
       ]
     },
     {
@@ -1865,96 +2253,123 @@
     },
     {
       "code": 6010,
+      "name": "SubjectCannotBeAppealed",
+      "msg": "Subject cannot be appealed"
+    },
+    {
+      "code": 6011,
+      "name": "AppealStakeBelowMinimum",
+      "msg": "Appeal stake below minimum (must match previous dispute total)"
+    },
+    {
+      "code": 6012,
       "name": "CannotSelfDispute",
       "msg": "Cannot dispute own subject"
     },
     {
-      "code": 6011,
+      "code": 6013,
       "name": "DisputeAlreadyExists",
       "msg": "Dispute already exists for this subject"
     },
     {
-      "code": 6012,
+      "code": 6014,
       "name": "DisputeNotFound",
       "msg": "Dispute not found"
     },
     {
-      "code": 6013,
+      "code": 6015,
       "name": "DisputeAlreadyResolved",
       "msg": "Dispute already resolved"
     },
     {
-      "code": 6014,
+      "code": 6016,
       "name": "VotingNotEnded",
       "msg": "Voting period not ended"
     },
     {
-      "code": 6015,
+      "code": 6017,
       "name": "VotingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6016,
+      "code": 6018,
       "name": "CannotVoteOnOwnDispute",
       "msg": "Cannot vote on own dispute"
     },
     {
-      "code": 6017,
+      "code": 6019,
       "name": "AlreadyVoted",
       "msg": "Already voted on this dispute"
     },
     {
-      "code": 6018,
+      "code": 6020,
       "name": "VoteAllocationBelowMinimum",
       "msg": "Vote allocation below minimum"
     },
     {
-      "code": 6019,
+      "code": 6021,
       "name": "InvalidVoteChoice",
       "msg": "Invalid vote choice"
     },
     {
-      "code": 6020,
+      "code": 6022,
       "name": "JurorNotActive",
       "msg": "Juror not active"
     },
     {
-      "code": 6021,
+      "code": 6023,
       "name": "JurorAlreadyRegistered",
       "msg": "Juror already registered"
     },
     {
-      "code": 6022,
+      "code": 6024,
       "name": "ChallengerNotFound",
       "msg": "Challenger not found"
     },
     {
-      "code": 6023,
+      "code": 6025,
       "name": "RewardAlreadyClaimed",
       "msg": "Reward already claimed"
     },
     {
-      "code": 6024,
+      "code": 6026,
       "name": "NotEligibleForReward",
       "msg": "Not eligible for reward"
     },
     {
-      "code": 6025,
+      "code": 6027,
       "name": "ReputationAlreadyProcessed",
       "msg": "Reputation already processed"
     },
     {
-      "code": 6026,
+      "code": 6028,
       "name": "ArithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6027,
+      "code": 6029,
       "name": "DivisionByZero",
       "msg": "Division by zero"
     }
   ],
   "types": [
+    {
+      "name": "AppealVoteChoice",
+      "docs": [
+        "Vote choice for appeals (separate enum for clearer semantics)"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "ForRestoration"
+          },
+          {
+            "name": "AgainstRestoration"
+          }
+        ]
+      }
+    },
     {
       "name": "ChallengerAccount",
       "docs": [
@@ -2091,6 +2506,134 @@
       }
     },
     {
+      "name": "DefenderPool",
+      "docs": [
+        "Defender's pool that can back multiple subjects - global per wallet"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "Pool owner's wallet address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_stake",
+            "docs": [
+              "Total stake deposited"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "available",
+            "docs": [
+              "Available stake (not held by disputes)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "held",
+            "docs": [
+              "Held stake (locked by pending disputes)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "subject_count",
+            "docs": [
+              "Number of subjects linked to this pool"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pending_disputes",
+            "docs": [
+              "Number of pending disputes against subjects in this pool"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "Last update timestamp"
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DefenderRecord",
+      "docs": [
+        "Individual defender's contribution to backing a subject",
+        "Supports cumulative staking where multiple defenders back a subject"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "subject",
+            "docs": [
+              "The subject this record belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "defender",
+            "docs": [
+              "Defender's wallet address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "stake",
+            "docs": [
+              "Amount staked to back the subject"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reward_claimed",
+            "docs": [
+              "Whether reward has been claimed"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "staked_at",
+            "docs": [
+              "Timestamp when this defender joined"
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Dispute",
       "docs": [
         "Dispute (supports cumulative challengers)"
@@ -2169,14 +2712,14 @@
           {
             "name": "votes_favor_weight",
             "docs": [
-              "Cumulative voting power for \"Uphold\" votes (favor challenger)"
+              "Cumulative voting power for \"ForChallenger\" votes"
             ],
             "type": "u64"
           },
           {
             "name": "votes_against_weight",
             "docs": [
-              "Cumulative voting power for \"Dismiss\" votes (favor staker)"
+              "Cumulative voting power for \"ForDefender\" votes"
             ],
             "type": "u64"
           },
@@ -2235,6 +2778,48 @@
               "Pool reward claimed (for linked mode)"
             ],
             "type": "bool"
+          },
+          {
+            "name": "snapshot_total_stake",
+            "docs": [
+              "Snapshot of subject's total_stake at dispute creation"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_defender_count",
+            "docs": [
+              "Snapshot of subject's defender_count at dispute creation"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "challengers_claimed",
+            "docs": [
+              "Number of challengers who have claimed their reward/refund"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "defenders_claimed",
+            "docs": [
+              "Number of direct defenders who have claimed their reward/refund"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "is_appeal",
+            "docs": [
+              "True if this dispute is an appeal (reverses the meaning of outcomes)"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "appeal_stake",
+            "docs": [
+              "Stake posted by appellant (for appeals only)"
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -2373,6 +2958,39 @@
       }
     },
     {
+      "name": "ProtocolConfig",
+      "docs": [
+        "Protocol-wide configuration account",
+        "Stores treasury address and admin authority for fee collection"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Admin who can update config (deployer initially)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Platform fee recipient address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "ResolutionOutcome",
       "docs": [
         "Resolution outcome"
@@ -2384,10 +3002,10 @@
             "name": "None"
           },
           {
-            "name": "Upheld"
+            "name": "ChallengerWins"
           },
           {
-            "name": "Dismissed"
+            "name": "DefenderWins"
           },
           {
             "name": "NoParticipation"
@@ -2396,137 +3014,9 @@
       }
     },
     {
-      "name": "StakerPool",
-      "docs": [
-        "Staker's pool that can back multiple subjects - global per wallet"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "owner",
-            "docs": [
-              "Pool owner's wallet address"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "total_stake",
-            "docs": [
-              "Total stake deposited"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "available",
-            "docs": [
-              "Available stake (not held by disputes)"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "held",
-            "docs": [
-              "Held stake (locked by pending disputes)"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "subject_count",
-            "docs": [
-              "Number of subjects linked to this pool"
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "pending_disputes",
-            "docs": [
-              "Number of pending disputes against subjects in this pool"
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "created_at",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "updated_at",
-            "docs": [
-              "Last update timestamp"
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "StakerRecord",
-      "docs": [
-        "Individual staker's contribution to backing a subject",
-        "Supports cumulative staking where multiple stakers back a subject"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "subject",
-            "docs": [
-              "The subject this record belongs to"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "staker",
-            "docs": [
-              "Staker's wallet address"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "stake",
-            "docs": [
-              "Amount staked to back the subject"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "reward_claimed",
-            "docs": [
-              "Whether reward has been claimed"
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "staked_at",
-            "docs": [
-              "Timestamp when this staker joined"
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Subject",
       "docs": [
-        "Subject that stakers back - global (identified by subject_id)"
+        "Subject that defenders back - global (identified by subject_id)"
       ],
       "type": {
         "kind": "struct",
@@ -2539,9 +3029,9 @@
             "type": "pubkey"
           },
           {
-            "name": "staker_pool",
+            "name": "defender_pool",
             "docs": [
-              "Optional staker pool (default = standalone mode, set = linked to pool)"
+              "Optional defender pool (default = standalone mode, set = linked to pool)"
             ],
             "type": "pubkey"
           },
@@ -2585,17 +3075,9 @@
             "type": "i64"
           },
           {
-            "name": "winner_reward_bps",
+            "name": "defender_count",
             "docs": [
-              "Winner reward percentage of loser's funds (basis points)",
-              "Remainder goes to jurors"
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "staker_count",
-            "docs": [
-              "Number of stakers (standalone mode only)"
+              "Number of defenders (standalone mode only)"
             ],
             "type": "u16"
           },
@@ -2647,6 +3129,20 @@
               "Last update timestamp"
             ],
             "type": "i64"
+          },
+          {
+            "name": "last_dispute_total",
+            "docs": [
+              "Previous dispute's (stake + bond) - minimum stake required for appeal"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_voting_period",
+            "docs": [
+              "Previous dispute's voting period - appeals use 2x this value"
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -2674,16 +3170,16 @@
     {
       "name": "VoteChoice",
       "docs": [
-        "Vote choice"
+        "Vote choice for regular disputes"
       ],
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Uphold"
+            "name": "ForChallenger"
           },
           {
-            "name": "Dismiss"
+            "name": "ForDefender"
           }
         ]
       }
@@ -2720,13 +3216,31 @@
           {
             "name": "choice",
             "docs": [
-              "Vote choice"
+              "Vote choice for regular disputes"
             ],
             "type": {
               "defined": {
                 "name": "VoteChoice"
               }
             }
+          },
+          {
+            "name": "appeal_choice",
+            "docs": [
+              "Vote choice for appeals (only used when is_appeal_vote is true)"
+            ],
+            "type": {
+              "defined": {
+                "name": "AppealVoteChoice"
+              }
+            }
+          },
+          {
+            "name": "is_appeal_vote",
+            "docs": [
+              "Whether this is an appeal vote"
+            ],
+            "type": "bool"
           },
           {
             "name": "stake_allocated",
