@@ -41,8 +41,8 @@ export default function AccountPage() {
     createPool,
     stakePool,
     withdrawPool,
-    fetchStakerPool,
-    getStakerPoolPDA,
+    fetchDefenderPool,
+    getDefenderPoolPDA,
     fetchJurorAccount,
     getJurorPDA,
     fetchChallengerAccount,
@@ -67,10 +67,10 @@ export default function AccountPage() {
     setLoading(true);
     setError(null);
     try {
-      // Load staker pool
-      const [poolPda] = getStakerPoolPDA(publicKey);
+      // Load defender pool
+      const [poolPda] = getDefenderPoolPDA(publicKey);
       try {
-        const poolData = await fetchStakerPool(poolPda);
+        const poolData = await fetchDefenderPool(poolPda);
         setPool(poolData);
       } catch {
         setPool(null);

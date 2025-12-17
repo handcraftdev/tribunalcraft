@@ -50,8 +50,8 @@ const ScaleIcon = () => (
 export default function Dashboard() {
   const { publicKey } = useWallet();
   const {
-    fetchStakerPool,
-    getStakerPoolPDA,
+    fetchDefenderPool,
+    getDefenderPoolPDA,
     fetchAllSubjects,
     fetchAllDisputes,
     fetchAllJurors,
@@ -81,9 +81,9 @@ export default function Dashboard() {
 
       // Fetch user-specific data if connected
       if (publicKey) {
-        const [poolPda] = getStakerPoolPDA(publicKey);
+        const [poolPda] = getDefenderPoolPDA(publicKey);
         try {
-          const poolData = await fetchStakerPool(poolPda);
+          const poolData = await fetchDefenderPool(poolPda);
           setPool(poolData);
         } catch {
           setPool(null);
