@@ -495,7 +495,8 @@ export const useTribunalcraft = () => {
     async (
       dispute: PublicKey,
       choice: VoteChoice,
-      stakeAllocation: BN
+      stakeAllocation: BN,
+      rationaleCid: string = ""
     ) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
@@ -504,7 +505,7 @@ export const useTribunalcraft = () => {
 
       const tx = await executeWithSimulation(
         program.methods
-          .voteOnDispute(choice, stakeAllocation)
+          .voteOnDispute(choice, stakeAllocation, rationaleCid)
           .accountsPartial({
             dispute,
           }),

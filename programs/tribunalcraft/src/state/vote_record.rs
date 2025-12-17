@@ -47,9 +47,14 @@ pub struct VoteRecord {
 
     /// Vote timestamp
     pub voted_at: i64,
+
+    /// IPFS CID for vote rationale (optional)
+    pub rationale_cid: String,
 }
 
 impl VoteRecord {
+    pub const MAX_CID_LEN: usize = 64;
+
     pub const LEN: usize = 8 +  // discriminator
         32 +    // dispute
         32 +    // juror
@@ -62,7 +67,8 @@ impl VoteRecord {
         1 +     // reward_claimed
         1 +     // stake_unlocked
         1 +     // bump
-        8;      // voted_at
+        8 +     // voted_at
+        4 + Self::MAX_CID_LEN;  // rationale_cid (4 bytes length + string)
 
     /// Check if stake can be unlocked
     pub fn can_unlock(&self, current_time: i64) -> bool {

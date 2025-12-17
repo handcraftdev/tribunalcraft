@@ -171,8 +171,9 @@ pub mod tribunalcraft {
         ctx: Context<VoteOnDispute>,
         choice: VoteChoice,
         stake_allocation: u64,
+        rationale_cid: String,
     ) -> Result<()> {
-        instructions::vote_on_dispute(ctx, choice, stake_allocation)
+        instructions::vote_on_dispute(ctx, choice, stake_allocation, rationale_cid)
     }
 
     /// Add more stake to an existing vote

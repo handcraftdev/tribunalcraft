@@ -102,6 +102,7 @@ export interface VoteRecord {
   stakeUnlocked: boolean;
   bump: number;
   votedAt: BN;
+  rationaleCid: string;
 }
 
 export type VoteChoice =

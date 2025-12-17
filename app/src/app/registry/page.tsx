@@ -179,6 +179,7 @@ export default function RegistryPage() {
   // Voting state
   const [voteStake, setVoteStake] = useState("0.01");
   const [voteChoice, setVoteChoice] = useState<"uphold" | "dismiss">("uphold");
+  const [voteRationale, setVoteRationale] = useState("");
   const [addStakeAmount, setAddStakeAmount] = useState("0.1");
 
   // Section filter
@@ -412,8 +413,9 @@ export default function RegistryPage() {
         setSuccess(`Added ${voteStake} SOL to vote`);
       } else {
         const choice: VoteChoice = { [voteChoice]: {} } as VoteChoice;
-        await voteOnDispute(dispute, choice, stake);
+        await voteOnDispute(dispute, choice, stake, voteRationale);
         setSuccess("Vote cast");
+        setVoteRationale("");
       }
       await loadData();
     } catch (err: any) {
@@ -733,22 +735,30 @@ export default function RegistryPage() {
                       {existingVote ? (
                         <p className="text-xs text-steel">Add more stake to your vote:</p>
                       ) : (
-                        <div className="flex gap-2">
-                          {(["uphold", "dismiss"] as const).map((choice) => (
-                            <button
-                              key={choice}
-                              onClick={() => setVoteChoice(choice)}
-                              className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
-                                voteChoice === choice
-                                  ? choice === "uphold" ? "bg-emerald text-obsidian"
-                                  : "bg-crimson text-ivory"
-                                  : "bg-slate-light hover:bg-slate text-parchment"
-                              }`}
-                            >
-                              {choice}
-                            </button>
-                          ))}
-                        </div>
+                        <>
+                          <div className="flex gap-2">
+                            {(["uphold", "dismiss"] as const).map((choice) => (
+                              <button
+                                key={choice}
+                                onClick={() => setVoteChoice(choice)}
+                                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
+                                  voteChoice === choice
+                                    ? choice === "uphold" ? "bg-emerald text-obsidian"
+                                    : "bg-crimson text-ivory"
+                                    : "bg-slate-light hover:bg-slate text-parchment"
+                                }`}
+                              >
+                                {choice}
+                              </button>
+                            ))}
+                          </div>
+                          <textarea
+                            value={voteRationale}
+                            onChange={(e) => setVoteRationale(e.target.value)}
+                            placeholder="Rationale for your vote (optional)"
+                            className="input w-full text-sm py-2 h-16 resize-none"
+                          />
+                        </>
                       )}
                       <div className="flex gap-2 items-center">
                         <input
@@ -779,6 +789,41 @@ export default function RegistryPage() {
                 View dispute on IPFS <LinkIcon />
               </a>
             )}
+
+            {/* ========== HISTORY SECTION ========== */}
+            {(() => {
+              const pastDisputes = disputes.filter(d =>
+                d.account.subject.toBase58() === subjectKey &&
+                d.account.status.resolved &&
+                d.publicKey.toBase58() !== disputeKey
+              );
+              if (pastDisputes.length === 0) return null;
+              return (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">History</h4>
+                  <div className="space-y-2">
+                    {pastDisputes.map((d, i) => {
+                      const dKey = d.publicKey.toBase58();
+                      const dContent = disputeContents[dKey];
+                      const dOutcome = getOutcomeLabel(d.account.outcome);
+                      return (
+                        <div key={i} className="p-3 bg-obsidian border border-slate-light">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs text-parchment">{dContent?.title || getDisputeTypeLabel(d.account.disputeType)}</p>
+                            <span className={`text-[10px] ${dOutcome.class}`}>{dOutcome.label}</span>
+                          </div>
+                          <div className="grid grid-cols-3 text-[10px] text-steel">
+                            <span>{(d.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
+                            <span className="text-center">{d.account.voteCount} votes</span>
+                            <span className="text-right">{new Date(d.account.resolvedAt.toNumber() * 1000).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

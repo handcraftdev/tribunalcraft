@@ -1582,6 +1582,10 @@ export type Tribunalcraft = {
         {
           "name": "stakeAllocation",
           "type": "u64"
+        },
+        {
+          "name": "rationaleCid",
+          "type": "string"
         }
       ]
     },
@@ -2785,6 +2789,13 @@ export type Tribunalcraft = {
               "Vote timestamp"
             ],
             "type": "i64"
+          },
+          {
+            "name": "rationaleCid",
+            "docs": [
+              "IPFS CID for vote rationale (optional)"
+            ],
+            "type": "string"
           }
         ]
       }

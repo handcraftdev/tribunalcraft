@@ -45,7 +45,9 @@ pub fn vote_on_dispute(
     ctx: Context<VoteOnDispute>,
     choice: VoteChoice,
     stake_allocation: u64,
+    rationale_cid: String,
 ) -> Result<()> {
+    require!(rationale_cid.len() <= VoteRecord::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
     let juror_account = &mut ctx.accounts.juror_account;
     let subject = &ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
@@ -94,6 +96,7 @@ pub fn vote_on_dispute(
     vote_record.stake_unlocked = false;
     vote_record.bump = ctx.bumps.vote_record;
     vote_record.voted_at = clock.unix_timestamp;
+    vote_record.rationale_cid = rationale_cid;
 
     // Update juror stats
     juror_account.votes_cast += 1;

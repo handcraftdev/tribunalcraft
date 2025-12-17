@@ -1576,6 +1576,10 @@
         {
           "name": "stake_allocation",
           "type": "u64"
+        },
+        {
+          "name": "rationale_cid",
+          "type": "string"
         }
       ]
     },
@@ -2779,6 +2783,13 @@
               "Vote timestamp"
             ],
             "type": "i64"
+          },
+          {
+            "name": "rationale_cid",
+            "docs": [
+              "IPFS CID for vote rationale (optional)"
+            ],
+            "type": "string"
           }
         ]
       }
