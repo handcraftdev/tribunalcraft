@@ -16,12 +16,12 @@ pub struct SubmitDispute<'info> {
     )]
     pub subject: Account<'info, Subject>,
 
-    /// Optional: staker pool if subject is linked
+    /// Optional: defender pool if subject is linked
     #[account(
         mut,
-        constraint = staker_pool.key() == subject.staker_pool @ TribunalCraftError::InvalidConfig,
+        constraint = defender_pool.key() == subject.defender_pool @ TribunalCraftError::InvalidConfig,
     )]
-    pub staker_pool: Option<Account<'info, StakerPool>>,
+    pub defender_pool: Option<Account<'info, DefenderPool>>,
 
     #[account(
         init_if_needed,
@@ -84,21 +84,21 @@ pub fn submit_dispute(
 
         if subject.match_mode {
             if subject.is_linked() {
-                // Linked mode: hold from pool and direct stakers
-                let staker_pool = ctx.accounts.staker_pool.as_mut()
+                // Linked mode: hold from pool and direct defenders
+                let defender_pool = ctx.accounts.defender_pool.as_mut()
                     .ok_or(TribunalCraftError::InvalidConfig)?;
 
-                let total_available = staker_pool.available.saturating_add(subject.total_stake);
+                let total_available = defender_pool.available.saturating_add(subject.total_stake);
                 let required_hold = bond.min(subject.max_stake);
 
                 require!(total_available >= required_hold, TribunalCraftError::InsufficientAvailableStake);
 
-                let pool_hold = required_hold.min(staker_pool.available);
+                let pool_hold = required_hold.min(defender_pool.available);
                 let direct_hold = required_hold.saturating_sub(pool_hold);
 
                 if pool_hold > 0 {
-                    staker_pool.hold_stake(pool_hold)?;
-                    staker_pool.updated_at = clock.unix_timestamp;
+                    defender_pool.hold_stake(pool_hold)?;
+                    defender_pool.updated_at = clock.unix_timestamp;
                 }
 
                 (pool_hold, direct_hold)
@@ -147,6 +147,12 @@ pub fn submit_dispute(
     dispute.created_at = clock.unix_timestamp;
     dispute.pool_reward_claimed = false;
 
+    // Snapshot defender state for historical record
+    dispute.snapshot_total_stake = subject.total_stake;
+    dispute.snapshot_defender_count = subject.defender_count;
+    dispute.challengers_claimed = 0;
+    dispute.defenders_claimed = 0;
+
     // Voting starts immediately (match mode is validated upfront)
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);
     msg!("Dispute submitted - voting started (held: {}, bond: {})",
@@ -181,12 +187,12 @@ pub struct AddToDispute<'info> {
     )]
     pub subject: Account<'info, Subject>,
 
-    /// Optional: staker pool if subject is linked
+    /// Optional: defender pool if subject is linked
     #[account(
         mut,
-        constraint = staker_pool.key() == subject.staker_pool @ TribunalCraftError::InvalidConfig,
+        constraint = defender_pool.key() == subject.defender_pool @ TribunalCraftError::InvalidConfig,
     )]
-    pub staker_pool: Option<Account<'info, StakerPool>>,
+    pub defender_pool: Option<Account<'info, DefenderPool>>,
 
     #[account(
         init_if_needed,
@@ -245,14 +251,14 @@ pub fn add_to_dispute(
     // Handle match mode: hold additional stake for additional bond
     if subject.match_mode {
         if subject.is_linked() {
-            // Linked mode: hold from pool and direct stakers
-            let staker_pool = ctx.accounts.staker_pool.as_mut()
+            // Linked mode: hold from pool and direct defenders
+            let defender_pool = ctx.accounts.defender_pool.as_mut()
                 .ok_or(TribunalCraftError::InvalidConfig)?;
 
             let total_held = dispute.total_stake_held();
             let remaining_capacity = subject.max_stake.saturating_sub(total_held);
 
-            let pool_remaining = staker_pool.available;
+            let pool_remaining = defender_pool.available;
             let direct_remaining = subject.total_stake.saturating_sub(dispute.direct_stake_held);
             let total_available = pool_remaining.saturating_add(direct_remaining);
 
@@ -263,15 +269,15 @@ pub fn add_to_dispute(
             let direct_hold = required_hold.saturating_sub(pool_hold);
 
             if pool_hold > 0 {
-                staker_pool.hold_stake(pool_hold)?;
-                staker_pool.updated_at = clock.unix_timestamp;
+                defender_pool.hold_stake(pool_hold)?;
+                defender_pool.updated_at = clock.unix_timestamp;
                 dispute.stake_held += pool_hold;
             }
             if direct_hold > 0 {
                 dispute.direct_stake_held += direct_hold;
             }
         } else {
-            // Standalone mode: hold from direct stakers only
+            // Standalone mode: hold from direct defenders only
             let remaining_capacity = subject.total_stake.saturating_sub(dispute.direct_stake_held);
             require!(remaining_capacity >= bond, TribunalCraftError::InsufficientAvailableStake);
             dispute.direct_stake_held += bond;
@@ -379,6 +385,12 @@ pub fn submit_free_dispute(
     dispute.bump = ctx.bumps.dispute;
     dispute.created_at = clock.unix_timestamp;
     dispute.pool_reward_claimed = false;
+
+    // Snapshot defender state for historical record (0 for free cases)
+    dispute.snapshot_total_stake = 0;
+    dispute.snapshot_defender_count = 0;
+    dispute.challengers_claimed = 0;
+    dispute.defenders_claimed = 0;
 
     // Voting starts immediately for free disputes
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);

@@ -1,11 +1,19 @@
 use anchor_lang::prelude::*;
 
-/// Vote choice
+/// Vote choice for regular disputes
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum VoteChoice {
     #[default]
-    Uphold,   // Favor the challenger (dispute is valid)
-    Dismiss,  // Favor the respondent (dispute is invalid)
+    ForChallenger,  // Vote for the challenger (dispute is valid, subject should be invalidated)
+    ForDefender,    // Vote for the defender (dispute is invalid, subject stays active)
+}
+
+/// Vote choice for appeals (separate enum for clearer semantics)
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum AppealVoteChoice {
+    #[default]
+    ForRestoration,    // Vote to restore subject to Active status
+    AgainstRestoration, // Vote to keep subject Invalidated
 }
 
 /// Juror's vote on a dispute
@@ -21,8 +29,14 @@ pub struct VoteRecord {
     /// Juror account PDA
     pub juror_account: Pubkey,
 
-    /// Vote choice
+    /// Vote choice for regular disputes
     pub choice: VoteChoice,
+
+    /// Vote choice for appeals (only used when is_appeal_vote is true)
+    pub appeal_choice: AppealVoteChoice,
+
+    /// Whether this is an appeal vote
+    pub is_appeal_vote: bool,
 
     /// Stake allocated to this vote
     pub stake_allocated: u64,
@@ -60,6 +74,8 @@ impl VoteRecord {
         32 +    // juror
         32 +    // juror_account
         1 +     // choice
+        1 +     // appeal_choice
+        1 +     // is_appeal_vote
         8 +     // stake_allocated
         8 +     // voting_power
         8 +     // unlock_at
@@ -76,16 +92,31 @@ impl VoteRecord {
     }
 
     /// Check if vote was correct based on outcome
+    /// For regular disputes: ForChallenger wins if ChallengerWins, ForDefender wins if DefenderWins
+    /// For appeals: ForRestoration wins if ChallengerWins (subject restored), AgainstRestoration wins if DefenderWins
     pub fn is_correct(&self, outcome: crate::state::dispute::ResolutionOutcome) -> Option<bool> {
         use crate::state::dispute::ResolutionOutcome;
 
-        match (self.choice, outcome) {
-            (VoteChoice::Uphold, ResolutionOutcome::Upheld) => Some(true),
-            (VoteChoice::Dismiss, ResolutionOutcome::Dismissed) => Some(true),
-            (VoteChoice::Uphold, ResolutionOutcome::Dismissed) => Some(false),
-            (VoteChoice::Dismiss, ResolutionOutcome::Upheld) => Some(false),
-            (_, ResolutionOutcome::NoParticipation) => None, // No outcome to judge against
-            (_, ResolutionOutcome::None) => None, // Not resolved yet
+        if self.is_appeal_vote {
+            // Appeal vote logic
+            match (self.appeal_choice, outcome) {
+                (AppealVoteChoice::ForRestoration, ResolutionOutcome::ChallengerWins) => Some(true),
+                (AppealVoteChoice::AgainstRestoration, ResolutionOutcome::DefenderWins) => Some(true),
+                (AppealVoteChoice::ForRestoration, ResolutionOutcome::DefenderWins) => Some(false),
+                (AppealVoteChoice::AgainstRestoration, ResolutionOutcome::ChallengerWins) => Some(false),
+                (_, ResolutionOutcome::NoParticipation) => None,
+                (_, ResolutionOutcome::None) => None,
+            }
+        } else {
+            // Regular dispute vote logic
+            match (self.choice, outcome) {
+                (VoteChoice::ForChallenger, ResolutionOutcome::ChallengerWins) => Some(true),
+                (VoteChoice::ForDefender, ResolutionOutcome::DefenderWins) => Some(true),
+                (VoteChoice::ForChallenger, ResolutionOutcome::DefenderWins) => Some(false),
+                (VoteChoice::ForDefender, ResolutionOutcome::ChallengerWins) => Some(false),
+                (_, ResolutionOutcome::NoParticipation) => None,
+                (_, ResolutionOutcome::None) => None,
+            }
         }
     }
 }

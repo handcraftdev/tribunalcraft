@@ -35,6 +35,13 @@ pub enum TribunalCraftError {
     #[msg("Subject cannot be disputed")]
     SubjectCannotBeDisputed,
 
+    #[msg("Subject cannot be appealed")]
+    SubjectCannotBeAppealed,
+
+    // Appeal errors
+    #[msg("Appeal stake below minimum (must match previous dispute total)")]
+    AppealStakeBelowMinimum,
+
     // Dispute errors
     #[msg("Cannot dispute own subject")]
     CannotSelfDispute,

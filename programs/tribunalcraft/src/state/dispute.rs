@@ -13,8 +13,8 @@ pub enum DisputeStatus {
 pub enum ResolutionOutcome {
     #[default]
     None,
-    Upheld,         // Dispute valid, staker slashed
-    Dismissed,      // Dispute invalid, challenger loses bond
+    ChallengerWins,  // Dispute valid, defender slashed
+    DefenderWins,    // Dispute invalid, challenger loses bond
     NoParticipation, // No votes cast, all bonds returned
 }
 
@@ -60,10 +60,10 @@ pub struct Dispute {
     /// Resolution outcome
     pub outcome: ResolutionOutcome,
 
-    /// Cumulative voting power for "Uphold" votes (favor challenger)
+    /// Cumulative voting power for "ForChallenger" votes
     pub votes_favor_weight: u64,
 
-    /// Cumulative voting power for "Dismiss" votes (favor staker)
+    /// Cumulative voting power for "ForDefender" votes
     pub votes_against_weight: u64,
 
     /// Number of jurors who voted
@@ -89,6 +89,36 @@ pub struct Dispute {
 
     /// Pool reward claimed (for linked mode)
     pub pool_reward_claimed: bool,
+
+    // =========================================================================
+    // Snapshot fields (captured at dispute creation for historical record)
+    // =========================================================================
+
+    /// Snapshot of subject's total_stake at dispute creation
+    pub snapshot_total_stake: u64,
+
+    /// Snapshot of subject's defender_count at dispute creation
+    pub snapshot_defender_count: u16,
+
+    // =========================================================================
+    // Claim tracking
+    // =========================================================================
+
+    /// Number of challengers who have claimed their reward/refund
+    pub challengers_claimed: u16,
+
+    /// Number of direct defenders who have claimed their reward/refund
+    pub defenders_claimed: u16,
+
+    // =========================================================================
+    // Appeal fields
+    // =========================================================================
+
+    /// True if this dispute is an appeal (reverses the meaning of outcomes)
+    pub is_appeal: bool,
+
+    /// Stake posted by appellant (for appeals only)
+    pub appeal_stake: u64,
 }
 
 impl Dispute {
@@ -110,7 +140,13 @@ impl Dispute {
         8 +     // resolved_at
         1 +     // bump
         8 +     // created_at
-        1;      // pool_reward_claimed
+        1 +     // pool_reward_claimed
+        8 +     // snapshot_total_stake
+        2 +     // snapshot_defender_count
+        2 +     // challengers_claimed
+        2 +     // defenders_claimed
+        1 +     // is_appeal
+        8;      // appeal_stake
 
     /// Total stake held from all sources (pool + direct)
     pub fn total_stake_held(&self) -> u64 {
@@ -147,11 +183,11 @@ impl Dispute {
             // No votes cast
             ResolutionOutcome::NoParticipation
         } else if self.votes_favor_weight > total_power / 2 {
-            // Majority voted to uphold (>50%)
-            ResolutionOutcome::Upheld
+            // Majority voted for challenger (>50%)
+            ResolutionOutcome::ChallengerWins
         } else {
-            // Majority voted to dismiss or tied
-            ResolutionOutcome::Dismissed
+            // Majority voted for defender or tied
+            ResolutionOutcome::DefenderWins
         }
     }
 }
