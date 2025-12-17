@@ -230,6 +230,7 @@ export const useTribunalcraft = () => {
           detailsCid,
           maxStake,
           matchMode,
+          false, // freeCase = false for regular subjects
           votingPeriod,
           winnerRewardBps,
           stake
@@ -270,6 +271,7 @@ export const useTribunalcraft = () => {
             detailsCid,
             maxStake,
             matchMode,
+            false, // freeCase = false for linked subjects
             votingPeriod,
             winnerRewardBps
           )
@@ -277,6 +279,27 @@ export const useTribunalcraft = () => {
             stakerPool,
           }),
         "createLinkedSubject"
+      );
+
+      return { tx, subject };
+    },
+    [program, wallet.publicKey, getSubjectPDA, executeWithSimulation]
+  );
+
+  const createFreeSubject = useCallback(
+    async (
+      subjectId: PublicKey,
+      detailsCid: string,
+      votingPeriod: BN
+    ) => {
+      if (!program || !wallet.publicKey)
+        throw new Error("Wallet not connected");
+
+      const [subject] = getSubjectPDA(subjectId);
+
+      const tx = await executeWithSimulation(
+        program.methods.createFreeSubject(subjectId, detailsCid, votingPeriod),
+        "createFreeSubject"
       );
 
       return { tx, subject };
@@ -385,9 +408,45 @@ export const useTribunalcraft = () => {
           .submitDispute(disputeType, detailsCid, bond)
           .accountsPartial({
             subject,
-            ...(isLinked ? { stakerPool: subjectData.stakerPool } : {}),
+            stakerPool: isLinked ? subjectData.stakerPool : null,
           }),
         "submitDispute"
+      );
+
+      return { tx, dispute, challengerRecord };
+    },
+    [
+      program,
+      wallet.publicKey,
+      getDisputePDA,
+      getChallengerRecordPDA,
+      executeWithSimulation,
+    ]
+  );
+
+  const submitFreeDispute = useCallback(
+    async (
+      subject: PublicKey,
+      subjectData: { disputeCount: number },
+      disputeType: DisputeType,
+      detailsCid: string
+    ) => {
+      if (!program || !wallet.publicKey)
+        throw new Error("Wallet not connected");
+
+      const [dispute] = getDisputePDA(subject, subjectData.disputeCount);
+      const [challengerRecord] = getChallengerRecordPDA(
+        dispute,
+        wallet.publicKey
+      );
+
+      const tx = await executeWithSimulation(
+        program.methods
+          .submitFreeDispute(disputeType, detailsCid)
+          .accountsPartial({
+            subject,
+          }),
+        "submitFreeDispute"
       );
 
       return { tx, dispute, challengerRecord };
@@ -421,7 +480,7 @@ export const useTribunalcraft = () => {
         program.methods.addToDispute(detailsCid, bond).accountsPartial({
           subject,
           dispute,
-          ...(stakerPool ? { stakerPool } : {}),
+          stakerPool: stakerPool || null,
         }),
         "addToDispute"
       );
@@ -433,22 +492,49 @@ export const useTribunalcraft = () => {
 
   // Voting
   const voteOnDispute = useCallback(
-    async (dispute: PublicKey, choice: VoteChoice, stakeAllocation: BN) => {
+    async (
+      dispute: PublicKey,
+      choice: VoteChoice,
+      stakeAllocation: BN
+    ) => {
       if (!program || !wallet.publicKey)
         throw new Error("Wallet not connected");
 
       const [voteRecord] = getVoteRecordPDA(dispute, wallet.publicKey);
 
       const tx = await executeWithSimulation(
-        program.methods.voteOnDispute(choice, stakeAllocation).accountsPartial({
-          dispute,
-        }),
+        program.methods
+          .voteOnDispute(choice, stakeAllocation)
+          .accountsPartial({
+            dispute,
+          }),
         "voteOnDispute"
       );
 
       return { tx, voteRecord };
     },
     [program, wallet.publicKey, getVoteRecordPDA, executeWithSimulation]
+  );
+
+  const addToVote = useCallback(
+    async (dispute: PublicKey, additionalStake: BN) => {
+      if (!program || !wallet.publicKey)
+        throw new Error("Wallet not connected");
+
+      // Fetch dispute to get subject
+      const disputeAccount = await program.account.dispute.fetch(dispute);
+
+      const tx = await executeWithSimulation(
+        program.methods.addToVote(additionalStake).accountsPartial({
+          dispute,
+          subject: disputeAccount.subject,
+        }),
+        "addToVote"
+      );
+
+      return { tx };
+    },
+    [program, wallet.publicKey, executeWithSimulation]
   );
 
   // Resolution
@@ -465,7 +551,7 @@ export const useTribunalcraft = () => {
         program.methods.resolveDispute().accountsPartial({
           dispute,
           subject,
-          ...(stakerPool ? { stakerPool } : {}),
+          stakerPool: stakerPool || null,
         }),
         "resolveDispute"
       );
@@ -715,6 +801,7 @@ export const useTribunalcraft = () => {
     // Subject
     createSubject,
     createLinkedSubject,
+    createFreeSubject,
     addToStake,
     // Juror
     registerJuror,
@@ -723,8 +810,12 @@ export const useTribunalcraft = () => {
     unregisterJuror,
     // Dispute
     submitDispute,
+    submitFreeDispute,
     addToDispute,
+    // Voting
     voteOnDispute,
+    addToVote,
+    // Resolution
     resolveDispute,
     processVoteResult,
     // Rewards

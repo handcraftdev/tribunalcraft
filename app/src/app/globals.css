@@ -1,0 +1,675 @@
+@import "tailwindcss";
+
+/* ============================================
+   TRIBUNALCRAFT - DIGITAL TRIBUNAL DESIGN SYSTEM
+   Neo-classical brutalism meets modern justice
+   ============================================ */
+
+:root {
+  /* Core Palette */
+  --obsidian: #0A0A0C;
+  --obsidian-light: #111114;
+  --slate: #1A1A1E;
+  --slate-light: #242428;
+  --steel: #6B6B73;
+  --steel-light: #8A8A94;
+  --parchment: #F2EDE4;
+  --parchment-dark: #E5DFD4;
+  --ivory: #FAF8F5;
+
+  /* Accent Colors */
+  --gold: #C9A227;
+  --gold-light: #DDB83D;
+  --gold-dark: #A68620;
+  --crimson: #8B2635;
+  --crimson-light: #A63344;
+  --emerald: #2D6A4F;
+  --emerald-light: #40916C;
+
+  /* Functional */
+  --success: var(--emerald);
+  --warning: var(--gold);
+  --error: var(--crimson);
+
+  /* Typography Scale */
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+
+  /* Border */
+  --border-thin: 1px;
+  --border-medium: 2px;
+  --border-thick: 3px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --shadow-gold: 0 0 20px rgba(201, 162, 39, 0.15);
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--obsidian);
+  color: var(--parchment);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Paper grain texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ============================================
+   TYPOGRAPHY
+   ============================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ivory);
+}
+
+h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: 2rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+h4 {
+  font-size: 1.25rem;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* ============================================
+   CUSTOM COMPONENTS
+   ============================================ */
+
+/* Tribunal Card */
+.tribunal-card {
+  background: var(--slate);
+  border: var(--border-thin) solid var(--slate-light);
+  position: relative;
+  overflow: hidden;
+}
+
+.tribunal-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--gold-dark) 100%);
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.tribunal-card:hover::before {
+  opacity: 1;
+}
+
+/* Gold accent card */
+.tribunal-card-gold {
+  background: var(--slate);
+  border: var(--border-thin) solid var(--gold-dark);
+  box-shadow: var(--shadow-gold);
+}
+
+.tribunal-card-gold::before {
+  opacity: 1;
+}
+
+/* Ruled lines pattern */
+.ruled-lines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(107, 107, 115, 0.1) 31px,
+    rgba(107, 107, 115, 0.1) 32px
+  );
+}
+
+/* Vertical rule accent */
+.vertical-rule {
+  position: relative;
+  padding-left: var(--space-lg);
+}
+
+.vertical-rule::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--gold);
+}
+
+/* Section divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--slate-light) 50%, transparent 100%);
+  margin: var(--space-2xl) 0;
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+
+.btn {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.75rem 1.5rem;
+  border: var(--border-medium) solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary {
+  background: var(--gold);
+  color: var(--obsidian);
+  border-color: var(--gold);
+}
+
+.btn-primary:hover {
+  background: var(--gold-light);
+  border-color: var(--gold-light);
+  box-shadow: var(--shadow-gold);
+}
+
+.btn-primary:disabled {
+  background: var(--steel);
+  border-color: var(--steel);
+  color: var(--slate);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--parchment);
+  border-color: var(--steel);
+}
+
+.btn-secondary:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--steel-light);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  color: var(--parchment);
+  background: var(--slate);
+}
+
+.btn-danger {
+  background: var(--crimson);
+  color: var(--ivory);
+  border-color: var(--crimson);
+}
+
+.btn-danger:hover {
+  background: var(--crimson-light);
+  border-color: var(--crimson-light);
+}
+
+.btn-success {
+  background: var(--emerald);
+  color: var(--ivory);
+  border-color: var(--emerald);
+}
+
+.btn-success:hover {
+  background: var(--emerald-light);
+  border-color: var(--emerald-light);
+}
+
+/* ============================================
+   FORM ELEMENTS
+   ============================================ */
+
+.input {
+  background: var(--obsidian);
+  border: var(--border-thin) solid var(--slate-light);
+  color: var(--parchment);
+  padding: 0.75rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  transition: all var(--transition-fast);
+  width: 100%;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold-dark);
+}
+
+.input::placeholder {
+  color: var(--steel);
+}
+
+.input-mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.select {
+  background: var(--obsidian);
+  border: var(--border-thin) solid var(--slate-light);
+  color: var(--parchment);
+  padding: 0.75rem 2.5rem 0.75rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B6B73' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.checkbox {
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--obsidian);
+  border: var(--border-thin) solid var(--steel);
+  cursor: pointer;
+  appearance: none;
+  position: relative;
+}
+
+.checkbox:checked {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.checkbox:checked::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--obsidian);
+  font-size: 0.875rem;
+  font-weight: bold;
+}
+
+/* ============================================
+   BADGES & STATUS
+   ============================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: var(--border-thin) solid;
+}
+
+.badge-gold {
+  background: rgba(201, 162, 39, 0.1);
+  color: var(--gold);
+  border-color: var(--gold-dark);
+}
+
+.badge-emerald {
+  background: rgba(45, 106, 79, 0.1);
+  color: var(--emerald-light);
+  border-color: var(--emerald);
+}
+
+.badge-crimson {
+  background: rgba(139, 38, 53, 0.1);
+  color: var(--crimson-light);
+  border-color: var(--crimson);
+}
+
+.badge-steel {
+  background: rgba(107, 107, 115, 0.1);
+  color: var(--steel-light);
+  border-color: var(--steel);
+}
+
+/* ============================================
+   STAT CARDS
+   ============================================ */
+
+.stat-card {
+  background: var(--slate);
+  border: var(--border-thin) solid var(--slate-light);
+  padding: var(--space-lg);
+  position: relative;
+}
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: var(--space-lg);
+  right: var(--space-lg);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--slate-light), transparent);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--steel);
+  margin-bottom: var(--space-xs);
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--ivory);
+  line-height: 1;
+}
+
+.stat-value-gold {
+  color: var(--gold);
+}
+
+.stat-value-emerald {
+  color: var(--emerald-light);
+}
+
+.stat-value-crimson {
+  color: var(--crimson-light);
+}
+
+/* ============================================
+   PROGRESS BARS
+   ============================================ */
+
+.progress-bar {
+  height: 8px;
+  background: var(--slate-light);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(0,0,0,0.1) 4px,
+    rgba(0,0,0,0.1) 8px
+  );
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width var(--transition-slow);
+  position: relative;
+}
+
+.progress-fill-gold {
+  background: linear-gradient(90deg, var(--gold-dark), var(--gold));
+}
+
+.progress-fill-emerald {
+  background: linear-gradient(90deg, var(--emerald), var(--emerald-light));
+}
+
+.progress-fill-crimson {
+  background: linear-gradient(90deg, var(--crimson), var(--crimson-light));
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-base) ease forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp var(--transition-slow) ease forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn var(--transition-slow) ease forwards;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Staggered animations */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+.stagger-6 { animation-delay: 300ms; }
+
+/* ============================================
+   WALLET ADAPTER OVERRIDES
+   ============================================ */
+
+.wallet-adapter-button {
+  background: var(--gold) !important;
+  color: var(--obsidian) !important;
+  font-family: var(--font-body) !important;
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  border-radius: 0 !important;
+  border: var(--border-medium) solid var(--gold) !important;
+  transition: all var(--transition-base) !important;
+  height: auto !important;
+  padding: 0.625rem 1.25rem !important;
+}
+
+.wallet-adapter-button:hover {
+  background: var(--gold-light) !important;
+  border-color: var(--gold-light) !important;
+}
+
+.wallet-adapter-button-trigger {
+  background: var(--gold) !important;
+}
+
+.wallet-adapter-dropdown-list {
+  background: var(--slate) !important;
+  border: var(--border-thin) solid var(--slate-light) !important;
+  border-radius: 0 !important;
+}
+
+.wallet-adapter-dropdown-list-item {
+  background: transparent !important;
+  color: var(--parchment) !important;
+  font-family: var(--font-body) !important;
+}
+
+.wallet-adapter-dropdown-list-item:hover {
+  background: var(--slate-light) !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  background: var(--slate) !important;
+  border: var(--border-thin) solid var(--slate-light) !important;
+  border-radius: 0 !important;
+}
+
+.wallet-adapter-modal-title {
+  font-family: var(--font-display) !important;
+  color: var(--ivory) !important;
+}
+
+/* ============================================
+   SCROLLBAR
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--obsidian);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--slate-light);
+  border: 2px solid var(--obsidian);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--steel);
+}
+
+/* ============================================
+   SELECTION
+   ============================================ */
+
+::selection {
+  background: var(--gold);
+  color: var(--obsidian);
+}
+
+/* ============================================
+   FOCUS STATES
+   ============================================ */
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.text-gold { color: var(--gold); }
+.text-crimson { color: var(--crimson-light); }
+.text-emerald { color: var(--emerald-light); }
+.text-steel { color: var(--steel); }
+.text-parchment { color: var(--parchment); }
+.text-ivory { color: var(--ivory); }
+
+.bg-obsidian { background: var(--obsidian); }
+.bg-slate { background: var(--slate); }
+.bg-slate-light { background: var(--slate-light); }
+
+.border-gold { border-color: var(--gold); }
+.border-slate { border-color: var(--slate-light); }
+.border-steel { border-color: var(--steel); }
+
+.glow-gold { box-shadow: var(--shadow-gold); }
