@@ -4257,37 +4257,33 @@ var TribunalCraftClient = class {
   }
   /**
    * Fetch all disputes (with error handling for old account formats)
-   * Falls back to individual fetching if batch fetch fails
+   * Uses individual fetching to handle incompatible old disputes gracefully
    */
   async fetchAllDisputes() {
-    try {
-      const accounts = await this.anchorProgram.account.dispute.all();
-      return accounts;
-    } catch (batchErr) {
-      console.warn("Batch dispute fetch failed, trying individual fetch:", batchErr);
-      try {
-        const subjects = await this.fetchAllSubjects();
-        const disputes = [];
-        for (const subject of subjects) {
-          const disputeCount = subject.account.disputeCount;
-          for (let i = 0; i < disputeCount; i++) {
-            try {
-              const [disputePda] = this.pda.dispute(subject.publicKey, i);
-              const dispute = await this.fetchDispute(disputePda);
-              if (dispute) {
-                disputes.push({ publicKey: disputePda, account: dispute });
-              }
-            } catch (err) {
-              console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
+    const subjects = await this.fetchAllSubjects();
+    const disputes = [];
+    for (const subject of subjects) {
+      const disputeCount = subject.account.disputeCount;
+      for (let i = 0; i < disputeCount; i++) {
+        try {
+          const [disputePda] = this.pda.dispute(subject.publicKey, i);
+          const accountInfo = await this.connection.getAccountInfo(disputePda);
+          if (!accountInfo) continue;
+          try {
+            const dispute = await this.anchorProgram.account.dispute.fetch(disputePda);
+            if (dispute) {
+              disputes.push({ publicKey: disputePda, account: dispute });
             }
+          } catch (deserializeErr) {
+            console.warn(`Dispute ${i} for subject ${subject.publicKey.toBase58()} has incompatible format, skipping`);
           }
+        } catch (err) {
+          console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
         }
-        return disputes;
-      } catch (fallbackErr) {
-        console.warn("Fallback dispute fetch failed:", fallbackErr);
-        return [];
       }
     }
+    console.log(`Fetched ${disputes.length} disputes from ${subjects.length} subjects`);
+    return disputes;
   }
   /**
    * Fetch all juror accounts
