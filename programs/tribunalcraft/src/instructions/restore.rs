@@ -124,6 +124,7 @@ pub fn submit_restore(
     dispute.is_restore = true;
     dispute.restore_stake = stake_amount;
     dispute.restorer = ctx.accounts.restorer.key();
+    dispute.details_cid = details_cid.clone();
 
     // Voting starts immediately with 2x previous voting period
     let restore_voting_period = subject.restore_voting_period();

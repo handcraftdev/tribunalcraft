@@ -122,9 +122,14 @@ pub struct Dispute {
 
     /// Restorer's pubkey (for restorations only, used for refunds)
     pub restorer: Pubkey,
+
+    /// Details CID for restoration requests (stored here since no ChallengerRecord)
+    pub details_cid: String,
 }
 
 impl Dispute {
+    pub const MAX_CID_LEN: usize = 64;
+
     pub const LEN: usize = 8 +  // discriminator
         32 +    // subject
         1 +     // dispute_type
@@ -150,7 +155,8 @@ impl Dispute {
         2 +     // defenders_claimed
         1 +     // is_restore
         8 +     // restore_stake
-        32;     // restorer
+        32 +    // restorer
+        4 + Self::MAX_CID_LEN; // details_cid (string with length prefix)
 
     /// Total stake held from all sources (pool + direct)
     pub fn total_stake_held(&self) -> u64 {

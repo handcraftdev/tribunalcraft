@@ -3057,6 +3057,13 @@ var idl_default = {
               "Restorer's pubkey (for restorations only, used for refunds)"
             ],
             type: "pubkey"
+          },
+          {
+            name: "details_cid",
+            docs: [
+              "Details CID for restoration requests (stored here since no ChallengerRecord)"
+            ],
+            type: "string"
           }
         ]
       }

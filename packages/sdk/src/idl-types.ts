@@ -2933,6 +2933,13 @@ export type Tribunalcraft = {
               "Restorer's pubkey (for restorations only, used for refunds)"
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "detailsCid",
+            "docs": [
+              "Details CID for restoration requests (stored here since no ChallengerRecord)"
+            ],
+            "type": "string"
           }
         ]
       }

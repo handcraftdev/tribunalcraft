@@ -279,6 +279,12 @@ pub fn submit_dispute(
     dispute.challengers_claimed = 0;
     dispute.defenders_claimed = 0;
 
+    // Not a restoration
+    dispute.is_restore = false;
+    dispute.restore_stake = 0;
+    dispute.restorer = Pubkey::default();
+    dispute.details_cid = String::new();
+
     // Voting starts immediately
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);
 
@@ -618,6 +624,12 @@ pub fn submit_free_dispute(
     dispute.snapshot_defender_count = 0;
     dispute.challengers_claimed = 0;
     dispute.defenders_claimed = 0;
+
+    // Not a restoration
+    dispute.is_restore = false;
+    dispute.restore_stake = 0;
+    dispute.restorer = Pubkey::default();
+    dispute.details_cid = String::new();
 
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);
     msg!("Free dispute submitted: {} - voting started", details_cid);
