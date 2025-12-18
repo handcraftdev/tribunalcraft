@@ -56,8 +56,8 @@ pub fn vote_on_dispute(
 
     require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
 
-    // Ensure this is not an appeal (use vote_on_appeal for appeals)
-    require!(!dispute.is_appeal, TribunalCraftError::InvalidConfig);
+    // Ensure this is not a restoration (use vote_on_restore for restorations)
+    require!(!dispute.is_restore, TribunalCraftError::InvalidConfig);
 
     // Validate stake allocation (any amount > 0 is allowed - platform can enforce minimums)
     require!(stake_allocation > 0, TribunalCraftError::VoteAllocationBelowMinimum);
@@ -85,8 +85,8 @@ pub fn vote_on_dispute(
     vote_record.juror = ctx.accounts.juror.key();
     vote_record.juror_account = juror_account.key();
     vote_record.choice = choice;
-    vote_record.appeal_choice = AppealVoteChoice::default();
-    vote_record.is_appeal_vote = false;
+    vote_record.restore_choice = RestoreVoteChoice::default();
+    vote_record.is_restore_vote = false;
     vote_record.stake_allocated = stake_allocation;
     vote_record.voting_power = voting_power;
     // Free cases: no lock, stake can be unlocked immediately after voting ends
@@ -174,13 +174,13 @@ pub fn add_to_vote(
     juror_account.available_stake -= additional_stake;
 
     // Update dispute vote weights based on original choice
-    // Handle both regular disputes and appeals
-    if vote_record.is_appeal_vote {
-        match vote_record.appeal_choice {
-            AppealVoteChoice::ForRestoration => {
+    // Handle both regular disputes and restorations
+    if vote_record.is_restore_vote {
+        match vote_record.restore_choice {
+            RestoreVoteChoice::ForRestoration => {
                 dispute.votes_favor_weight += additional_voting_power;
             }
-            AppealVoteChoice::AgainstRestoration => {
+            RestoreVoteChoice::AgainstRestoration => {
                 dispute.votes_against_weight += additional_voting_power;
             }
         }
@@ -214,11 +214,11 @@ pub fn add_to_vote(
 }
 
 // =============================================================================
-// Appeal Voting
+// Restoration Voting
 // =============================================================================
 
 #[derive(Accounts)]
-pub struct VoteOnAppeal<'info> {
+pub struct VoteOnRestore<'info> {
     #[account(mut)]
     pub juror: Signer<'info>,
 
@@ -240,7 +240,7 @@ pub struct VoteOnAppeal<'info> {
         mut,
         has_one = subject,
         constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
-        constraint = dispute.is_appeal @ TribunalCraftError::InvalidConfig, // Must be an appeal
+        constraint = dispute.is_restore @ TribunalCraftError::InvalidConfig, // Must be a restoration
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -256,12 +256,12 @@ pub struct VoteOnAppeal<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Vote on an appeal with stake allocation
-/// ForRestoration = vote to restore subject to Active
+/// Vote on a restoration with stake allocation
+/// ForRestoration = vote to restore subject to Valid
 /// AgainstRestoration = vote to keep subject Invalidated
-pub fn vote_on_appeal(
-    ctx: Context<VoteOnAppeal>,
-    choice: AppealVoteChoice,
+pub fn vote_on_restore(
+    ctx: Context<VoteOnRestore>,
+    choice: RestoreVoteChoice,
     stake_allocation: u64,
     rationale_cid: String,
 ) -> Result<()> {
@@ -288,10 +288,10 @@ pub fn vote_on_appeal(
     // ForRestoration maps to votes_favor (ChallengerWins = subject restored)
     // AgainstRestoration maps to votes_against (DefenderWins = subject stays invalidated)
     match choice {
-        AppealVoteChoice::ForRestoration => {
+        RestoreVoteChoice::ForRestoration => {
             dispute.votes_favor_weight += voting_power;
         }
-        AppealVoteChoice::AgainstRestoration => {
+        RestoreVoteChoice::AgainstRestoration => {
             dispute.votes_against_weight += voting_power;
         }
     }
@@ -301,12 +301,12 @@ pub fn vote_on_appeal(
     vote_record.dispute = dispute.key();
     vote_record.juror = ctx.accounts.juror.key();
     vote_record.juror_account = juror_account.key();
-    vote_record.choice = VoteChoice::default(); // Not used for appeals
-    vote_record.appeal_choice = choice;
-    vote_record.is_appeal_vote = true;
+    vote_record.choice = VoteChoice::default(); // Not used for restorations
+    vote_record.restore_choice = choice;
+    vote_record.is_restore_vote = true;
     vote_record.stake_allocated = stake_allocation;
     vote_record.voting_power = voting_power;
-    // Appeals don't use free_case - use standard unlock buffer
+    // Restorations don't use free_case - use standard unlock buffer
     vote_record.unlock_at = dispute.voting_ends_at + STAKE_UNLOCK_BUFFER;
     vote_record.reputation_processed = false;
     vote_record.reward_claimed = false;
@@ -319,6 +319,6 @@ pub fn vote_on_appeal(
     juror_account.votes_cast += 1;
     juror_account.last_vote_at = clock.unix_timestamp;
 
-    msg!("Appeal vote cast: {:?} with {} voting power", choice, voting_power);
+    msg!("Restoration vote cast: {:?} with {} voting power", choice, voting_power);
     Ok(())
 }

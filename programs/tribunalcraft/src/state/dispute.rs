@@ -111,14 +111,17 @@ pub struct Dispute {
     pub defenders_claimed: u16,
 
     // =========================================================================
-    // Appeal fields
+    // Restoration fields
     // =========================================================================
 
-    /// True if this dispute is an appeal (reverses the meaning of outcomes)
-    pub is_appeal: bool,
+    /// True if this dispute is a restoration request (reverses the meaning of outcomes)
+    pub is_restore: bool,
 
-    /// Stake posted by appellant (for appeals only)
-    pub appeal_stake: u64,
+    /// Stake posted by restorer (for restorations only)
+    pub restore_stake: u64,
+
+    /// Restorer's pubkey (for restorations only, used for refunds)
+    pub restorer: Pubkey,
 }
 
 impl Dispute {
@@ -145,8 +148,9 @@ impl Dispute {
         2 +     // snapshot_defender_count
         2 +     // challengers_claimed
         2 +     // defenders_claimed
-        1 +     // is_appeal
-        8;      // appeal_stake
+        1 +     // is_restore
+        8 +     // restore_stake
+        32;     // restorer
 
     /// Total stake held from all sources (pool + direct)
     pub fn total_stake_held(&self) -> u64 {

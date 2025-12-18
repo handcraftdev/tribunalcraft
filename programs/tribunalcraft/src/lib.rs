@@ -175,19 +175,19 @@ pub mod tribunalcraft {
     }
 
     // =========================================================================
-    // Appeal Instructions
+    // Restore Instructions
     // =========================================================================
 
-    /// Submit an appeal against an invalidated subject
-    /// Appeals allow community to reverse previous invalidation decisions
-    /// Appellant stakes (no bond required), voting period is 2x previous
-    pub fn submit_appeal(
-        ctx: Context<SubmitAppeal>,
+    /// Submit a restoration request against an invalidated subject
+    /// Restorations allow community to reverse previous invalidation decisions
+    /// Restorer stakes (no bond required), voting period is 2x previous
+    pub fn submit_restore(
+        ctx: Context<SubmitRestore>,
         dispute_type: DisputeType,
         details_cid: String,
         stake_amount: u64,
     ) -> Result<()> {
-        instructions::submit_appeal(ctx, dispute_type, details_cid, stake_amount)
+        instructions::submit_restore(ctx, dispute_type, details_cid, stake_amount)
     }
 
     // =========================================================================
@@ -204,16 +204,16 @@ pub mod tribunalcraft {
         instructions::vote_on_dispute(ctx, choice, stake_allocation, rationale_cid)
     }
 
-    /// Vote on an appeal with stake allocation
-    /// ForRestoration = vote to restore subject to Active
+    /// Vote on a restoration with stake allocation
+    /// ForRestoration = vote to restore subject to Valid
     /// AgainstRestoration = vote to keep subject Invalidated
-    pub fn vote_on_appeal(
-        ctx: Context<VoteOnAppeal>,
-        choice: AppealVoteChoice,
+    pub fn vote_on_restore(
+        ctx: Context<VoteOnRestore>,
+        choice: RestoreVoteChoice,
         stake_allocation: u64,
         rationale_cid: String,
     ) -> Result<()> {
-        instructions::vote_on_appeal(ctx, choice, stake_allocation, rationale_cid)
+        instructions::vote_on_restore(ctx, choice, stake_allocation, rationale_cid)
     }
 
     /// Add more stake to an existing vote
@@ -261,6 +261,13 @@ pub mod tribunalcraft {
         ctx: Context<ClaimDefenderReward>,
     ) -> Result<()> {
         instructions::claim_defender_reward(ctx)
+    }
+
+    /// Claim restorer refund for failed restoration request
+    pub fn claim_restorer_refund(
+        ctx: Context<ClaimRestorerRefund>,
+    ) -> Result<()> {
+        instructions::claim_restorer_refund(ctx)
     }
 
     // NOTE: close_escrow removed - no escrow in simplified model

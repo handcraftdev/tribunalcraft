@@ -318,6 +318,12 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
     // Update subject stake with net amount
     subject.available_stake += net_stake;
 
+    // Revive dormant subject when stake is added
+    if subject.status == SubjectStatus::Dormant && subject.available_stake > 0 {
+        subject.status = SubjectStatus::Valid;
+        msg!("Subject revived from dormant to valid");
+    }
+
     // If proportional mode during dispute, update dispute tracking
     if is_proportional_during_dispute {
         let dispute = ctx.accounts.dispute.as_mut()

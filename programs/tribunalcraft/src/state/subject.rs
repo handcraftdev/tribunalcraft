@@ -4,9 +4,11 @@ use anchor_lang::prelude::*;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubjectStatus {
     #[default]
-    Valid,       // Can be staked on and disputed
+    Valid,       // Has stake, can be disputed
     Disputed,    // Currently has an active dispute
     Invalid,     // Dispute upheld, challengers won (terminal)
+    Dormant,     // No stake backing, needs defender stake to revive
+    Restoring,   // Currently has an active restoration request
 }
 
 /// Subject that defenders back - global (identified by subject_id)
@@ -60,13 +62,13 @@ pub struct Subject {
     pub updated_at: i64,
 
     // =========================================================================
-    // Appeal tracking fields
+    // Restoration tracking fields
     // =========================================================================
 
-    /// Previous dispute's (stake + bond) - minimum stake required for appeal
+    /// Previous dispute's (stake + bond) - minimum stake required for restoration
     pub last_dispute_total: u64,
 
-    /// Previous dispute's voting period - appeals use 2x this value
+    /// Previous dispute's voting period - restorations use 2x this value
     pub last_voting_period: i64,
 }
 
@@ -96,33 +98,37 @@ impl Subject {
     }
 
     /// Check if subject can accept new stakes (both standalone and linked)
-    /// Invalidated is terminal - no more staking allowed
+    /// Invalid is terminal - no more staking allowed
+    /// Dormant can be revived by staking
+    /// Disputed allows proportional staking
+    /// Restoring doesn't accept stakes (subject is Invalid being restored)
     pub fn can_stake(&self) -> bool {
-        matches!(self.status, SubjectStatus::Valid | SubjectStatus::Disputed)
+        matches!(self.status, SubjectStatus::Valid | SubjectStatus::Disputed | SubjectStatus::Dormant)
     }
 
-    /// Check if subject can be disputed (original dispute on valid subjects)
+    /// Check if subject can be disputed (only valid subjects with stake)
+    /// Dormant subjects cannot be disputed - need stake first
     pub fn can_dispute(&self) -> bool {
         self.status == SubjectStatus::Valid
     }
 
-    /// Check if subject can be appealed (after being invalid)
-    pub fn can_appeal(&self) -> bool {
+    /// Check if subject can be restored (after being invalid)
+    pub fn can_restore(&self) -> bool {
         self.status == SubjectStatus::Invalid
     }
 
-    /// Check if there's an active dispute
+    /// Check if there's an active dispute or restoration
     pub fn has_active_dispute(&self) -> bool {
-        self.status == SubjectStatus::Disputed && self.dispute != Pubkey::default()
+        matches!(self.status, SubjectStatus::Disputed | SubjectStatus::Restoring) && self.dispute != Pubkey::default()
     }
 
-    /// Get the voting period for an appeal (2x previous)
-    pub fn appeal_voting_period(&self) -> i64 {
+    /// Get the voting period for a restoration (2x previous)
+    pub fn restore_voting_period(&self) -> i64 {
         self.last_voting_period.saturating_mul(2)
     }
 
-    /// Get minimum stake required for appeal
-    pub fn min_appeal_stake(&self) -> u64 {
+    /// Get minimum stake required for restoration
+    pub fn min_restore_stake(&self) -> u64 {
         self.last_dispute_total
     }
 }

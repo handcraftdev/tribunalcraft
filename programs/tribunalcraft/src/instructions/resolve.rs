@@ -48,8 +48,8 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Store dispute totals for future appeals
     let dispute_voting_period = dispute.voting_ends_at - dispute.voting_starts_at;
-    subject.last_dispute_total = if dispute.is_appeal {
-        dispute.appeal_stake
+    subject.last_dispute_total = if dispute.is_restore {
+        dispute.restore_stake
     } else {
         dispute.total_bond + dispute.total_stake_held()
     };
@@ -60,26 +60,35 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Update available_stake: subtract stake that was at risk (both outcomes)
     // This is done regardless of outcome since the stake was committed to the dispute
-    if !dispute.is_appeal {
+    if !dispute.is_restore {
         let stake_at_risk = dispute.total_stake_held();
         subject.available_stake = subject.available_stake.saturating_sub(stake_at_risk);
         msg!("Available stake updated: -{} (was at risk)", stake_at_risk);
     }
 
     // Update subject status based on outcome
-    if dispute.is_appeal {
+    if dispute.is_restore {
+        // Calculate restore stake after fees (80% = WINNER_SHARE_BPS)
+        let restore_net = (dispute.restore_stake as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
+
         match outcome {
             ResolutionOutcome::ChallengerWins => {
+                // Restoration successful - restore subject with restorer's stake (minus fees)
+                // Transfer stake from dispute to subject
+                **dispute.to_account_info().try_borrow_mut_lamports()? -= restore_net;
+                **subject.to_account_info().try_borrow_mut_lamports()? += restore_net;
+
+                subject.available_stake = restore_net;
                 subject.status = SubjectStatus::Valid;
                 subject.dispute = Pubkey::default();
-                subject.defender_count = 0;
-                subject.available_stake = 0;
-                msg!("Appeal resolved: Challenger wins - subject returns to valid");
+                subject.defender_count = 1; // Restorer becomes first defender
+                msg!("Restoration resolved: Successful - subject valid with {} lamports", restore_net);
             }
             ResolutionOutcome::NoParticipation | ResolutionOutcome::DefenderWins => {
+                // Restoration failed - restorer can claim refund via ClaimRestorerRefund
                 subject.status = SubjectStatus::Invalid;
                 subject.dispute = Pubkey::default();
-                msg!("Appeal resolved: Defender wins - subject remains invalid");
+                msg!("Restoration resolved: Rejected - restorer can claim refund");
             }
             ResolutionOutcome::None => {
                 return Err(TribunalCraftError::InvalidVoteChoice.into());
@@ -88,9 +97,15 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     } else {
         match outcome {
             ResolutionOutcome::NoParticipation | ResolutionOutcome::DefenderWins => {
-                subject.status = SubjectStatus::Valid;
+                // Defender wins - check if stake remains
+                if subject.available_stake > 0 {
+                    subject.status = SubjectStatus::Valid;
+                    msg!("Dispute resolved - defender wins, subject valid");
+                } else {
+                    subject.status = SubjectStatus::Dormant;
+                    msg!("Dispute resolved - defender wins, subject dormant (no stake)");
+                }
                 subject.dispute = Pubkey::default();
-                msg!("Dispute resolved - defender wins, subject returns to valid");
             }
             ResolutionOutcome::ChallengerWins => {
                 subject.status = SubjectStatus::Invalid;
@@ -235,11 +250,14 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
     // =========================================================================
 
     // Calculate juror pot from dispute bond + stake totals
-    // Note: total_bond and stakes are NET (after fee deduction)
-    // To get original fees: fee = net * fee_rate / (1 - fee_rate)
-    // Formula: total_fees = total_net * TOTAL_FEE_BPS / (10000 - TOTAL_FEE_BPS)
-    let total_net = dispute.total_bond.saturating_add(dispute.total_stake_held());
-    let total_fees = (total_net as u128 * TOTAL_FEE_BPS as u128 / (10000 - TOTAL_FEE_BPS) as u128) as u64;
+    // For restorations, use restore_stake instead of bond + stake
+    // Note: amounts are the full stake/bond, fees are calculated as 20% of total
+    let total_pool = if dispute.is_restore {
+        dispute.restore_stake
+    } else {
+        dispute.total_bond.saturating_add(dispute.total_stake_held())
+    };
+    let total_fees = (total_pool as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
     let juror_pot = (total_fees as u128 * JUROR_SHARE_BPS as u128 / 10000) as u64;
 
     if juror_pot == 0 {
@@ -260,8 +278,14 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
     // Reward proportional to voting power (all jurors share the pot)
     let reward = (juror_pot as u128 * vote_record.voting_power as u128 / total_vote_weight as u128) as u64;
 
-    // Transfer reward from subject to JurorAccount PDA
-    **subject.to_account_info().try_borrow_mut_lamports()? -= reward;
+    // Transfer reward from appropriate source to JurorAccount PDA
+    // For restorations: from dispute account (where restore_stake is)
+    // For regular disputes: from subject account (where bonds/stakes are)
+    if dispute.is_restore {
+        **dispute.to_account_info().try_borrow_mut_lamports()? -= reward;
+    } else {
+        **subject.to_account_info().try_borrow_mut_lamports()? -= reward;
+    }
     **juror_account.to_account_info().try_borrow_mut_lamports()? += reward;
 
     // Update juror balance accounting
@@ -467,3 +491,53 @@ pub fn claim_defender_reward(ctx: Context<ClaimDefenderReward>) -> Result<()> {
 
 // NOTE: CloseEscrow removed - no escrow in simplified model
 // All funds managed on subject account with accounting
+
+// =============================================================================
+// CLAIM RESTORER REFUND (for failed restorations)
+// Returns 80% of restore stake to restorer when restoration is rejected
+// =============================================================================
+
+#[derive(Accounts)]
+pub struct ClaimRestorerRefund<'info> {
+    #[account(mut)]
+    pub restorer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = dispute.is_restore @ TribunalCraftError::NotARestore,
+        constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeNotFound,
+        constraint = dispute.restorer == restorer.key() @ TribunalCraftError::Unauthorized,
+        constraint = !dispute.pool_reward_claimed @ TribunalCraftError::RewardAlreadyClaimed,
+    )]
+    pub dispute: Account<'info, Dispute>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn claim_restorer_refund(ctx: Context<ClaimRestorerRefund>) -> Result<()> {
+    let dispute = &mut ctx.accounts.dispute;
+
+    // Only refund on failed restorations (DefenderWins or NoParticipation)
+    match dispute.outcome {
+        ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
+            // Calculate refund (80% after fees)
+            let refund = (dispute.restore_stake as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
+
+            // Transfer from dispute to restorer
+            **dispute.to_account_info().try_borrow_mut_lamports()? -= refund;
+            **ctx.accounts.restorer.to_account_info().try_borrow_mut_lamports()? += refund;
+
+            dispute.pool_reward_claimed = true;
+            msg!("Restorer refund claimed: {} lamports", refund);
+        }
+        ResolutionOutcome::ChallengerWins => {
+            // Restoration succeeded - stake went to subject, nothing to claim
+            return Err(TribunalCraftError::NotEligibleForReward.into());
+        }
+        _ => {
+            return Err(TribunalCraftError::DisputeNotFound.into());
+        }
+    }
+
+    Ok(())
+}
