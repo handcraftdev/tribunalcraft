@@ -297,30 +297,49 @@ export class TribunalCraftClient {
 
   /**
    * Helper to run RPC with optional simulation first
-   * Wraps Anchor's rpc() call with simulation check
+   * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
    */
-  private async rpcWithSimulation<T>(
+  private async rpcWithSimulation(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     methodBuilder: {
       simulate: () => Promise<any>;
       rpc: () => Promise<string>;
-      transaction: () => Promise<Transaction>;
     },
     actionName: string
   ): Promise<string> {
     if (this.simulateFirst) {
       console.log(`[Simulation] ${actionName}...`);
-      const tx = await methodBuilder.transaction();
-      const result = await this.simulateTransaction(tx);
+      try {
+        const simResult = await methodBuilder.simulate();
+        console.log(`[Simulation] ${actionName} passed`);
+        if (simResult.raw && simResult.raw.length > 0) {
+          // Log last few lines for debugging
+          console.log("[Simulation] Logs:", simResult.raw.slice(-5).join("\n"));
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const { code, message } = this.parseErrorFromLogs([errorMessage]);
 
-      if (!result.success) {
-        const errorMsg = `Simulation failed for ${actionName}: ${result.error}`;
+        // Try to extract logs from the error
+        let logs: string[] = [];
+        if (err && typeof err === "object" && "logs" in err) {
+          logs = (err as { logs: string[] }).logs || [];
+        }
+        if (logs.length === 0 && err && typeof err === "object" && "simulationResponse" in err) {
+          const simResponse = (err as { simulationResponse: { logs?: string[] } }).simulationResponse;
+          logs = simResponse?.logs || [];
+        }
+
+        // Parse error from logs if available
+        const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
+
+        const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
         console.error(errorMsg);
-        if (result.logs && result.logs.length > 0) {
-          console.error("Logs:", result.logs.slice(-10).join("\n"));
+        if (logs.length > 0) {
+          console.error("Logs:", logs.slice(-10).join("\n"));
         }
         throw new Error(errorMsg);
       }
-      console.log(`[Simulation] ${actionName} passed (${result.unitsConsumed} CU)`);
     }
 
     return methodBuilder.rpc();

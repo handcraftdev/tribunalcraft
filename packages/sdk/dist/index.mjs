@@ -3719,22 +3719,36 @@ var TribunalCraftClient = class {
   }
   /**
    * Helper to run RPC with optional simulation first
-   * Wraps Anchor's rpc() call with simulation check
+   * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
    */
   async rpcWithSimulation(methodBuilder, actionName) {
     if (this.simulateFirst) {
       console.log(`[Simulation] ${actionName}...`);
-      const tx = await methodBuilder.transaction();
-      const result = await this.simulateTransaction(tx);
-      if (!result.success) {
-        const errorMsg = `Simulation failed for ${actionName}: ${result.error}`;
+      try {
+        const simResult = await methodBuilder.simulate();
+        console.log(`[Simulation] ${actionName} passed`);
+        if (simResult.raw && simResult.raw.length > 0) {
+          console.log("[Simulation] Logs:", simResult.raw.slice(-5).join("\n"));
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const { code, message } = this.parseErrorFromLogs([errorMessage]);
+        let logs = [];
+        if (err && typeof err === "object" && "logs" in err) {
+          logs = err.logs || [];
+        }
+        if (logs.length === 0 && err && typeof err === "object" && "simulationResponse" in err) {
+          const simResponse = err.simulationResponse;
+          logs = simResponse?.logs || [];
+        }
+        const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
+        const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
         console.error(errorMsg);
-        if (result.logs && result.logs.length > 0) {
-          console.error("Logs:", result.logs.slice(-10).join("\n"));
+        if (logs.length > 0) {
+          console.error("Logs:", logs.slice(-10).join("\n"));
         }
         throw new Error(errorMsg);
       }
-      console.log(`[Simulation] ${actionName} passed (${result.unitsConsumed} CU)`);
     }
     return methodBuilder.rpc();
   }

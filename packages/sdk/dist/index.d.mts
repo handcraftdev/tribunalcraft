@@ -3811,7 +3811,7 @@ declare class TribunalCraftClient {
     simulateMethod(methodName: string, args: unknown[], accounts?: Record<string, PublicKey | null>): Promise<SimulationResult>;
     /**
      * Helper to run RPC with optional simulation first
-     * Wraps Anchor's rpc() call with simulation check
+     * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
      */
     private rpcWithSimulation;
     /**
