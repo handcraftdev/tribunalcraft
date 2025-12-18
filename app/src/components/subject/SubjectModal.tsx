@@ -593,7 +593,7 @@ export const SubjectModal = memo(function SubjectModal({
               {/* Subject Actions - based on subject status, not dispute status */}
               {showActions && (
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
-                  {!subject.account.freeCase && (subject.account.status.valid || subject.account.status.dormant) && onAddStake && (
+                  {!subject.account.freeCase && (subject.account.status.valid || subject.account.status.disputed || subject.account.status.dormant) && onAddStake && (
                     <JoinForm
                       type="defender"
                       onJoin={onAddStake}
