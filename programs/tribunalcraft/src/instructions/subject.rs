@@ -67,8 +67,8 @@ pub fn create_subject(
     subject.subject_id = subject_id;
     subject.defender_pool = Pubkey::default(); // standalone
     subject.details_cid = details_cid;
-    subject.status = SubjectStatus::Active;
-    subject.total_stake = stake;
+    subject.status = SubjectStatus::Valid;
+    subject.available_stake = stake;
     subject.max_stake = max_stake;
     subject.voting_period = voting_period;
     subject.defender_count = if stake > 0 { 1 } else { 0 };
@@ -142,8 +142,8 @@ pub fn create_linked_subject(
     subject.subject_id = subject_id;
     subject.defender_pool = defender_pool.key(); // linked
     subject.details_cid = details_cid;
-    subject.status = SubjectStatus::Active;
-    subject.total_stake = 0; // can be added by direct stakers
+    subject.status = SubjectStatus::Valid;
+    subject.available_stake = 0; // can be added by direct stakers
     subject.max_stake = max_stake;
     subject.voting_period = voting_period;
     subject.defender_count = 0;
@@ -197,8 +197,8 @@ pub fn create_free_subject(
     subject.subject_id = subject_id;
     subject.defender_pool = Pubkey::default();
     subject.details_cid = details_cid;
-    subject.status = SubjectStatus::Active;
-    subject.total_stake = 0;
+    subject.status = SubjectStatus::Valid;
+    subject.available_stake = 0;
     subject.max_stake = 0;
     subject.voting_period = voting_period;
     subject.defender_count = 0;
@@ -316,7 +316,7 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
     }
 
     // Update subject stake with net amount
-    subject.total_stake += net_stake;
+    subject.available_stake += net_stake;
 
     // If proportional mode during dispute, update dispute tracking
     if is_proportional_during_dispute {

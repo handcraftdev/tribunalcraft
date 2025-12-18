@@ -98,8 +98,8 @@ pub fn submit_dispute(
         challenger_account.created_at = clock.unix_timestamp;
     }
 
-    // Snapshot total stake BEFORE any changes (for claim calculations)
-    let snapshot_total_stake = subject.total_stake;
+    // Snapshot available stake BEFORE any changes (for claim calculations)
+    let snapshot_total_stake = subject.available_stake;
 
     // Calculate stakes at risk and pool transfer
     let (pool_stake_to_transfer, direct_stake_at_risk) = if subject.free_case {
@@ -114,7 +114,7 @@ pub fn submit_dispute(
                 let defender_pool = ctx.accounts.defender_pool.as_mut()
                     .ok_or(TribunalCraftError::InvalidConfig)?;
 
-                let total_available = defender_pool.available.saturating_add(subject.total_stake);
+                let total_available = defender_pool.available.saturating_add(subject.available_stake);
                 let required_hold = bond.min(subject.max_stake);
                 require!(total_available >= required_hold, TribunalCraftError::InsufficientAvailableStake);
 
@@ -131,7 +131,7 @@ pub fn submit_dispute(
                 (pool_transfer, direct_at_risk)
             } else {
                 // Standalone match mode
-                require!(subject.total_stake >= bond, TribunalCraftError::InsufficientAvailableStake);
+                require!(subject.available_stake >= bond, TribunalCraftError::InsufficientAvailableStake);
                 (0, bond)
             }
         } else {
@@ -142,7 +142,7 @@ pub fn submit_dispute(
 
                 // Pool contribution capped at max_stake
                 let pool_transfer = defender_pool.available.min(subject.max_stake);
-                let direct_at_risk = subject.total_stake;
+                let direct_at_risk = subject.available_stake;
 
                 // Update pool accounting (available -> held)
                 if pool_transfer > 0 {
@@ -154,7 +154,7 @@ pub fn submit_dispute(
                 (pool_transfer, direct_at_risk)
             } else {
                 // Standalone proportional: all direct stake at risk
-                (0, subject.total_stake)
+                (0, subject.available_stake)
             }
         }
     };
@@ -235,7 +235,7 @@ pub fn submit_dispute(
 
             // Consolidate into pool owner's stake (net amount)
             pool_owner_record.stake += net_pool_stake;
-            subject.total_stake += net_pool_stake;
+            subject.available_stake += net_pool_stake;
         }
 
         msg!("Pool stake: {} gross, {} net (fee: {})", pool_stake_to_transfer, net_pool_stake, pool_fee);
@@ -245,7 +245,7 @@ pub fn submit_dispute(
     if direct_fee > 0 {
         **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
-        subject.total_stake = subject.total_stake.saturating_sub(direct_fee);
+        subject.available_stake = subject.available_stake.saturating_sub(direct_fee);
         msg!("Direct stake fee collected: {}", direct_fee);
     }
 
@@ -405,7 +405,7 @@ pub fn add_to_dispute(
             let remaining_capacity = subject.max_stake.saturating_sub(total_held);
 
             let pool_available = defender_pool.available;
-            let direct_available = subject.total_stake.saturating_sub(dispute.direct_stake_held);
+            let direct_available = subject.available_stake.saturating_sub(dispute.direct_stake_held);
             let total_available = pool_available.saturating_add(direct_available);
 
             let required = bond.min(remaining_capacity);
@@ -425,7 +425,7 @@ pub fn add_to_dispute(
             (pool_amt, direct_amt)
         } else {
             // Standalone match mode
-            let direct_available = subject.total_stake.saturating_sub(dispute.direct_stake_held);
+            let direct_available = subject.available_stake.saturating_sub(dispute.direct_stake_held);
             require!(direct_available >= bond, TribunalCraftError::InsufficientAvailableStake);
             (0, bond)
         }
@@ -510,7 +510,7 @@ pub fn add_to_dispute(
 
             // Consolidate into pool owner's stake (net amount)
             pool_owner_record.stake += net_pool_stake;
-            subject.total_stake += net_pool_stake;
+            subject.available_stake += net_pool_stake;
 
             // Update snapshot to include new pool stake (net)
             dispute.snapshot_total_stake += net_pool_stake;
@@ -523,7 +523,7 @@ pub fn add_to_dispute(
     if direct_fee > 0 {
         **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
-        subject.total_stake = subject.total_stake.saturating_sub(direct_fee);
+        subject.available_stake = subject.available_stake.saturating_sub(direct_fee);
         // Note: Don't add to snapshot_total_stake since we're reducing existing stake
         msg!("Direct stake fee collected: {}", direct_fee);
     }

@@ -82,7 +82,7 @@ pub fn submit_appeal(
     dispute.pool_reward_claimed = false;
 
     // Snapshot state for historical record (likely 0 after invalidation)
-    dispute.snapshot_total_stake = subject.total_stake;
+    dispute.snapshot_total_stake = subject.available_stake;
     dispute.snapshot_defender_count = subject.defender_count;
     dispute.challengers_claimed = 0;
     dispute.defenders_claimed = 0;

@@ -4,9 +4,9 @@ use anchor_lang::prelude::*;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubjectStatus {
     #[default]
-    Active,      // Can be staked on and disputed
+    Valid,       // Can be staked on and disputed
     Disputed,    // Currently has an active dispute
-    Invalidated, // Dispute upheld, challengers won (terminal)
+    Invalid,     // Dispute upheld, challengers won (terminal)
 }
 
 /// Subject that defenders back - global (identified by subject_id)
@@ -25,8 +25,9 @@ pub struct Subject {
     /// Current status
     pub status: SubjectStatus,
 
-    /// Total stake backing this subject (standalone mode only)
-    pub total_stake: u64,
+    /// Available stake for disputes (direct stakes + pool contribution when disputed)
+    /// Updated at resolution: available_stake -= stake_at_risk
+    pub available_stake: u64,
 
     /// Max stake at risk per dispute (for match mode)
     pub max_stake: u64,
@@ -75,7 +76,7 @@ impl Subject {
         32 +    // defender_pool
         (4 + 64) + // details_cid (String: 4 byte length + 64 byte content)
         1 +     // status
-        8 +     // total_stake
+        8 +     // available_stake
         8 +     // max_stake
         8 +     // voting_period
         2 +     // defender_count
@@ -97,17 +98,17 @@ impl Subject {
     /// Check if subject can accept new stakes (both standalone and linked)
     /// Invalidated is terminal - no more staking allowed
     pub fn can_stake(&self) -> bool {
-        matches!(self.status, SubjectStatus::Active | SubjectStatus::Disputed)
+        matches!(self.status, SubjectStatus::Valid | SubjectStatus::Disputed)
     }
 
-    /// Check if subject can be disputed (original dispute on active subjects)
+    /// Check if subject can be disputed (original dispute on valid subjects)
     pub fn can_dispute(&self) -> bool {
-        self.status == SubjectStatus::Active
+        self.status == SubjectStatus::Valid
     }
 
-    /// Check if subject can be appealed (after being invalidated)
+    /// Check if subject can be appealed (after being invalid)
     pub fn can_appeal(&self) -> bool {
-        self.status == SubjectStatus::Invalidated
+        self.status == SubjectStatus::Invalid
     }
 
     /// Check if there's an active dispute

@@ -58,20 +58,28 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     // Note: Platform fees already collected upfront when bonds were deposited
     // No escrow transfer needed here
 
+    // Update available_stake: subtract stake that was at risk (both outcomes)
+    // This is done regardless of outcome since the stake was committed to the dispute
+    if !dispute.is_appeal {
+        let stake_at_risk = dispute.total_stake_held();
+        subject.available_stake = subject.available_stake.saturating_sub(stake_at_risk);
+        msg!("Available stake updated: -{} (was at risk)", stake_at_risk);
+    }
+
     // Update subject status based on outcome
     if dispute.is_appeal {
         match outcome {
             ResolutionOutcome::ChallengerWins => {
-                subject.status = SubjectStatus::Active;
+                subject.status = SubjectStatus::Valid;
                 subject.dispute = Pubkey::default();
                 subject.defender_count = 0;
-                subject.total_stake = 0;
-                msg!("Appeal resolved: Challenger wins - subject returns to active");
+                subject.available_stake = 0;
+                msg!("Appeal resolved: Challenger wins - subject returns to valid");
             }
             ResolutionOutcome::NoParticipation | ResolutionOutcome::DefenderWins => {
-                subject.status = SubjectStatus::Invalidated;
+                subject.status = SubjectStatus::Invalid;
                 subject.dispute = Pubkey::default();
-                msg!("Appeal resolved: Defender wins - subject remains invalidated");
+                msg!("Appeal resolved: Defender wins - subject remains invalid");
             }
             ResolutionOutcome::None => {
                 return Err(TribunalCraftError::InvalidVoteChoice.into());
@@ -80,13 +88,13 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     } else {
         match outcome {
             ResolutionOutcome::NoParticipation | ResolutionOutcome::DefenderWins => {
-                subject.status = SubjectStatus::Active;
+                subject.status = SubjectStatus::Valid;
                 subject.dispute = Pubkey::default();
-                msg!("Dispute resolved - defender wins, subject returns to active");
+                msg!("Dispute resolved - defender wins, subject returns to valid");
             }
             ResolutionOutcome::ChallengerWins => {
-                subject.status = SubjectStatus::Invalidated;
-                msg!("Dispute resolved: Challenger wins - subject invalidated");
+                subject.status = SubjectStatus::Invalid;
+                msg!("Dispute resolved: Challenger wins - subject invalid");
             }
             ResolutionOutcome::None => {
                 return Err(TribunalCraftError::InvalidVoteChoice.into());
