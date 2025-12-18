@@ -2,14 +2,14 @@ name: CI - Program
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'programs/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'Anchor.toml'
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'programs/**'
       - 'Cargo.toml'

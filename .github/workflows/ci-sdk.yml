@@ -2,11 +2,11 @@ name: CI - SDK
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'packages/sdk/**'
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'packages/sdk/**'
 
