@@ -136,9 +136,8 @@ pub fn create_linked_subject(
 
     require!(voting_period > 0, TribunalCraftError::InvalidConfig);
 
-    // Initialize pool if newly created (owner will be default/zero)
-    let is_new_pool = defender_pool.owner == Pubkey::default();
-    if is_new_pool {
+    // Initialize pool if newly created (created_at will be 0 for new accounts)
+    if defender_pool.created_at == 0 {
         defender_pool.owner = ctx.accounts.owner.key();
         defender_pool.total_stake = 0;
         defender_pool.available = 0;
