@@ -92,7 +92,8 @@ pub fn create_subject(
     Ok(())
 }
 
-/// Create a subject linked to a staker pool
+/// Create a subject linked to owner's defender pool
+/// Pool is auto-created with 0 stake if it doesn't exist
 #[derive(Accounts)]
 #[instruction(subject_id: Pubkey)]
 pub struct CreateLinkedSubject<'info> {
@@ -100,10 +101,11 @@ pub struct CreateLinkedSubject<'info> {
     pub owner: Signer<'info>,
 
     #[account(
-        mut,
-        has_one = owner @ TribunalCraftError::Unauthorized,
+        init_if_needed,
+        payer = owner,
+        space = DefenderPool::LEN,
         seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
-        bump = defender_pool.bump
+        bump
     )]
     pub defender_pool: Account<'info, DefenderPool>,
 
@@ -134,9 +136,19 @@ pub fn create_linked_subject(
 
     require!(voting_period > 0, TribunalCraftError::InvalidConfig);
 
-    // Note: max_stake is a risk cap per subject, not a reservation
-    // No need to check pool.available >= max_stake here
-    // The actual hold amount at dispute time will be min(bond, max_stake, pool.available)
+    // Initialize pool if newly created (owner will be default/zero)
+    let is_new_pool = defender_pool.owner == Pubkey::default();
+    if is_new_pool {
+        defender_pool.owner = ctx.accounts.owner.key();
+        defender_pool.total_stake = 0;
+        defender_pool.available = 0;
+        defender_pool.held = 0;
+        defender_pool.subject_count = 0;
+        defender_pool.pending_disputes = 0;
+        defender_pool.bump = ctx.bumps.defender_pool;
+        defender_pool.created_at = clock.unix_timestamp;
+        msg!("Auto-created defender pool for owner");
+    }
 
     // Initialize subject (linked mode)
     subject.subject_id = subject_id;
