@@ -4257,14 +4257,36 @@ var TribunalCraftClient = class {
   }
   /**
    * Fetch all disputes (with error handling for old account formats)
+   * Falls back to individual fetching if batch fetch fails
    */
   async fetchAllDisputes() {
     try {
       const accounts = await this.anchorProgram.account.dispute.all();
       return accounts;
-    } catch (err) {
-      console.warn("Failed to fetch disputes:", err);
-      return [];
+    } catch (batchErr) {
+      console.warn("Batch dispute fetch failed, trying individual fetch:", batchErr);
+      try {
+        const subjects = await this.fetchAllSubjects();
+        const disputes = [];
+        for (const subject of subjects) {
+          const disputeCount = subject.account.disputeCount;
+          for (let i = 0; i < disputeCount; i++) {
+            try {
+              const [disputePda] = this.pda.dispute(subject.publicKey, i);
+              const dispute = await this.fetchDispute(disputePda);
+              if (dispute) {
+                disputes.push({ publicKey: disputePda, account: dispute });
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
+            }
+          }
+        }
+        return disputes;
+      } catch (fallbackErr) {
+        console.warn("Fallback dispute fetch failed:", fallbackErr);
+        return [];
+      }
     }
   }
   /**

@@ -4067,6 +4067,7 @@ declare class TribunalCraftClient {
     }>>;
     /**
      * Fetch all disputes (with error handling for old account formats)
+     * Falls back to individual fetching if batch fetch fails
      */
     fetchAllDisputes(): Promise<Array<{
         publicKey: PublicKey;

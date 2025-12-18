@@ -1128,18 +1128,46 @@ export class TribunalCraftClient {
 
   /**
    * Fetch all disputes (with error handling for old account formats)
+   * Falls back to individual fetching if batch fetch fails
    */
   async fetchAllDisputes(): Promise<
     Array<{ publicKey: PublicKey; account: Dispute }>
   > {
     try {
+      // Try batch fetch first (most efficient)
       const accounts = await this.anchorProgram.account.dispute.all();
       return accounts as Array<{ publicKey: PublicKey; account: Dispute }>;
-    } catch (err) {
-      // If batch fetch fails (likely due to old account format),
-      // return empty array - new disputes will be created with correct format
-      console.warn("Failed to fetch disputes:", err);
-      return [];
+    } catch (batchErr) {
+      console.warn("Batch dispute fetch failed, trying individual fetch:", batchErr);
+
+      // Fallback: fetch subjects and derive dispute PDAs
+      try {
+        const subjects = await this.fetchAllSubjects();
+        const disputes: Array<{ publicKey: PublicKey; account: Dispute }> = [];
+
+        for (const subject of subjects) {
+          const disputeCount = subject.account.disputeCount;
+
+          // Fetch each dispute for this subject
+          for (let i = 0; i < disputeCount; i++) {
+            try {
+              const [disputePda] = this.pda.dispute(subject.publicKey, i);
+              const dispute = await this.fetchDispute(disputePda);
+              if (dispute) {
+                disputes.push({ publicKey: disputePda, account: dispute });
+              }
+            } catch (err) {
+              // Skip disputes that fail to deserialize (old format)
+              console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
+            }
+          }
+        }
+
+        return disputes;
+      } catch (fallbackErr) {
+        console.warn("Fallback dispute fetch failed:", fallbackErr);
+        return [];
+      }
     }
   }
 
