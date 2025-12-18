@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import {
   SubjectContent,
   DisputeContent,
@@ -21,9 +22,29 @@ export interface ContentUploadResult {
 }
 
 /**
+ * Generate upload auth signature
+ * Message format: "TribunalCraft Upload: {timestamp}"
+ */
+async function generateUploadAuth(
+  walletAddress: string,
+  signMessage: (message: Uint8Array) => Promise<Uint8Array>
+): Promise<{ wallet: string; signature: string; timestamp: number }> {
+  const timestamp = Date.now();
+  const message = `TribunalCraft Upload: ${timestamp}`;
+  const messageBytes = new TextEncoder().encode(message);
+
+  const signatureBytes = await signMessage(messageBytes);
+  const signature = Buffer.from(signatureBytes).toString("base64");
+
+  return { wallet: walletAddress, signature, timestamp };
+}
+
+/**
  * Hook for uploading TribunalCraft content to IPFS
+ * Requires wallet connection for authentication
  */
 export function useUpload() {
+  const { publicKey, signMessage } = useWallet();
   const [state, setState] = useState<UploadState>({
     isUploading: false,
     error: null,
@@ -34,11 +55,22 @@ export function useUpload() {
    */
   const uploadEvidence = useCallback(
     async (file: File): Promise<ContentUploadResult | null> => {
+      if (!publicKey || !signMessage) {
+        setState({ isUploading: false, error: "Wallet not connected" });
+        return null;
+      }
+
       setState({ isUploading: true, error: null });
 
       try {
+        // Generate auth signature
+        const auth = await generateUploadAuth(publicKey.toBase58(), signMessage);
+
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("wallet", auth.wallet);
+        formData.append("signature", auth.signature);
+        formData.append("timestamp", auth.timestamp.toString());
 
         const response = await fetch("/api/upload/evidence", {
           method: "POST",
@@ -64,7 +96,7 @@ export function useUpload() {
         return null;
       }
     },
-    []
+    [publicKey, signMessage]
   );
 
   /**
@@ -83,9 +115,17 @@ export function useUpload() {
         platformData?: Record<string, unknown>;
       }
     ): Promise<ContentUploadResult | null> => {
+      if (!publicKey || !signMessage) {
+        setState({ isUploading: false, error: "Wallet not connected" });
+        return null;
+      }
+
       setState({ isUploading: true, error: null });
 
       try {
+        // Generate auth signature
+        const auth = await generateUploadAuth(publicKey.toBase58(), signMessage);
+
         const content = createSubjectContent({
           title: data.title,
           description: data.description,
@@ -102,7 +142,7 @@ export function useUpload() {
         const response = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "subject", content }),
+          body: JSON.stringify({ type: "subject", content, auth }),
         });
 
         if (!response.ok) {
@@ -124,7 +164,7 @@ export function useUpload() {
         return null;
       }
     },
-    []
+    [publicKey, signMessage]
   );
 
   /**
@@ -142,9 +182,17 @@ export function useUpload() {
         platformData?: Record<string, unknown>;
       }
     ): Promise<ContentUploadResult | null> => {
+      if (!publicKey || !signMessage) {
+        setState({ isUploading: false, error: "Wallet not connected" });
+        return null;
+      }
+
       setState({ isUploading: true, error: null });
 
       try {
+        // Generate auth signature
+        const auth = await generateUploadAuth(publicKey.toBase58(), signMessage);
+
         const content = createDisputeContent({
           title: data.title,
           reason: data.reason,
@@ -158,7 +206,7 @@ export function useUpload() {
         const response = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "dispute", content }),
+          body: JSON.stringify({ type: "dispute", content, auth }),
         });
 
         if (!response.ok) {
@@ -180,7 +228,7 @@ export function useUpload() {
         return null;
       }
     },
-    []
+    [publicKey, signMessage]
   );
 
   /**

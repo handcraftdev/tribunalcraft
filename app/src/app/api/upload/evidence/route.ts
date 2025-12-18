@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createFilebaseClient } from "@/lib/filebase";
+import { authenticateUpload } from "@/lib/upload-auth";
 
 // Initialize Filebase client
 const filebase =
@@ -31,7 +32,12 @@ const ALLOWED_TYPES = [
  * POST /api/upload/evidence
  * Upload an evidence file to IPFS
  *
- * FormData: { file: File }
+ * FormData: {
+ *   file: File,
+ *   wallet: string,
+ *   signature: string,
+ *   timestamp: string (number as string)
+ * }
  * Returns: { cid: string, url: string, name: string, size: number }
  */
 export async function POST(request: NextRequest) {
@@ -45,6 +51,34 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const wallet = formData.get("wallet") as string | null;
+    const signature = formData.get("signature") as string | null;
+    const timestampStr = formData.get("timestamp") as string | null;
+
+    // Require authentication
+    if (!wallet || !signature || !timestampStr) {
+      return NextResponse.json(
+        { error: "Authentication required. Provide wallet, signature, and timestamp." },
+        { status: 401 }
+      );
+    }
+
+    const timestamp = parseInt(timestampStr, 10);
+    if (isNaN(timestamp)) {
+      return NextResponse.json(
+        { error: "Invalid timestamp" },
+        { status: 400 }
+      );
+    }
+
+    // Verify signature and check rate limit
+    const authResult = authenticateUpload(wallet, signature, timestamp);
+    if (!authResult.authenticated) {
+      return NextResponse.json(
+        { error: authResult.error },
+        { status: authResult.error?.includes("Rate limit") ? 429 : 401 }
+      );
+    }
 
     if (!file) {
       return NextResponse.json(

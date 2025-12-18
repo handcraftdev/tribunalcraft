@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createFilebaseClient } from "@/lib/filebase";
+import { authenticateUpload } from "@/lib/upload-auth";
 import {
   validateSubjectContent,
   validateDisputeContent,
@@ -21,7 +22,11 @@ const filebase =
  * POST /api/upload
  * Upload subject or dispute content to IPFS via Filebase
  *
- * Body: { type: "subject" | "dispute", content: SubjectContent | DisputeContent }
+ * Body: {
+ *   type: "subject" | "dispute",
+ *   content: SubjectContent | DisputeContent,
+ *   auth: { wallet: string, signature: string, timestamp: number }
+ * }
  * Returns: { cid: string, url: string }
  */
 export async function POST(request: NextRequest) {
@@ -34,7 +39,28 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { type, content } = body as { type: string; content: Record<string, unknown> };
+    const { type, content, auth } = body as {
+      type: string;
+      content: Record<string, unknown>;
+      auth?: { wallet: string; signature: string; timestamp: number };
+    };
+
+    // Require authentication
+    if (!auth || !auth.wallet || !auth.signature || !auth.timestamp) {
+      return NextResponse.json(
+        { error: "Authentication required. Provide wallet, signature, and timestamp." },
+        { status: 401 }
+      );
+    }
+
+    // Verify signature and check rate limit
+    const authResult = authenticateUpload(auth.wallet, auth.signature, auth.timestamp);
+    if (!authResult.authenticated) {
+      return NextResponse.json(
+        { error: authResult.error },
+        { status: authResult.error?.includes("Rate limit") ? 429 : 401 }
+      );
+    }
 
     if (!type || !content) {
       return NextResponse.json(
