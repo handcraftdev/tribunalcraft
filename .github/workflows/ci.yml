@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  SOLANA_VERSION: 1.18.26
+  SOLANA_VERSION: 3.0.13
   ANCHOR_VERSION: 0.32.1
   NODE_VERSION: 20
 
@@ -54,11 +54,9 @@ jobs:
 
       - name: Build Program
         run: anchor build
-        continue-on-error: true  # May fail due to sbf toolchain version mismatch
 
       - name: Run Tests
         run: anchor test
-        continue-on-error: true  # Program tests may fail due to toolchain issues
 
   # Test SDK
   test-sdk:
