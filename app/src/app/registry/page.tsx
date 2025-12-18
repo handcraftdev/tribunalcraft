@@ -170,27 +170,46 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   onClose,
   onSubmit,
   isLoading,
+  hasPool,
+  poolAvailable,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (form: any, subjectType: string) => void;
   isLoading: boolean;
+  hasPool: boolean;
+  poolAvailable: number;
 }) {
-  const [subjectType, setSubjectType] = useState<"standalone" | "linked" | "free">("standalone");
+  const [subjectType, setSubjectType] = useState<"staked" | "free">("staked");
   const [form, setForm] = useState({
     title: "",
     description: "",
     category: "contract" as SubjectContent["category"],
     termsText: "",
     maxStake: "1",
-    matchMode: false,
+    matchMode: true, // Default to match mode
     votingPeriod: "24",
-    initialStake: "0.1",
+    directStake: "0", // Direct stake for linked subjects (optional, 0 = pool only)
   });
 
   const handleSubmit = () => {
-    onSubmit(form, subjectType);
-    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: false, votingPeriod: "24", initialStake: "0.1" });
+    // Determine actual subject type based on pool availability
+    let actualType: string;
+    if (subjectType === "free") {
+      actualType = "free";
+    } else if (hasPool) {
+      actualType = "linked";
+    } else {
+      actualType = "standalone";
+      // Validate standalone requires initial stake
+      const stake = parseFloat(form.directStake || "0");
+      if (stake <= 0) {
+        alert("Standalone subjects require initial stake > 0");
+        return;
+      }
+    }
+    onSubmit(form, actualType);
+    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0.1" });
   };
 
   if (!isOpen) return null;
@@ -204,21 +223,22 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
         </div>
         <div className="p-4 space-y-4">
           <div className="flex gap-1">
-            {(["standalone", "linked", "free"] as const).map(t => (
+            {(["staked", "free"] as const).map(t => (
               <button key={t} onClick={() => setSubjectType(t)} className={`flex-1 py-2 text-xs uppercase tracking-wide ${subjectType === t ? "bg-gold text-obsidian font-semibold" : "bg-slate-light/50 text-steel hover:text-parchment"}`}>
-                {t}
+                {t === "staked" ? "Staked" : "Free (No Stakes)"}
               </button>
             ))}
           </div>
+
           <div className="space-y-3">
-            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" autoComplete="off" />
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description" className="input w-full h-20" />
-            <div className="grid grid-cols-2 gap-3">
-              <textarea value={form.termsText} onChange={e => setForm(f => ({ ...f, termsText: e.target.value }))} placeholder="Terms" className="input w-full h-16" />
-              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as any }))} className="input w-full h-16">
+            <div className="grid grid-cols-[1fr_auto] gap-3">
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" autoComplete="off" />
+              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as any }))} className="input">
                 {SUBJECT_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
             </div>
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description" className="input w-full h-20" />
+            <textarea value={form.termsText} onChange={e => setForm(f => ({ ...f, termsText: e.target.value }))} placeholder="Terms" className="input w-full h-16" />
           </div>
           <div className="border-t border-slate-light pt-4 space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -233,23 +253,42 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
                 </div>
               )}
             </div>
-            {subjectType === "standalone" && (
-              <div>
-                <label className="text-xs text-steel mb-1 block">Initial Stake (SOL)</label>
-                <input value={form.initialStake} onChange={e => setForm(f => ({ ...f, initialStake: e.target.value }))} className="input w-full" autoComplete="off" />
-              </div>
-            )}
-            {subjectType !== "free" && (
-              <label className="flex items-center gap-2 text-sm text-parchment cursor-pointer py-1">
-                <input type="checkbox" checked={form.matchMode} onChange={e => setForm(f => ({ ...f, matchMode: e.target.checked }))} className="w-4 h-4 accent-gold" />
-                Match Mode (stakers match each other)
-              </label>
-            )}
-            {subjectType === "linked" && form.matchMode && (
-              <div>
-                <label className="text-xs text-steel mb-1 block">Max Stake (SOL)</label>
-                <input value={form.maxStake} onChange={e => setForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" autoComplete="off" />
-              </div>
+            {subjectType === "staked" && (
+              <>
+                {/* For standalone (no pool), show initial stake - required */}
+                {!hasPool && (
+                  <div>
+                    <label className="text-xs text-steel mb-1 block">Initial Stake (SOL) <span className="text-crimson">*</span></label>
+                    <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0.1" />
+                    <p className="text-[10px] text-steel mt-1">Required for standalone subjects</p>
+                  </div>
+                )}
+                {/* For linked (has pool), show optional direct stake */}
+                {hasPool && (
+                  <div>
+                    <label className="text-xs text-steel mb-1 block">Direct Stake (SOL) - Optional</label>
+                    <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0 (pool only)" />
+                    <p className="text-[10px] text-steel mt-1">Add personal stake in addition to pool backing</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
+                    <input type="radio" name="stakeMode" checked={form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: true }))} className="w-4 h-4 accent-gold" />
+                    <span className="text-sm text-parchment">Match</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
+                    <input type="radio" name="stakeMode" checked={!form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: false }))} className="w-4 h-4 accent-gold" />
+                    <span className="text-sm text-parchment">Proportional</span>
+                  </label>
+                </div>
+                {form.matchMode && hasPool && (
+                  <div>
+                    <label className="text-xs text-steel mb-1 block">Max Stake per Dispute (SOL)</label>
+                    <input value={form.maxStake} onChange={e => setForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" autoComplete="off" />
+                    <p className="text-[10px] text-steel mt-1">Maximum pool stake at risk per dispute</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full mt-2">
@@ -295,6 +334,7 @@ export default function RegistryPage() {
     getDefenderRecordPDA,
     fetchChallengerRecord,
     fetchDefenderRecord,
+    fetchProtocolConfig,
   } = useTribunalcraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
@@ -335,7 +375,26 @@ export default function RegistryPage() {
         fetchAllDisputes(),
       ]);
       setSubjects(subjectsData || []);
-      setDisputes(disputesData || []);
+
+      // If no disputes fetched but there are disputed subjects, fetch disputes individually
+      let finalDisputes = disputesData || [];
+      if (finalDisputes.length === 0 && subjectsData && client) {
+        const disputedSubjects = subjectsData.filter(s =>
+          ("disputed" in s.account.status || "restoring" in s.account.status) &&
+          !s.account.dispute.equals(PublicKey.default)
+        );
+        for (const s of disputedSubjects) {
+          try {
+            const dispute = await client.fetchDispute(s.account.dispute);
+            if (dispute) {
+              finalDisputes.push({ publicKey: s.account.dispute, account: dispute });
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch dispute for subject ${s.publicKey.toBase58()}:`, err);
+          }
+        }
+      }
+      setDisputes(finalDisputes);
 
       // Fetch content for all subjects
       for (const s of subjectsData) {
@@ -504,8 +563,14 @@ export default function RegistryPage() {
         if (!publicKey) throw new Error("Wallet not connected");
         const [defenderPool] = getDefenderPoolPDA(publicKey);
         await createLinkedSubject(defenderPool, subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod);
+        // Add direct stake if specified
+        const directStake = parseFloat(form.directStake || "0");
+        if (directStake > 0) {
+          const directStakeLamports = new BN(directStake * LAMPORTS_PER_SOL);
+          await addToStake(subjectId, directStakeLamports);
+        }
       } else {
-        const initialStake = new BN(parseFloat(form.initialStake) * LAMPORTS_PER_SOL);
+        const initialStake = new BN(parseFloat(form.directStake || "0.1") * LAMPORTS_PER_SOL);
         await createSubject(subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod, initialStake);
       }
 
@@ -549,9 +614,19 @@ export default function RegistryPage() {
           uploadResult.cid
         );
       } else {
+        // Get pool owner if subject is linked to a pool
+        let poolOwner: PublicKey | undefined;
+        const isLinked = !subject.account.defenderPool.equals(PublicKey.default);
+        if (isLinked) {
+          const defenderPoolData = await fetchDefenderPool(subject.account.defenderPool);
+          if (defenderPoolData) {
+            poolOwner = defenderPoolData.owner;
+          }
+        }
+
         await submitDispute(
           subject.publicKey,
-          { disputeCount: subject.account.disputeCount, defenderPool: subject.account.defenderPool },
+          { disputeCount: subject.account.disputeCount, defenderPool: subject.account.defenderPool, poolOwner },
           disputeType,
           uploadResult.cid,
           bond
@@ -639,16 +714,31 @@ export default function RegistryPage() {
     setActionLoading(true);
     setError(null);
     try {
-      const isDormant = selectedItem.subject.account.status.dormant;
+      const subject = selectedItem.subject;
+      const isDormant = subject.account.status.dormant;
+      const isDisputed = subject.account.status.disputed;
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      await addToStake(selectedItem.subject.publicKey, stake);
+
+      // For proportional mode subjects with active dispute, pass the dispute info
+      let proportionalDispute: { dispute: PublicKey; treasury: PublicKey } | undefined;
+      if (isDisputed && !subject.account.matchMode && !subject.account.dispute.equals(PublicKey.default)) {
+        const protocolConfig = await fetchProtocolConfig();
+        if (protocolConfig) {
+          proportionalDispute = {
+            dispute: subject.account.dispute,
+            treasury: protocolConfig.treasury,
+          };
+        }
+      }
+
+      await addToStake(subject.publicKey, stake, proportionalDispute);
       setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL stake`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to add stake");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addToStake, loadData]);
+  }, [publicKey, selectedItem, addToStake, loadData, fetchProtocolConfig]);
 
   const handleJoinChallengers = useCallback(async (amount: string) => {
     if (!publicKey || !selectedItem) return;
@@ -660,14 +750,23 @@ export default function RegistryPage() {
       const [disputePda] = getDisputePDA(subject.publicKey, subject.account.disputeCount - 1);
       const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
 
-      await addToDispute(subject.publicKey, disputePda, defenderPool, "", bond);
+      // Get pool owner if subject is linked
+      let poolOwner: PublicKey | null = null;
+      if (defenderPool) {
+        const defenderPoolData = await fetchDefenderPool(defenderPool);
+        if (defenderPoolData) {
+          poolOwner = defenderPoolData.owner;
+        }
+      }
+
+      await addToDispute(subject.publicKey, disputePda, defenderPool, poolOwner, "", bond);
       setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getDisputePDA, addToDispute, loadData]);
+  }, [publicKey, selectedItem, getDisputePDA, addToDispute, fetchDefenderPool, loadData]);
 
   const handleResolve = useCallback(async () => {
     if (!publicKey || !selectedItem?.dispute) return;
@@ -960,6 +1059,8 @@ export default function RegistryPage() {
         onClose={() => setShowCreateSubject(false)}
         onSubmit={handleCreateSubject}
         isLoading={actionLoading || isUploading}
+        hasPool={pool !== null}
+        poolAvailable={pool?.account?.availableStake?.toNumber() ?? 0}
       />
       <CreateDisputeModal
         isOpen={!!showCreateDispute}
