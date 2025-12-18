@@ -2,6 +2,7 @@ import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 // Load IDL
 const idlPath = path.join(__dirname, '../target/idl/tribunalcraft.json');
@@ -27,11 +28,45 @@ const NETWORKS: Record<string, NetworkConfig> = {
   },
 };
 
+function printUsage() {
+  console.log(`
+Usage: npx ts-node scripts/init-protocol.ts <network> [treasury] [--trezor|--ledger]
+
+Arguments:
+  network     devnet, mainnet, or localnet
+  treasury    Optional treasury address (defaults to deployer wallet)
+
+Options:
+  --trezor    Use Trezor hardware wallet
+  --ledger    Use Ledger hardware wallet
+
+Examples:
+  npx ts-node scripts/init-protocol.ts devnet
+  npx ts-node scripts/init-protocol.ts mainnet --trezor
+  npx ts-node scripts/init-protocol.ts mainnet <treasury-address> --trezor
+`);
+}
+
 async function main() {
   // Parse arguments
   const args = process.argv.slice(2);
+
+  if (args.includes('--help') || args.includes('-h')) {
+    printUsage();
+    process.exit(0);
+  }
+
   const network = args[0] || 'devnet';
-  const treasuryArg = args[1]; // Optional treasury address
+  const useTrezor = args.includes('--trezor');
+  const useLedger = args.includes('--ledger');
+  const useHardwareWallet = useTrezor || useLedger;
+
+  // Find treasury arg (not a flag)
+  const treasuryArg = args.find(arg =>
+    arg !== network &&
+    !arg.startsWith('--') &&
+    arg.length > 30 // Likely a pubkey
+  );
 
   if (!NETWORKS[network]) {
     console.error(`Invalid network: ${network}`);
@@ -44,42 +79,78 @@ async function main() {
   console.log(`Network: ${config.name}`);
   console.log(`RPC URL: ${config.rpcUrl}`);
 
-  // Load wallet
-  const keypairPath = process.env.DEPLOYER_KEYPAIR_PATH ||
-    path.join(process.env.HOME || '~', '.config/solana/id.json');
+  let wallet: Keypair | null = null;
+  let walletPublicKey: PublicKey;
 
-  let wallet: Keypair;
-  if (process.env.DEPLOYER_KEYPAIR) {
-    // Base58 encoded keypair from environment (for CI/CD)
-    const bs58 = await import('bs58');
-    wallet = Keypair.fromSecretKey(bs58.default.decode(process.env.DEPLOYER_KEYPAIR));
+  if (useHardwareWallet) {
+    // Use hardware wallet via Solana CLI
+    const walletType = useTrezor ? 'trezor' : 'ledger';
+    const walletPath = `usb://${walletType}`;
+
+    console.log(`Wallet: ${walletPath} (hardware)`);
+    console.log(`\nPlease confirm on your ${walletType} device...`);
+
+    // Get public key from hardware wallet using execFileSync (safer than execSync)
+    try {
+      const pubkeyOutput = execFileSync('solana-keygen', ['pubkey', walletPath], { encoding: 'utf-8' });
+      walletPublicKey = new PublicKey(pubkeyOutput.trim());
+      console.log(`Address: ${walletPublicKey.toBase58()}`);
+    } catch (error) {
+      console.error(`\nError: Could not connect to ${walletType}. Make sure it's connected and unlocked.`);
+      process.exit(1);
+    }
+
+    // Configure Solana CLI for hardware wallet
+    execFileSync('solana', ['config', 'set', '--url', config.rpcUrl, '--keypair', walletPath], { stdio: 'inherit' });
+
+    // For hardware wallet, use Anchor CLI directly
+    const treasury = treasuryArg ? new PublicKey(treasuryArg) : walletPublicKey;
+    console.log(`Treasury: ${treasury.toBase58()}`);
+
+    console.log('\nFor hardware wallet initialization, run:');
+    console.log(`  anchor run init-config --provider.cluster ${network} --provider.wallet ${walletPath}`);
+    console.log('\nOr use the Solana CLI directly to call the program.');
+
+    return;
+
   } else {
-    // Load from file
-    const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf-8'));
-    wallet = Keypair.fromSecretKey(new Uint8Array(keypairData));
-  }
+    // Load file-based wallet
+    const keypairPath = process.env.DEPLOYER_KEYPAIR_PATH ||
+      path.join(process.env.HOME || '~', '.config/solana/id.json');
 
-  console.log(`Wallet: ${wallet.publicKey.toBase58()}`);
+    if (process.env.DEPLOYER_KEYPAIR) {
+      // Base58 encoded keypair from environment (for CI/CD)
+      const bs58 = await import('bs58');
+      wallet = Keypair.fromSecretKey(bs58.default.decode(process.env.DEPLOYER_KEYPAIR));
+    } else {
+      // Load from file
+      const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf-8'));
+      wallet = Keypair.fromSecretKey(new Uint8Array(keypairData));
+    }
+
+    walletPublicKey = wallet.publicKey;
+    console.log(`Wallet: ${walletPublicKey.toBase58()}`);
+  }
 
   // Determine treasury address
   const treasury = treasuryArg
     ? new PublicKey(treasuryArg)
-    : wallet.publicKey; // Default to deployer wallet
+    : walletPublicKey;
 
   console.log(`Treasury: ${treasury.toBase58()}`);
 
-  // Setup provider
+  // Setup provider (file-based wallet only)
   const connection = new Connection(config.rpcUrl, 'confirmed');
   const provider = new AnchorProvider(
     connection,
     {
-      publicKey: wallet.publicKey,
+      publicKey: wallet!.publicKey,
       signTransaction: async (tx) => {
-        tx.sign(wallet);
+        tx.sign(wallet!);
         return tx;
       },
       signAllTransactions: async (txs) => {
-        txs.forEach(tx => tx.sign(wallet));
+        txs.forEach(tx => tx.sign(wallet!));
         return txs;
       },
     },
@@ -124,11 +195,11 @@ async function main() {
 
     console.log(`\nTransaction: ${tx}`);
     console.log('\nProtocol initialized successfully!');
-    console.log(`  Authority: ${wallet.publicKey.toBase58()}`);
-    console.log(`  Treasury: ${wallet.publicKey.toBase58()} (deployer wallet)`);
+    console.log(`  Authority: ${walletPublicKey.toBase58()}`);
+    console.log(`  Treasury: ${walletPublicKey.toBase58()} (deployer wallet)`);
 
     // Update treasury if different from deployer
-    if (!treasury.equals(wallet.publicKey)) {
+    if (!treasury.equals(walletPublicKey)) {
       console.log(`\nUpdating treasury to: ${treasury.toBase58()}`);
       const updateTx = await program.methods
         .updateTreasury(treasury)
