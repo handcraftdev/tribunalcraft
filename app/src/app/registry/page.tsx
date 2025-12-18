@@ -170,11 +170,13 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   onClose,
   onSubmit,
   isLoading,
+  poolBalance,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (form: any, subjectType: string) => void;
   isLoading: boolean;
+  poolBalance: number; // Pool available balance in lamports (0 if no pool)
 }) {
   const [subjectType, setSubjectType] = useState<"staked" | "free">("staked");
   const [form, setForm] = useState({
@@ -188,7 +190,17 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
     directStake: "0",
   });
 
+  const poolEmpty = poolBalance === 0;
+
   const handleSubmit = () => {
+    // If pool is empty and staked, require initial stake
+    if (subjectType === "staked" && poolEmpty) {
+      const stake = parseFloat(form.directStake || "0");
+      if (stake <= 0) {
+        alert("Initial stake is required when pool is empty");
+        return;
+      }
+    }
     onSubmit(form, subjectType);
     setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0" });
   };
@@ -237,9 +249,13 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
             {subjectType === "staked" && (
               <>
                 <div>
-                  <label className="text-xs text-steel mb-1 block">Initial Stake (SOL)</label>
-                  <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0 (optional)" />
-                  <p className="text-[10px] text-steel mt-1">Optional - can add stake later via pool or direct staking</p>
+                  <label className="text-xs text-steel mb-1 block">
+                    Initial Stake (SOL) {poolEmpty && <span className="text-crimson">*</span>}
+                  </label>
+                  <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder={poolEmpty ? "Required" : "0 (optional)"} />
+                  <p className="text-[10px] text-steel mt-1">
+                    {poolEmpty ? "Required - pool has no balance" : "Optional - pool will back this subject"}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
@@ -1022,6 +1038,7 @@ export default function RegistryPage() {
         onClose={() => setShowCreateSubject(false)}
         onSubmit={handleCreateSubject}
         isLoading={actionLoading || isUploading}
+        poolBalance={pool?.account?.available?.toNumber() ?? 0}
       />
       <CreateDisputeModal
         isOpen={!!showCreateDispute}
