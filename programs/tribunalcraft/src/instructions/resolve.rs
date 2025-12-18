@@ -3,13 +3,14 @@ use crate::state::*;
 use crate::constants::{
     stacked_sigmoid, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE,
     JUROR_ACCOUNT_SEED, CHALLENGER_ACCOUNT_SEED, DEFENDER_RECORD_SEED,
-    PROTOCOL_CONFIG_SEED, DISPUTE_ESCROW_SEED,
     TOTAL_FEE_BPS, JUROR_SHARE_BPS, WINNER_SHARE_BPS,
 };
 use crate::errors::TribunalCraftError;
 
 // =============================================================================
 // RESOLVE DISPUTE
+// No escrow - all funds managed on subject with accounting
+// Fees already collected upfront when bonds were deposited
 // =============================================================================
 
 #[derive(Accounts)]
@@ -27,28 +28,6 @@ pub struct ResolveDispute<'info> {
     #[account(mut)]
     pub subject: Account<'info, Subject>,
 
-    /// Escrow PDA holds all funds for this dispute
-    #[account(
-        mut,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
-
-    /// Protocol config for treasury address
-    #[account(
-        seeds = [PROTOCOL_CONFIG_SEED],
-        bump = protocol_config.bump
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-
-    /// CHECK: Treasury account receives platform fees
-    #[account(
-        mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig,
-    )]
-    pub treasury: AccountInfo<'info>,
-
     pub system_program: Program<'info, System>,
 }
 
@@ -58,24 +37,8 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     let dispute_voting_ended = ctx.accounts.dispute.is_voting_ended(clock.unix_timestamp);
     require!(dispute_voting_ended, TribunalCraftError::VotingNotEnded);
 
-    // Calculate platform fee from escrow
-    let platform_fee = if !ctx.accounts.subject.free_case {
-        let total_pool = ctx.accounts.escrow.total_bonds
-            .saturating_add(ctx.accounts.escrow.total_stakes);
-
-        if total_pool > 0 {
-            let total_fees = total_pool as u128 * TOTAL_FEE_BPS as u128 / 10000;
-            (total_fees * (10000 - JUROR_SHARE_BPS) as u128 / 10000) as u64
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-
     let dispute = &mut ctx.accounts.dispute;
     let subject = &mut ctx.accounts.subject;
-    let escrow = &mut ctx.accounts.escrow;
 
     // Determine outcome
     let outcome = dispute.determine_outcome();
@@ -92,13 +55,8 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     };
     subject.last_voting_period = dispute_voting_period;
 
-    // Collect platform fees from escrow
-    if platform_fee > 0 && outcome != ResolutionOutcome::NoParticipation {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= platform_fee;
-        **ctx.accounts.treasury.try_borrow_mut_lamports()? += platform_fee;
-        escrow.record_platform_fee(platform_fee);
-        msg!("Platform fee collected: {} lamports", platform_fee);
-    }
+    // Note: Platform fees already collected upfront when bonds were deposited
+    // No escrow transfer needed here
 
     // Update subject status based on outcome
     if dispute.is_appeal {
@@ -191,7 +149,8 @@ pub fn unlock_juror_stake(ctx: Context<UnlockJurorStake>) -> Result<()> {
 }
 
 // =============================================================================
-// CLAIM JUROR REWARD (from escrow to JurorAccount)
+// CLAIM JUROR REWARD (from subject to JurorAccount)
+// Fees already collected upfront - juror pot comes from total bond
 // =============================================================================
 
 #[derive(Accounts)]
@@ -207,21 +166,15 @@ pub struct ClaimJurorReward<'info> {
     )]
     pub juror_account: Account<'info, JurorAccount>,
 
+    #[account(mut)]
     pub subject: Account<'info, Subject>,
 
     #[account(
+        mut,
         has_one = subject,
         constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeNotFound,
     )]
     pub dispute: Account<'info, Dispute>,
-
-    /// Escrow PDA holds all funds
-    #[account(
-        mut,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
 
     #[account(
         mut,
@@ -235,12 +188,10 @@ pub struct ClaimJurorReward<'info> {
 }
 
 pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
-    let subject = &ctx.accounts.subject;
-    let dispute = &ctx.accounts.dispute;
-    let escrow = &mut ctx.accounts.escrow;
+    let subject = &mut ctx.accounts.subject;
+    let dispute = &mut ctx.accounts.dispute;
     let juror_account = &mut ctx.accounts.juror_account;
     let vote_record = &mut ctx.accounts.vote_record;
-    let clock = Clock::get()?;
 
     require!(!subject.free_case, TribunalCraftError::NotEligibleForReward);
 
@@ -272,12 +223,16 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
 
     // =========================================================================
     // CLAIM REWARD (all voters get reward - incentivizes calling this function)
+    // Juror pot = JUROR_SHARE of fees from total_bond (fees already collected)
     // =========================================================================
 
-    // Calculate juror pot from escrow totals
-    let total_pool = escrow.total_bonds.saturating_add(escrow.total_stakes);
-    let total_fees = total_pool as u128 * TOTAL_FEE_BPS as u128 / 10000;
-    let juror_pot = (total_fees * JUROR_SHARE_BPS as u128 / 10000) as u64;
+    // Calculate juror pot from dispute bond + stake totals
+    // Note: total_bond and stakes are NET (after fee deduction)
+    // To get original fees: fee = net * fee_rate / (1 - fee_rate)
+    // Formula: total_fees = total_net * TOTAL_FEE_BPS / (10000 - TOTAL_FEE_BPS)
+    let total_net = dispute.total_bond.saturating_add(dispute.total_stake_held());
+    let total_fees = (total_net as u128 * TOTAL_FEE_BPS as u128 / (10000 - TOTAL_FEE_BPS) as u128) as u64;
+    let juror_pot = (total_fees as u128 * JUROR_SHARE_BPS as u128 / 10000) as u64;
 
     if juror_pot == 0 {
         vote_record.reward_claimed = true;
@@ -297,13 +252,12 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
     // Reward proportional to voting power (all jurors share the pot)
     let reward = (juror_pot as u128 * vote_record.voting_power as u128 / total_vote_weight as u128) as u64;
 
-    // Transfer reward from escrow to JurorAccount PDA
-    **escrow.to_account_info().try_borrow_mut_lamports()? -= reward;
+    // Transfer reward from subject to JurorAccount PDA
+    **subject.to_account_info().try_borrow_mut_lamports()? -= reward;
     **juror_account.to_account_info().try_borrow_mut_lamports()? += reward;
 
     // Update juror balance accounting
     juror_account.add_reward(reward);
-    escrow.record_juror_reward(reward);
 
     vote_record.reward_claimed = true;
     msg!("Juror reward claimed: {} lamports (added to balance)", reward);
@@ -311,7 +265,8 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
 }
 
 // =============================================================================
-// CLAIM CHALLENGER REWARD (from escrow)
+// CLAIM CHALLENGER REWARD (from subject)
+// All funds on subject account - use accounting for calculations
 // =============================================================================
 
 #[derive(Accounts)]
@@ -326,6 +281,7 @@ pub struct ClaimChallengerReward<'info> {
     )]
     pub challenger_account: Account<'info, ChallengerAccount>,
 
+    #[account(mut)]
     pub subject: Account<'info, Subject>,
 
     #[account(
@@ -334,14 +290,6 @@ pub struct ClaimChallengerReward<'info> {
         constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeNotFound,
     )]
     pub dispute: Account<'info, Dispute>,
-
-    /// Escrow PDA holds all funds
-    #[account(
-        mut,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
 
     #[account(
         mut,
@@ -355,9 +303,8 @@ pub struct ClaimChallengerReward<'info> {
 }
 
 pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()> {
-    let subject = &ctx.accounts.subject;
-    let dispute = &ctx.accounts.dispute;
-    let escrow = &mut ctx.accounts.escrow;
+    let subject = &mut ctx.accounts.subject;
+    let dispute = &mut ctx.accounts.dispute;
     let challenger_record = &mut ctx.accounts.challenger_record;
     let challenger_account = &mut ctx.accounts.challenger_account;
 
@@ -365,23 +312,20 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
 
     let outcome = dispute.outcome;
     let bond = challenger_record.bond;
-    let total_bond = escrow.total_bonds;
-    let matched_stake = escrow.total_stakes;
+    let total_bond = dispute.total_bond;
+    let total_stakes = dispute.total_stake_held();
 
     match outcome {
         ResolutionOutcome::ChallengerWins => {
             // Winner: 80% of defender's stake + 80% of own bond back
-            let defender_contribution = (matched_stake as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
+            let defender_contribution = (total_stakes as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
             let reward = challenger_record.calculate_reward_share(defender_contribution, total_bond);
             let bond_return = (bond as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
             let total_return = reward + bond_return;
 
-            // All from escrow
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= total_return;
+            // Transfer from subject
+            **subject.to_account_info().try_borrow_mut_lamports()? -= total_return;
             **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += total_return;
-
-            escrow.record_stake_claim(reward);
-            escrow.bonds_claimed = escrow.bonds_claimed.saturating_add(bond_return);
 
             // Update reputation
             let remaining = 10000u16.saturating_sub(challenger_account.reputation);
@@ -393,7 +337,7 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
             msg!("Challenger reward claimed: {} lamports", total_return);
         }
         ResolutionOutcome::DefenderWins => {
-            // Loser: loses bond
+            // Loser: loses bond (bond stays on subject, goes to defenders)
             let multiplier = stacked_sigmoid(challenger_account.reputation);
             let loss = (challenger_account.reputation as u32 * REPUTATION_LOSS_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
             challenger_account.reputation = challenger_account.reputation.saturating_sub(loss);
@@ -403,9 +347,8 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
         }
         ResolutionOutcome::NoParticipation => {
             // No votes: full bond return
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= bond;
+            **subject.to_account_info().try_borrow_mut_lamports()? -= bond;
             **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += bond;
-            escrow.bonds_claimed = escrow.bonds_claimed.saturating_add(bond);
 
             msg!("No participation - bond returned: {} lamports", bond);
         }
@@ -415,13 +358,14 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
     }
 
     challenger_record.reward_claimed = true;
-    escrow.challengers_claimed += 1;
-    ctx.accounts.dispute.challengers_claimed += 1;
+    dispute.challengers_claimed += 1;
     Ok(())
 }
 
 // =============================================================================
-// CLAIM DEFENDER REWARD (from escrow)
+// CLAIM DEFENDER REWARD (from subject)
+// Uses snapshot_total_stake for proportional calculations
+// Defender's stake is their DefenderRecord.stake (includes consolidated pool stake)
 // =============================================================================
 
 #[derive(Accounts)]
@@ -429,6 +373,7 @@ pub struct ClaimDefenderReward<'info> {
     #[account(mut)]
     pub defender: Signer<'info>,
 
+    #[account(mut)]
     pub subject: Account<'info, Subject>,
 
     #[account(
@@ -437,14 +382,6 @@ pub struct ClaimDefenderReward<'info> {
         constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeNotFound,
     )]
     pub dispute: Account<'info, Dispute>,
-
-    /// Escrow PDA holds all funds
-    #[account(
-        mut,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
 
     #[account(
         mut,
@@ -460,46 +397,55 @@ pub struct ClaimDefenderReward<'info> {
 }
 
 pub fn claim_defender_reward(ctx: Context<ClaimDefenderReward>) -> Result<()> {
-    let subject = &ctx.accounts.subject;
-    let dispute = &ctx.accounts.dispute;
-    let escrow = &mut ctx.accounts.escrow;
+    let subject = &mut ctx.accounts.subject;
+    let dispute = &mut ctx.accounts.dispute;
     let defender_record = &mut ctx.accounts.defender_record;
 
     require!(!subject.free_case, TribunalCraftError::NotEligibleForReward);
 
     let outcome = dispute.outcome;
-    let stake = defender_record.stake;
-    let total_bond = escrow.total_bonds;
-    let total_stakes = escrow.total_stakes;
+
+    // Defender's stake at risk = their share of total stake held
+    // Use snapshot_total_stake for proportional calculations
+    let snapshot_total = dispute.snapshot_total_stake;
+    let total_stake_held = dispute.total_stake_held();
+
+    // Calculate defender's proportional stake at risk
+    let stake_at_risk = if snapshot_total > 0 {
+        (defender_record.stake as u128 * total_stake_held as u128 / snapshot_total as u128) as u64
+    } else {
+        0
+    };
+
+    let total_bond = dispute.total_bond;
 
     match outcome {
         ResolutionOutcome::DefenderWins => {
             // Winner: 80% of challenger's bond + 80% of own stake back
             let bond_contribution = (total_bond as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
-            let reward = defender_record.calculate_reward_share(bond_contribution, total_stakes);
-            let stake_return = (stake as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
+            // Reward proportional to defender's stake vs total stake
+            let reward = if total_stake_held > 0 {
+                (bond_contribution as u128 * stake_at_risk as u128 / total_stake_held as u128) as u64
+            } else {
+                0
+            };
+            let stake_return = (stake_at_risk as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
             let total_return = reward + stake_return;
 
-            // All from escrow
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= total_return;
+            // Transfer from subject
+            **subject.to_account_info().try_borrow_mut_lamports()? -= total_return;
             **ctx.accounts.defender.to_account_info().try_borrow_mut_lamports()? += total_return;
 
-            escrow.bonds_claimed = escrow.bonds_claimed.saturating_add(reward);
-            escrow.record_stake_claim(stake_return);
-
-            msg!("Defender reward claimed: {} lamports", total_return);
+            msg!("Defender reward claimed: {} lamports (stake_at_risk: {})", total_return, stake_at_risk);
         }
         ResolutionOutcome::ChallengerWins => {
-            // Loser: loses stake (already in escrow, goes to winners)
-            msg!("Challenger wins - defender loses stake");
+            // Loser: loses stake (stays on subject, goes to challengers)
+            msg!("Challenger wins - defender loses stake ({})", stake_at_risk);
         }
         ResolutionOutcome::NoParticipation => {
-            // No votes: full stake return
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= stake;
-            **ctx.accounts.defender.to_account_info().try_borrow_mut_lamports()? += stake;
-            escrow.record_stake_claim(stake);
-
-            msg!("No participation - stake returned: {} lamports", stake);
+            // No votes: defender keeps their stake (already on subject, nothing to transfer)
+            // Note: Direct stake never moved, pool stake consolidated into defender's stake
+            msg!("No participation - stake retained on subject: {}", stake_at_risk);
         }
         _ => {
             return Err(TribunalCraftError::DisputeNotFound.into());
@@ -507,68 +453,9 @@ pub fn claim_defender_reward(ctx: Context<ClaimDefenderReward>) -> Result<()> {
     }
 
     defender_record.reward_claimed = true;
-    escrow.defenders_claimed += 1;
-    ctx.accounts.dispute.defenders_claimed += 1;
+    dispute.defenders_claimed += 1;
     Ok(())
 }
 
-// =============================================================================
-// CLOSE ESCROW (after all claims complete)
-// =============================================================================
-
-#[derive(Accounts)]
-pub struct CloseEscrow<'info> {
-    #[account(mut)]
-    pub closer: Signer<'info>,
-
-    #[account(
-        constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeNotFound,
-    )]
-    pub dispute: Account<'info, Dispute>,
-
-    /// Escrow to close - must have all claims complete
-    #[account(
-        mut,
-        close = closer,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump,
-        constraint = escrow.all_claims_complete() @ TribunalCraftError::ClaimsNotComplete,
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
-
-    /// Protocol config for treasury
-    #[account(
-        seeds = [PROTOCOL_CONFIG_SEED],
-        bump = protocol_config.bump
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-
-    /// CHECK: Treasury receives any remaining dust
-    #[account(
-        mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig,
-    )]
-    pub treasury: AccountInfo<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-pub fn close_escrow(ctx: Context<CloseEscrow>) -> Result<()> {
-    let escrow = &ctx.accounts.escrow;
-
-    // Calculate dust (any remaining balance after all claims)
-    let rent = Rent::get()?.minimum_balance(DisputeEscrow::LEN);
-    let current_balance = escrow.to_account_info().lamports();
-    let dust = current_balance.saturating_sub(rent);
-
-    if dust > 0 {
-        // Send dust to treasury before closing
-        **ctx.accounts.escrow.to_account_info().try_borrow_mut_lamports()? -= dust;
-        **ctx.accounts.treasury.try_borrow_mut_lamports()? += dust;
-        msg!("Dust sent to treasury: {} lamports", dust);
-    }
-
-    // Account closure handled by `close = closer` attribute
-    msg!("Escrow closed, rent returned to closer");
-    Ok(())
-}
+// NOTE: CloseEscrow removed - no escrow in simplified model
+// All funds managed on subject account with accounting

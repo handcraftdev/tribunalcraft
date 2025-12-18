@@ -263,11 +263,5 @@ pub mod tribunalcraft {
         instructions::claim_defender_reward(ctx)
     }
 
-    /// Close escrow after all claims are complete
-    /// Returns rent to closer, sends any dust to treasury
-    pub fn close_escrow(
-        ctx: Context<CloseEscrow>,
-    ) -> Result<()> {
-        instructions::close_escrow(ctx)
-    }
+    // NOTE: close_escrow removed - no escrow in simplified model
 }

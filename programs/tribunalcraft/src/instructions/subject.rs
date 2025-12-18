@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
-use crate::constants::{SUBJECT_SEED, DEFENDER_RECORD_SEED, DEFENDER_POOL_SEED};
+use crate::constants::{SUBJECT_SEED, DEFENDER_RECORD_SEED, DEFENDER_POOL_SEED, PROTOCOL_CONFIG_SEED, TOTAL_FEE_BPS};
 use crate::errors::TribunalCraftError;
 
 /// Create a standalone subject (not linked to pool)
@@ -214,7 +214,8 @@ pub fn create_free_subject(
     Ok(())
 }
 
-/// Add stake to a standalone subject (or add more if already staked)
+/// Add stake to subject - no escrow, all funds managed on subject
+/// If subject has active dispute in proportional mode, fees are deducted and stake is tracked as at risk
 #[derive(Accounts)]
 pub struct AddToStake<'info> {
     #[account(mut)]
@@ -236,6 +237,22 @@ pub struct AddToStake<'info> {
     )]
     pub defender_record: Account<'info, DefenderRecord>,
 
+    /// Optional: Active dispute (required if subject has active dispute in proportional mode)
+    #[account(mut)]
+    pub dispute: Option<Account<'info, Dispute>>,
+
+    /// Protocol config for treasury address (required if proportional dispute)
+    #[account(
+        seeds = [PROTOCOL_CONFIG_SEED],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Option<Account<'info, ProtocolConfig>>,
+
+    /// Treasury receives fees (required if proportional dispute)
+    /// CHECK: Validated against protocol_config.treasury
+    #[account(mut)]
+    pub treasury: Option<AccountInfo<'info>>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -246,18 +263,88 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
 
     require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
 
-    // Transfer stake to subject account
-    let cpi_context = CpiContext::new(
-        ctx.accounts.system_program.to_account_info(),
-        anchor_lang::system_program::Transfer {
-            from: ctx.accounts.staker.to_account_info(),
-            to: subject.to_account_info(),
-        },
-    );
-    anchor_lang::system_program::transfer(cpi_context, stake)?;
+    // Check if there's an active dispute
+    let has_active_dispute = subject.has_active_dispute();
+    let is_match_mode = subject.match_mode;
 
-    // Update subject
-    subject.total_stake += stake;
+    // In the no-escrow model, all stake always goes to subject
+    // In proportional mode during dispute, fees are deducted first
+    let is_proportional_during_dispute = has_active_dispute && !is_match_mode;
+
+    // Calculate fees and net stake for proportional mode during dispute
+    let (fee_amount, net_stake) = if is_proportional_during_dispute {
+        let fee = (stake as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, stake.saturating_sub(fee))
+    } else {
+        // No dispute or match mode: no fees
+        (0, stake)
+    };
+
+    // Transfer fee to treasury (if proportional during dispute)
+    if fee_amount > 0 {
+        let protocol_config = ctx.accounts.protocol_config.as_ref()
+            .ok_or(TribunalCraftError::InvalidConfig)?;
+        let treasury = ctx.accounts.treasury.as_ref()
+            .ok_or(TribunalCraftError::InvalidConfig)?;
+
+        // Validate treasury
+        require!(
+            treasury.key() == protocol_config.treasury,
+            TribunalCraftError::InvalidConfig
+        );
+
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.staker.to_account_info(),
+                to: treasury.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, fee_amount)?;
+    }
+
+    // Transfer net stake to subject
+    if net_stake > 0 {
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.staker.to_account_info(),
+                to: subject.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, net_stake)?;
+    }
+
+    // Update subject stake with net amount
+    subject.total_stake += net_stake;
+
+    // If proportional mode during dispute, update dispute tracking
+    if is_proportional_during_dispute {
+        let dispute = ctx.accounts.dispute.as_mut()
+            .ok_or(TribunalCraftError::DisputeNotFound)?;
+
+        // Validate dispute matches subject's active dispute
+        require!(
+            dispute.key() == subject.dispute,
+            TribunalCraftError::InvalidConfig
+        );
+        require!(
+            dispute.status == DisputeStatus::Pending,
+            TribunalCraftError::DisputeAlreadyResolved
+        );
+
+        // Update dispute tracking - net stake is at risk
+        dispute.direct_stake_held += net_stake;
+        dispute.snapshot_total_stake += net_stake;
+
+        msg!("Stake added during proportional dispute: {} gross, {} net (fee: {})",
+            stake, net_stake, fee_amount);
+    } else if has_active_dispute {
+        msg!("Stake added during match mode dispute: {} lamports (available for matching)", stake);
+    } else {
+        msg!("Stake added to subject: {} lamports", stake);
+    }
+
     subject.updated_at = clock.unix_timestamp;
 
     // Check if this is a new staker or adding more to existing
@@ -267,17 +354,18 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
         // Initialize new staker record
         defender_record.subject = subject.key();
         defender_record.defender = ctx.accounts.staker.key();
-        defender_record.stake = stake;
+        defender_record.stake = net_stake;
         defender_record.reward_claimed = false;
         defender_record.bump = ctx.bumps.defender_record;
         defender_record.staked_at = clock.unix_timestamp;
+        defender_record.stake_in_escrow = 0; // No escrow in new model
 
         subject.defender_count += 1;
-        msg!("New staker added: {} lamports", stake);
+        msg!("New defender added: {} lamports (net)", net_stake);
     } else {
-        // Add to existing stake (don't increment staker_count)
-        defender_record.stake += stake;
-        msg!("Added to existing stake: {} lamports (total: {})", stake, defender_record.stake);
+        // Add to existing stake (don't increment counts)
+        defender_record.stake += net_stake;
+        msg!("Added to existing stake: {} lamports (total: {})", net_stake, defender_record.stake);
     }
 
     Ok(())

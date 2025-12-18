@@ -1,13 +1,15 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{
-    CHALLENGER_ACCOUNT_SEED, DISPUTE_SEED, DISPUTE_ESCROW_SEED,
+    CHALLENGER_ACCOUNT_SEED, DISPUTE_SEED, PROTOCOL_CONFIG_SEED,
     CHALLENGER_RECORD_SEED, INITIAL_REPUTATION, BASE_CHALLENGER_BOND,
-    DEFENDER_POOL_SEED,
+    TOTAL_FEE_BPS,
 };
 use crate::errors::TribunalCraftError;
 
-/// Submit a new dispute against a subject (creates dispute + escrow)
+/// Submit a new dispute against a subject
+/// Bonds go to subject account (fees deducted to treasury)
+/// No escrow - all funds managed on subject with accounting
 #[derive(Accounts)]
 pub struct SubmitDispute<'info> {
     #[account(mut)]
@@ -27,6 +29,10 @@ pub struct SubmitDispute<'info> {
     )]
     pub defender_pool: Option<Account<'info, DefenderPool>>,
 
+    /// Optional: DefenderRecord for pool owner (required if pool has stake to transfer)
+    #[account(mut)]
+    pub pool_owner_defender_record: Option<Account<'info, DefenderRecord>>,
+
     #[account(
         init_if_needed,
         payer = challenger,
@@ -45,16 +51,6 @@ pub struct SubmitDispute<'info> {
     )]
     pub dispute: Account<'info, Dispute>,
 
-    /// Escrow PDA holds all funds for this dispute
-    #[account(
-        init,
-        payer = challenger,
-        space = DisputeEscrow::LEN,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
-
     #[account(
         init,
         payer = challenger,
@@ -63,6 +59,21 @@ pub struct SubmitDispute<'info> {
         bump
     )]
     pub challenger_record: Account<'info, ChallengerRecord>,
+
+    /// Protocol config for treasury address
+    #[account(
+        seeds = [PROTOCOL_CONFIG_SEED],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    /// Treasury receives fees
+    /// CHECK: Validated against protocol_config.treasury
+    #[account(
+        mut,
+        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+    )]
+    pub treasury: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -76,7 +87,6 @@ pub fn submit_dispute(
     let subject = &mut ctx.accounts.subject;
     let challenger_account = &mut ctx.accounts.challenger_account;
     let dispute = &mut ctx.accounts.dispute;
-    let escrow = &mut ctx.accounts.escrow;
     let challenger_record = &mut ctx.accounts.challenger_record;
     let clock = Clock::get()?;
 
@@ -88,11 +98,14 @@ pub fn submit_dispute(
         challenger_account.created_at = clock.unix_timestamp;
     }
 
-    // Free cases: no bond required, no stake held, just voting
-    let (pool_stake_to_transfer, direct_stake_to_transfer) = if subject.free_case {
+    // Snapshot total stake BEFORE any changes (for claim calculations)
+    let snapshot_total_stake = subject.total_stake;
+
+    // Calculate stakes at risk and pool transfer
+    let (pool_stake_to_transfer, direct_stake_at_risk) = if subject.free_case {
         (0, 0)
     } else {
-        // Regular case - validate and calculate stakes to transfer
+        // Regular case - validate bond
         let min_bond = challenger_account.calculate_min_bond(BASE_CHALLENGER_BOND);
         require!(bond >= min_bond, TribunalCraftError::BondBelowMinimum);
 
@@ -103,73 +116,138 @@ pub fn submit_dispute(
 
                 let total_available = defender_pool.available.saturating_add(subject.total_stake);
                 let required_hold = bond.min(subject.max_stake);
-
                 require!(total_available >= required_hold, TribunalCraftError::InsufficientAvailableStake);
 
                 let pool_transfer = required_hold.min(defender_pool.available);
-                let direct_transfer = required_hold.saturating_sub(pool_transfer);
+                let direct_at_risk = required_hold.saturating_sub(pool_transfer);
 
-                // Update pool accounting (reduce available, but NOT using hold_stake since we're transferring)
+                // Update pool accounting (available -> held)
                 if pool_transfer > 0 {
                     defender_pool.available = defender_pool.available.saturating_sub(pool_transfer);
-                    defender_pool.total_stake = defender_pool.total_stake.saturating_sub(pool_transfer);
+                    defender_pool.held += pool_transfer;
                     defender_pool.updated_at = clock.unix_timestamp;
                 }
 
-                (pool_transfer, direct_transfer)
+                (pool_transfer, direct_at_risk)
             } else {
-                // Standalone mode
+                // Standalone match mode
                 require!(subject.total_stake >= bond, TribunalCraftError::InsufficientAvailableStake);
                 (0, bond)
             }
         } else {
-            (0, 0) // Proportional mode: no transfer
+            // Proportional mode: all stakes at risk
+            if subject.is_linked() {
+                let defender_pool = ctx.accounts.defender_pool.as_mut()
+                    .ok_or(TribunalCraftError::InvalidConfig)?;
+
+                // Pool contribution capped at max_stake
+                let pool_transfer = defender_pool.available.min(subject.max_stake);
+                let direct_at_risk = subject.total_stake;
+
+                // Update pool accounting (available -> held)
+                if pool_transfer > 0 {
+                    defender_pool.available = defender_pool.available.saturating_sub(pool_transfer);
+                    defender_pool.held += pool_transfer;
+                    defender_pool.updated_at = clock.unix_timestamp;
+                }
+
+                (pool_transfer, direct_at_risk)
+            } else {
+                // Standalone proportional: all direct stake at risk
+                (0, subject.total_stake)
+            }
         }
     };
 
-    // Transfer bond from challenger to escrow
-    if !subject.free_case && bond > 0 {
+    // Calculate fees for bond, pool stake, and direct stake
+    let (bond_fee, net_bond) = if !subject.free_case && bond > 0 {
+        let fee = (bond as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, bond.saturating_sub(fee))
+    } else {
+        (0, bond)
+    };
+
+    let (pool_fee, net_pool_stake) = if pool_stake_to_transfer > 0 {
+        let fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, pool_stake_to_transfer.saturating_sub(fee))
+    } else {
+        (0, 0)
+    };
+
+    let (direct_fee, net_direct_stake) = if direct_stake_at_risk > 0 {
+        let fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, direct_stake_at_risk.saturating_sub(fee))
+    } else {
+        (0, 0)
+    };
+
+    // Transfer bond fee from challenger to treasury
+    if bond_fee > 0 {
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             anchor_lang::system_program::Transfer {
                 from: ctx.accounts.challenger.to_account_info(),
-                to: escrow.to_account_info(),
+                to: ctx.accounts.treasury.to_account_info(),
             },
         );
-        anchor_lang::system_program::transfer(cpi_context, bond)?;
+        anchor_lang::system_program::transfer(cpi_context, bond_fee)?;
     }
 
-    // Transfer stakes from pool to escrow (if any)
+    // Transfer net bond to subject
+    if net_bond > 0 {
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.challenger.to_account_info(),
+                to: subject.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, net_bond)?;
+    }
+
+    // Transfer pool stake to subject (minus fee to treasury)
     if pool_stake_to_transfer > 0 {
         let defender_pool = ctx.accounts.defender_pool.as_ref()
             .ok_or(TribunalCraftError::InvalidConfig)?;
-        **defender_pool.to_account_info().try_borrow_mut_lamports()? -= pool_stake_to_transfer;
-        **escrow.to_account_info().try_borrow_mut_lamports()? += pool_stake_to_transfer;
+        let pool_owner_record = ctx.accounts.pool_owner_defender_record.as_mut()
+            .ok_or(TribunalCraftError::InvalidConfig)?;
+
+        // Validate pool owner's record
+        require!(
+            pool_owner_record.defender == defender_pool.owner,
+            TribunalCraftError::Unauthorized
+        );
+        require!(
+            pool_owner_record.subject == subject.key(),
+            TribunalCraftError::InvalidConfig
+        );
+
+        // Transfer fee from pool to treasury
+        if pool_fee > 0 {
+            **defender_pool.to_account_info().try_borrow_mut_lamports()? -= pool_fee;
+            **ctx.accounts.treasury.try_borrow_mut_lamports()? += pool_fee;
+        }
+
+        // Transfer net pool stake to subject
+        if net_pool_stake > 0 {
+            **defender_pool.to_account_info().try_borrow_mut_lamports()? -= net_pool_stake;
+            **subject.to_account_info().try_borrow_mut_lamports()? += net_pool_stake;
+
+            // Consolidate into pool owner's stake (net amount)
+            pool_owner_record.stake += net_pool_stake;
+            subject.total_stake += net_pool_stake;
+        }
+
+        msg!("Pool stake: {} gross, {} net (fee: {})", pool_stake_to_transfer, net_pool_stake, pool_fee);
     }
 
-    // Transfer stakes from subject to escrow (if any)
-    if direct_stake_to_transfer > 0 {
-        **subject.to_account_info().try_borrow_mut_lamports()? -= direct_stake_to_transfer;
-        **escrow.to_account_info().try_borrow_mut_lamports()? += direct_stake_to_transfer;
-        // Update subject stake accounting
-        subject.total_stake = subject.total_stake.saturating_sub(direct_stake_to_transfer);
+    // Direct stake: transfer fee from subject to treasury (stake stays on subject)
+    if direct_fee > 0 {
+        **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
+        **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
+        subject.total_stake = subject.total_stake.saturating_sub(direct_fee);
+        msg!("Direct stake fee collected: {}", direct_fee);
     }
-
-    // Initialize escrow
-    escrow.dispute = dispute.key();
-    escrow.subject = subject.key();
-    escrow.total_bonds = bond;
-    escrow.total_stakes = pool_stake_to_transfer.saturating_add(direct_stake_to_transfer);
-    escrow.bonds_claimed = 0;
-    escrow.stakes_claimed = 0;
-    escrow.juror_rewards_paid = 0;
-    escrow.platform_fee_paid = 0;
-    escrow.challengers_claimed = 0;
-    escrow.defenders_claimed = 0;
-    escrow.expected_challengers = 1;
-    escrow.expected_defenders = subject.defender_count as u8;
-    escrow.bump = ctx.bumps.escrow;
-    escrow.created_at = clock.unix_timestamp;
 
     // Update subject status
     subject.status = SubjectStatus::Disputed;
@@ -177,12 +255,12 @@ pub fn submit_dispute(
     subject.dispute_count += 1;
     subject.updated_at = clock.unix_timestamp;
 
-    // Initialize dispute
+    // Initialize dispute with NET amounts (after fees)
     dispute.subject = subject.key();
     dispute.dispute_type = dispute_type;
-    dispute.total_bond = bond;
-    dispute.stake_held = pool_stake_to_transfer;
-    dispute.direct_stake_held = direct_stake_to_transfer;
+    dispute.total_bond = net_bond;
+    dispute.stake_held = net_pool_stake;
+    dispute.direct_stake_held = net_direct_stake;
     dispute.challenger_count = 1;
     dispute.status = DisputeStatus::Pending;
     dispute.outcome = ResolutionOutcome::None;
@@ -194,26 +272,29 @@ pub fn submit_dispute(
     dispute.created_at = clock.unix_timestamp;
     dispute.pool_reward_claimed = false;
 
-    // Snapshot defender state for historical record
-    dispute.snapshot_total_stake = subject.total_stake.saturating_add(direct_stake_to_transfer); // Original stake
+    // Snapshot for claim calculations (use NET amounts after fees)
+    // Direct stake is now (snapshot_total_stake - direct_fee), pool stake is net_pool_stake
+    dispute.snapshot_total_stake = snapshot_total_stake.saturating_sub(direct_fee) + net_pool_stake;
     dispute.snapshot_defender_count = subject.defender_count;
     dispute.challengers_claimed = 0;
     dispute.defenders_claimed = 0;
 
     // Voting starts immediately
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);
-    msg!("Dispute submitted - escrow created (stakes: {}, bond: {})",
-        escrow.total_stakes, bond);
 
     // Initialize challenger record
     challenger_record.dispute = dispute.key();
     challenger_record.challenger = ctx.accounts.challenger.key();
     challenger_record.challenger_account = challenger_account.key();
-    challenger_record.bond = bond;
+    challenger_record.bond = net_bond;
     challenger_record.details_cid = details_cid;
     challenger_record.reward_claimed = false;
     challenger_record.bump = ctx.bumps.challenger_record;
     challenger_record.challenged_at = clock.unix_timestamp;
+
+    let total_fees = bond_fee + pool_fee + direct_fee;
+    msg!("Dispute submitted: bond={} (net), pool={} (net), direct={} (net), total_fees={}",
+        net_bond, net_pool_stake, net_direct_stake, total_fees);
 
     // Update challenger stats
     challenger_account.disputes_submitted += 1;
@@ -223,6 +304,7 @@ pub fn submit_dispute(
 }
 
 /// Add to existing dispute (additional challengers or add more bond)
+/// No escrow - bonds go to subject, fees to treasury
 #[derive(Accounts)]
 pub struct AddToDispute<'info> {
     #[account(mut)]
@@ -241,6 +323,10 @@ pub struct AddToDispute<'info> {
     )]
     pub defender_pool: Option<Account<'info, DefenderPool>>,
 
+    /// Optional: DefenderRecord for pool owner (required if pool has stake to transfer)
+    #[account(mut)]
+    pub pool_owner_defender_record: Option<Account<'info, DefenderRecord>>,
+
     #[account(
         init_if_needed,
         payer = challenger,
@@ -257,14 +343,6 @@ pub struct AddToDispute<'info> {
     )]
     pub dispute: Account<'info, Dispute>,
 
-    /// Escrow PDA for this dispute
-    #[account(
-        mut,
-        seeds = [DISPUTE_ESCROW_SEED, dispute.key().as_ref()],
-        bump = escrow.bump
-    )]
-    pub escrow: Account<'info, DisputeEscrow>,
-
     #[account(
         init_if_needed,
         payer = challenger,
@@ -273,6 +351,21 @@ pub struct AddToDispute<'info> {
         bump
     )]
     pub challenger_record: Account<'info, ChallengerRecord>,
+
+    /// Protocol config for treasury address
+    #[account(
+        seeds = [PROTOCOL_CONFIG_SEED],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    /// Treasury receives fees
+    /// CHECK: Validated against protocol_config.treasury
+    #[account(
+        mut,
+        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+    )]
+    pub treasury: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -285,7 +378,6 @@ pub fn add_to_dispute(
     let subject = &mut ctx.accounts.subject;
     let challenger_account = &mut ctx.accounts.challenger_account;
     let dispute = &mut ctx.accounts.dispute;
-    let escrow = &mut ctx.accounts.escrow;
     let challenger_record = &mut ctx.accounts.challenger_record;
     let clock = Clock::get()?;
 
@@ -302,76 +394,144 @@ pub fn add_to_dispute(
     let min_bond = challenger_account.calculate_min_bond(BASE_CHALLENGER_BOND);
     require!(bond >= min_bond, TribunalCraftError::BondBelowMinimum);
 
-    // Calculate additional stake to transfer
-    let (pool_transfer, direct_transfer) = if subject.match_mode {
+    // Calculate additional stake to put at risk (match mode only)
+    let (pool_stake_to_transfer, direct_stake_at_risk) = if subject.match_mode {
         if subject.is_linked() {
             let defender_pool = ctx.accounts.defender_pool.as_mut()
                 .ok_or(TribunalCraftError::InvalidConfig)?;
 
+            // Calculate remaining capacity up to max_stake
             let total_held = dispute.total_stake_held();
             let remaining_capacity = subject.max_stake.saturating_sub(total_held);
 
-            let pool_remaining = defender_pool.available;
-            let direct_remaining = subject.total_stake;
-            let total_available = pool_remaining.saturating_add(direct_remaining);
+            let pool_available = defender_pool.available;
+            let direct_available = subject.total_stake.saturating_sub(dispute.direct_stake_held);
+            let total_available = pool_available.saturating_add(direct_available);
 
             let required = bond.min(remaining_capacity);
             require!(total_available >= required, TribunalCraftError::InsufficientAvailableStake);
 
-            let pool_amt = required.min(pool_remaining);
+            // Pool first, then direct stake
+            let pool_amt = required.min(pool_available);
             let direct_amt = required.saturating_sub(pool_amt);
 
+            // Update pool accounting (available -> held)
             if pool_amt > 0 {
                 defender_pool.available = defender_pool.available.saturating_sub(pool_amt);
-                defender_pool.total_stake = defender_pool.total_stake.saturating_sub(pool_amt);
+                defender_pool.held += pool_amt;
                 defender_pool.updated_at = clock.unix_timestamp;
             }
 
             (pool_amt, direct_amt)
         } else {
-            let remaining_capacity = subject.total_stake;
-            require!(remaining_capacity >= bond, TribunalCraftError::InsufficientAvailableStake);
+            // Standalone match mode
+            let direct_available = subject.total_stake.saturating_sub(dispute.direct_stake_held);
+            require!(direct_available >= bond, TribunalCraftError::InsufficientAvailableStake);
             (0, bond)
         }
+    } else {
+        // Proportional mode: no additional stake matching on add_to_dispute
+        (0, 0)
+    };
+
+    // Calculate fees for bond, pool stake, and direct stake
+    let (bond_fee, net_bond) = if bond > 0 {
+        let fee = (bond as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, bond.saturating_sub(fee))
     } else {
         (0, 0)
     };
 
-    // Transfer bond to escrow
-    if bond > 0 {
+    let (pool_fee, net_pool_stake) = if pool_stake_to_transfer > 0 {
+        let fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, pool_stake_to_transfer.saturating_sub(fee))
+    } else {
+        (0, 0)
+    };
+
+    let (direct_fee, net_direct_stake) = if direct_stake_at_risk > 0 {
+        let fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
+        (fee, direct_stake_at_risk.saturating_sub(fee))
+    } else {
+        (0, 0)
+    };
+
+    // Transfer bond fee from challenger to treasury
+    if bond_fee > 0 {
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             anchor_lang::system_program::Transfer {
                 from: ctx.accounts.challenger.to_account_info(),
-                to: escrow.to_account_info(),
+                to: ctx.accounts.treasury.to_account_info(),
             },
         );
-        anchor_lang::system_program::transfer(cpi_context, bond)?;
+        anchor_lang::system_program::transfer(cpi_context, bond_fee)?;
     }
 
-    // Transfer stakes from pool to escrow
-    if pool_transfer > 0 {
+    // Transfer net bond to subject
+    if net_bond > 0 {
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.challenger.to_account_info(),
+                to: subject.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, net_bond)?;
+    }
+
+    // Transfer pool stake (minus fee) to subject
+    if pool_stake_to_transfer > 0 {
         let defender_pool = ctx.accounts.defender_pool.as_ref()
             .ok_or(TribunalCraftError::InvalidConfig)?;
-        **defender_pool.to_account_info().try_borrow_mut_lamports()? -= pool_transfer;
-        **escrow.to_account_info().try_borrow_mut_lamports()? += pool_transfer;
+        let pool_owner_record = ctx.accounts.pool_owner_defender_record.as_mut()
+            .ok_or(TribunalCraftError::InvalidConfig)?;
+
+        // Validate pool owner's record
+        require!(
+            pool_owner_record.defender == defender_pool.owner,
+            TribunalCraftError::Unauthorized
+        );
+        require!(
+            pool_owner_record.subject == subject.key(),
+            TribunalCraftError::InvalidConfig
+        );
+
+        // Transfer fee from pool to treasury
+        if pool_fee > 0 {
+            **defender_pool.to_account_info().try_borrow_mut_lamports()? -= pool_fee;
+            **ctx.accounts.treasury.try_borrow_mut_lamports()? += pool_fee;
+        }
+
+        // Transfer net pool stake to subject
+        if net_pool_stake > 0 {
+            **defender_pool.to_account_info().try_borrow_mut_lamports()? -= net_pool_stake;
+            **subject.to_account_info().try_borrow_mut_lamports()? += net_pool_stake;
+
+            // Consolidate into pool owner's stake (net amount)
+            pool_owner_record.stake += net_pool_stake;
+            subject.total_stake += net_pool_stake;
+
+            // Update snapshot to include new pool stake (net)
+            dispute.snapshot_total_stake += net_pool_stake;
+        }
+
+        msg!("Pool stake: {} gross, {} net (fee: {})", pool_stake_to_transfer, net_pool_stake, pool_fee);
     }
 
-    // Transfer stakes from subject to escrow
-    if direct_transfer > 0 {
-        **subject.to_account_info().try_borrow_mut_lamports()? -= direct_transfer;
-        **escrow.to_account_info().try_borrow_mut_lamports()? += direct_transfer;
-        subject.total_stake = subject.total_stake.saturating_sub(direct_transfer);
+    // Direct stake: transfer fee from subject to treasury
+    if direct_fee > 0 {
+        **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
+        **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
+        subject.total_stake = subject.total_stake.saturating_sub(direct_fee);
+        // Note: Don't add to snapshot_total_stake since we're reducing existing stake
+        msg!("Direct stake fee collected: {}", direct_fee);
     }
 
-    // Update escrow
-    escrow.add_bond(bond);
-    escrow.add_stake(pool_transfer.saturating_add(direct_transfer));
-
-    // Update dispute
-    dispute.total_bond += bond;
-    dispute.stake_held += pool_transfer;
-    dispute.direct_stake_held += direct_transfer;
+    // Update dispute accounting with NET amounts
+    dispute.total_bond += net_bond;
+    dispute.stake_held += net_pool_stake;
+    dispute.direct_stake_held += net_direct_stake;
 
     // Check if new challenger
     let is_new_challenger = challenger_record.challenged_at == 0;
@@ -380,7 +540,7 @@ pub fn add_to_dispute(
         challenger_record.dispute = dispute.key();
         challenger_record.challenger = ctx.accounts.challenger.key();
         challenger_record.challenger_account = challenger_account.key();
-        challenger_record.bond = bond;
+        challenger_record.bond = net_bond;
         challenger_record.details_cid = details_cid;
         challenger_record.reward_claimed = false;
         challenger_record.bump = ctx.bumps.challenger_record;
@@ -389,12 +549,11 @@ pub fn add_to_dispute(
         challenger_account.disputes_submitted += 1;
         challenger_account.last_dispute_at = clock.unix_timestamp;
         dispute.challenger_count += 1;
-        escrow.expected_challengers += 1;
 
-        msg!("New challenger added: {} bond", bond);
+        msg!("New challenger added: {} bond (net after fees)", net_bond);
     } else {
-        challenger_record.bond += bond;
-        msg!("Added to existing bond: {} (total: {})", bond, challenger_record.bond);
+        challenger_record.bond += net_bond;
+        msg!("Added to existing bond: {} (total: {})", net_bond, challenger_record.bond);
     }
 
     Ok(())

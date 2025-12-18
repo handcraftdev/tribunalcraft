@@ -11,8 +11,12 @@ pub struct DefenderRecord {
     /// Defender's wallet address
     pub defender: Pubkey,
 
-    /// Amount staked to back the subject
+    /// Total amount staked to back the subject (on subject account)
     pub stake: u64,
+
+    /// Amount of stake currently at risk in escrow (during active dispute)
+    /// This is the amount that will be used for claim calculations
+    pub stake_in_escrow: u64,
 
     /// Whether reward has been claimed
     pub reward_claimed: bool,
@@ -29,16 +33,17 @@ impl DefenderRecord {
         32 +    // subject
         32 +    // defender
         8 +     // stake
+        8 +     // stake_in_escrow
         1 +     // reward_claimed
         1 +     // bump
         8;      // staked_at
 
-    /// Calculate defender's share of reward based on stake weight
-    /// reward = total_reward * (this_stake / total_stake)
-    pub fn calculate_reward_share(&self, total_reward: u64, total_stake: u64) -> u64 {
-        if total_stake == 0 {
+    /// Calculate defender's share of reward based on stake in escrow
+    /// reward = total_reward * (this_stake_in_escrow / total_stakes_in_escrow)
+    pub fn calculate_reward_share(&self, total_reward: u64, total_stake_in_escrow: u64) -> u64 {
+        if total_stake_in_escrow == 0 {
             return 0;
         }
-        (total_reward as u128 * self.stake as u128 / total_stake as u128) as u64
+        (total_reward as u128 * self.stake_in_escrow as u128 / total_stake_in_escrow as u128) as u64
     }
 }
