@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tribunalcraft/sdk": "file:../packages/sdk",
     "@aws-sdk/client-s3": "^3.953.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/wallet-adapter-base": "^0.9.27",

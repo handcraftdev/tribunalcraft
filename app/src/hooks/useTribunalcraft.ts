@@ -1,882 +1,450 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
-import type { Tribunalcraft } from "@/idl/tribunalcraft";
-import type { DisputeType, VoteChoice, AppealVoteChoice } from "@/idl/types";
 import {
-  simulateTransaction,
-  parseTransactionError,
-  TribunalError,
-} from "@/lib/transaction";
-import idl from "@/idl/tribunalcraft.json";
+  TribunalCraftClient,
+  pda,
+  // Re-export types from SDK
+  type ProtocolConfig,
+  type DefenderPool,
+  type Subject,
+  type Dispute,
+  type DisputeEscrow,
+  type JurorAccount,
+  type VoteRecord,
+  type ChallengerAccount,
+  type ChallengerRecord,
+  type DefenderRecord,
+  type DisputeType,
+  type VoteChoice,
+  type AppealVoteChoice,
+  type TransactionResult,
+} from "@tribunalcraft/sdk";
+import { BN } from "@coral-xyz/anchor";
 
-const PROGRAM_ID = new PublicKey(idl.address);
-
-// Seeds for PDA derivation - match generated IDL
-const DEFENDER_POOL_SEED = Buffer.from("defender_pool");
-const SUBJECT_SEED = Buffer.from("subject");
-const JUROR_SEED = Buffer.from("juror");
-const DISPUTE_SEED = Buffer.from("dispute");
-const CHALLENGER_SEED = Buffer.from("challenger");
-const CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
-const DEFENDER_RECORD_SEED = Buffer.from("defender_record");
-const VOTE_RECORD_SEED = Buffer.from("vote");
-const PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
-
+/**
+ * React hook wrapper for TribunalCraft SDK
+ * Integrates with Solana wallet adapter for seamless wallet management
+ */
 export const useTribunalcraft = () => {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const [client, setClient] = useState<TribunalCraftClient | null>(null);
 
-  const provider = useMemo(() => {
-    if (!wallet.publicKey || !wallet.signTransaction) return null;
-    return new AnchorProvider(connection, wallet as any, {
-      commitment: "confirmed",
-    });
-  }, [connection, wallet]);
+  // Initialize client when connection changes
+  useEffect(() => {
+    const newClient = new TribunalCraftClient({ connection });
+    setClient(newClient);
+  }, [connection]);
 
-  const program = useMemo(() => {
-    if (!provider) return null;
-    return new Program<Tribunalcraft>(idl as Tribunalcraft, provider);
-  }, [provider]);
+  // Update wallet in client when wallet changes
+  useEffect(() => {
+    if (client && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      // Cast to any to bypass Anchor's payer requirement (not needed for web wallets)
+      const anchorWallet = {
+        publicKey: wallet.publicKey,
+        signTransaction: wallet.signTransaction,
+        signAllTransactions: wallet.signAllTransactions,
+      } as any;
+      client.setWallet(anchorWallet);
+    }
+  }, [client, wallet.publicKey, wallet.signTransaction, wallet.signAllTransactions]);
 
-  /**
-   * Execute a transaction with simulation first
-   */
-  const executeWithSimulation = useCallback(
-    async <T>(
-      methodBuilder: any,
-      description: string
-    ): Promise<string> => {
-      if (!program || !wallet.publicKey || !provider) {
-        throw new Error("Wallet not connected");
-      }
-
-      try {
-        const tx = await methodBuilder.transaction();
-        const { blockhash, lastValidBlockHeight } =
-          await connection.getLatestBlockhash("confirmed");
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = wallet.publicKey;
-
-        const simulation = await simulateTransaction(connection, tx);
-
-        if (!simulation.success) {
-          console.error(`[${description}] Simulation failed:`, simulation.error);
-          throw new TribunalError(simulation.error!);
-        }
-
-        const signature = await methodBuilder.rpc();
-        return signature;
-      } catch (error) {
-        if (error instanceof TribunalError) {
-          throw error;
-        }
-        const parsed = parseTransactionError(error);
-        throw new TribunalError(parsed);
-      }
-    },
-    [program, wallet.publicKey, provider, connection]
-  );
-
-  // PDA derivations
+  // PDA derivations (delegate to SDK)
   const getDefenderPoolPDA = useCallback((owner: PublicKey) => {
-    return PublicKey.findProgramAddressSync(
-      [DEFENDER_POOL_SEED, owner.toBuffer()],
-      PROGRAM_ID
-    );
+    return pda.defenderPool(owner);
   }, []);
 
   const getSubjectPDA = useCallback((subjectId: PublicKey) => {
-    return PublicKey.findProgramAddressSync(
-      [SUBJECT_SEED, subjectId.toBuffer()],
-      PROGRAM_ID
-    );
+    return pda.subject(subjectId);
   }, []);
 
   const getJurorPDA = useCallback((juror: PublicKey) => {
-    return PublicKey.findProgramAddressSync(
-      [JUROR_SEED, juror.toBuffer()],
-      PROGRAM_ID
-    );
+    return pda.jurorAccount(juror);
   }, []);
 
-  const getDisputePDA = useCallback(
-    (subject: PublicKey, disputeCount: number) => {
-      const countBuffer = Buffer.alloc(4);
-      countBuffer.writeUInt32LE(disputeCount);
-      return PublicKey.findProgramAddressSync(
-        [DISPUTE_SEED, subject.toBuffer(), countBuffer],
-        PROGRAM_ID
-      );
-    },
-    []
-  );
+  const getDisputePDA = useCallback((subject: PublicKey, disputeCount: number) => {
+    return pda.dispute(subject, disputeCount);
+  }, []);
+
+  const getEscrowPDA = useCallback((dispute: PublicKey) => {
+    return pda.escrow(dispute);
+  }, []);
 
   const getChallengerPDA = useCallback((challenger: PublicKey) => {
-    return PublicKey.findProgramAddressSync(
-      [CHALLENGER_SEED, challenger.toBuffer()],
-      PROGRAM_ID
-    );
+    return pda.challengerAccount(challenger);
   }, []);
 
-  const getChallengerRecordPDA = useCallback(
-    (dispute: PublicKey, challenger: PublicKey) => {
-      return PublicKey.findProgramAddressSync(
-        [CHALLENGER_RECORD_SEED, dispute.toBuffer(), challenger.toBuffer()],
-        PROGRAM_ID
-      );
-    },
-    []
-  );
+  const getChallengerRecordPDA = useCallback((dispute: PublicKey, challenger: PublicKey) => {
+    return pda.challengerRecord(dispute, challenger);
+  }, []);
 
-  const getDefenderRecordPDA = useCallback(
-    (subject: PublicKey, defender: PublicKey) => {
-      return PublicKey.findProgramAddressSync(
-        [DEFENDER_RECORD_SEED, subject.toBuffer(), defender.toBuffer()],
-        PROGRAM_ID
-      );
-    },
-    []
-  );
+  const getDefenderRecordPDA = useCallback((subject: PublicKey, defender: PublicKey) => {
+    return pda.defenderRecord(subject, defender);
+  }, []);
 
-  const getVoteRecordPDA = useCallback(
-    (dispute: PublicKey, juror: PublicKey) => {
-      return PublicKey.findProgramAddressSync(
-        [VOTE_RECORD_SEED, dispute.toBuffer(), juror.toBuffer()],
-        PROGRAM_ID
-      );
-    },
-    []
-  );
+  const getVoteRecordPDA = useCallback((dispute: PublicKey, juror: PublicKey) => {
+    return pda.voteRecord(dispute, juror);
+  }, []);
 
   const getProtocolConfigPDA = useCallback(() => {
-    return PublicKey.findProgramAddressSync(
-      [PROTOCOL_CONFIG_SEED],
-      PROGRAM_ID
-    );
+    return pda.protocolConfig();
   }, []);
 
   // Protocol Config
   const initializeConfig = useCallback(async () => {
-    if (!program || !wallet.publicKey)
-      throw new Error("Wallet not connected");
-
-    const [protocolConfig] = getProtocolConfigPDA();
-
-    const tx = await executeWithSimulation(
-      program.methods.initializeConfig(),
-      "initializeConfig"
-    );
-
-    return { tx, protocolConfig };
-  }, [program, wallet.publicKey, getProtocolConfigPDA, executeWithSimulation]);
+    if (!client) throw new Error("Client not initialized");
+    return client.initializeConfig();
+  }, [client]);
 
   const fetchProtocolConfig = useCallback(async () => {
-    if (!program) return null;
-    const [protocolConfig] = getProtocolConfigPDA();
-    try {
-      return await program.account.protocolConfig.fetch(protocolConfig);
-    } catch {
-      return null;
-    }
-  }, [program, getProtocolConfigPDA]);
+    if (!client) return null;
+    return client.fetchProtocolConfig();
+  }, [client]);
 
   // Pool Management
-  const createPool = useCallback(
-    async (initialStake: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const createPool = useCallback(async (initialStake: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.createPool(initialStake);
+  }, [client]);
 
-      const [defenderPool] = getDefenderPoolPDA(wallet.publicKey);
+  const stakePool = useCallback(async (amount: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.stakePool(amount);
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.createPool(initialStake),
-        "createPool"
-      );
-
-      return { tx, defenderPool };
-    },
-    [program, wallet.publicKey, getDefenderPoolPDA, executeWithSimulation]
-  );
-
-  const stakePool = useCallback(
-    async (amount: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.stakePool(amount),
-        "stakePool"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
-
-  const withdrawPool = useCallback(
-    async (amount: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.withdrawPool(amount),
-        "withdrawPool"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const withdrawPool = useCallback(async (amount: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.withdrawPool(amount);
+  }, [client]);
 
   // Subject Management
-  const createSubject = useCallback(
-    async (
-      subjectId: PublicKey,
-      detailsCid: string,
-      maxStake: BN,
-      matchMode: boolean,
-      votingPeriod: BN,
-      stake: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const createSubject = useCallback(async (
+    subjectId: PublicKey,
+    detailsCid: string,
+    maxStake: BN,
+    matchMode: boolean,
+    votingPeriod: BN,
+    stake: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.createSubject({
+      subjectId,
+      detailsCid,
+      maxStake,
+      matchMode,
+      freeCase: false,
+      votingPeriod,
+      stake,
+    });
+  }, [client]);
 
-      const [subject] = getSubjectPDA(subjectId);
-      const [defenderRecord] = getDefenderRecordPDA(subject, wallet.publicKey);
+  const createLinkedSubject = useCallback(async (
+    defenderPool: PublicKey,
+    subjectId: PublicKey,
+    detailsCid: string,
+    maxStake: BN,
+    matchMode: boolean,
+    votingPeriod: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.createLinkedSubject({
+      defenderPool,
+      subjectId,
+      detailsCid,
+      maxStake,
+      matchMode,
+      freeCase: false,
+      votingPeriod,
+    });
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.createSubject(
-          subjectId,
-          detailsCid,
-          maxStake,
-          matchMode,
-          false, // freeCase = false for regular subjects
-          votingPeriod,
-          stake
-        ),
-        "createSubject"
-      );
+  const createFreeSubject = useCallback(async (
+    subjectId: PublicKey,
+    detailsCid: string,
+    votingPeriod: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.createFreeSubject({ subjectId, detailsCid, votingPeriod });
+  }, [client]);
 
-      return { tx, subject, defenderRecord };
-    },
-    [
-      program,
-      wallet.publicKey,
-      getSubjectPDA,
-      getDefenderRecordPDA,
-      executeWithSimulation,
-    ]
-  );
-
-  const createLinkedSubject = useCallback(
-    async (
-      defenderPool: PublicKey,
-      subjectId: PublicKey,
-      detailsCid: string,
-      maxStake: BN,
-      matchMode: boolean,
-      votingPeriod: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [subject] = getSubjectPDA(subjectId);
-
-      const tx = await executeWithSimulation(
-        program.methods
-          .createLinkedSubject(
-            subjectId,
-            detailsCid,
-            maxStake,
-            matchMode,
-            false, // freeCase = false for linked subjects
-            votingPeriod
-          )
-          .accountsPartial({
-            defenderPool,
-          }),
-        "createLinkedSubject"
-      );
-
-      return { tx, subject };
-    },
-    [program, wallet.publicKey, getSubjectPDA, executeWithSimulation]
-  );
-
-  const createFreeSubject = useCallback(
-    async (
-      subjectId: PublicKey,
-      detailsCid: string,
-      votingPeriod: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [subject] = getSubjectPDA(subjectId);
-
-      const tx = await executeWithSimulation(
-        program.methods.createFreeSubject(subjectId, detailsCid, votingPeriod),
-        "createFreeSubject"
-      );
-
-      return { tx, subject };
-    },
-    [program, wallet.publicKey, getSubjectPDA, executeWithSimulation]
-  );
-
-  const addToStake = useCallback(
-    async (subject: PublicKey, stake: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.addToStake(stake).accountsPartial({
-          subject,
-        }),
-        "addToStake"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const addToStake = useCallback(async (subject: PublicKey, stake: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.addToStake(subject, stake);
+  }, [client]);
 
   // Juror Management
-  const registerJuror = useCallback(
-    async (stakeAmount: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const registerJuror = useCallback(async (stakeAmount: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.registerJuror(stakeAmount);
+  }, [client]);
 
-      const [jurorAccount] = getJurorPDA(wallet.publicKey);
+  const addJurorStake = useCallback(async (amount: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.addJurorStake(amount);
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.registerJuror(stakeAmount),
-        "registerJuror"
-      );
-
-      return { tx, jurorAccount };
-    },
-    [program, wallet.publicKey, getJurorPDA, executeWithSimulation]
-  );
-
-  const addJurorStake = useCallback(
-    async (amount: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.addJurorStake(amount),
-        "addJurorStake"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
-
-  const withdrawJurorStake = useCallback(
-    async (amount: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.withdrawJurorStake(amount),
-        "withdrawJurorStake"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const withdrawJurorStake = useCallback(async (amount: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.withdrawJurorStake(amount);
+  }, [client]);
 
   const unregisterJuror = useCallback(async () => {
-    if (!program || !wallet.publicKey) throw new Error("Wallet not connected");
-
-    const tx = await executeWithSimulation(
-      program.methods.unregisterJuror(),
-      "unregisterJuror"
-    );
-
-    return { tx };
-  }, [program, wallet.publicKey, executeWithSimulation]);
+    if (!client) throw new Error("Client not initialized");
+    return client.unregisterJuror();
+  }, [client]);
 
   // Dispute Management
-  const submitDispute = useCallback(
-    async (
-      subject: PublicKey,
-      subjectData: { disputeCount: number; defenderPool: PublicKey },
-      disputeType: DisputeType,
-      detailsCid: string,
-      bond: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const submitDispute = useCallback(async (
+    subject: PublicKey,
+    subjectData: { disputeCount: number; defenderPool: PublicKey },
+    disputeType: DisputeType,
+    detailsCid: string,
+    bond: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    const isLinked = !subjectData.defenderPool.equals(PublicKey.default);
+    return client.submitDispute({
+      subject,
+      disputeCount: subjectData.disputeCount,
+      defenderPool: isLinked ? subjectData.defenderPool : undefined,
+      disputeType,
+      detailsCid,
+      bond,
+    });
+  }, [client]);
 
-      const [dispute] = getDisputePDA(subject, subjectData.disputeCount);
-      const [challengerRecord] = getChallengerRecordPDA(
-        dispute,
-        wallet.publicKey
-      );
+  const submitFreeDispute = useCallback(async (
+    subject: PublicKey,
+    subjectData: { disputeCount: number },
+    disputeType: DisputeType,
+    detailsCid: string
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.submitFreeDispute({
+      subject,
+      disputeCount: subjectData.disputeCount,
+      disputeType,
+      detailsCid,
+    });
+  }, [client]);
 
-      const isLinked = !subjectData.defenderPool.equals(PublicKey.default);
+  const submitAppeal = useCallback(async (
+    subject: PublicKey,
+    subjectData: { disputeCount: number },
+    disputeType: DisputeType,
+    detailsCid: string,
+    stakeAmount: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.submitAppeal({
+      subject,
+      disputeCount: subjectData.disputeCount,
+      disputeType,
+      detailsCid,
+      stakeAmount,
+    });
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods
-          .submitDispute(disputeType, detailsCid, bond)
-          .accountsPartial({
-            subject,
-            defenderPool: isLinked ? subjectData.defenderPool : null,
-          }),
-        "submitDispute"
-      );
-
-      return { tx, dispute, challengerRecord };
-    },
-    [
-      program,
-      wallet.publicKey,
-      getDisputePDA,
-      getChallengerRecordPDA,
-      executeWithSimulation,
-    ]
-  );
-
-  const submitFreeDispute = useCallback(
-    async (
-      subject: PublicKey,
-      subjectData: { disputeCount: number },
-      disputeType: DisputeType,
-      detailsCid: string
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [dispute] = getDisputePDA(subject, subjectData.disputeCount);
-      const [challengerRecord] = getChallengerRecordPDA(
-        dispute,
-        wallet.publicKey
-      );
-
-      const tx = await executeWithSimulation(
-        program.methods
-          .submitFreeDispute(disputeType, detailsCid)
-          .accountsPartial({
-            subject,
-          }),
-        "submitFreeDispute"
-      );
-
-      return { tx, dispute, challengerRecord };
-    },
-    [
-      program,
-      wallet.publicKey,
-      getDisputePDA,
-      getChallengerRecordPDA,
-      executeWithSimulation,
-    ]
-  );
-
-  const submitAppeal = useCallback(
-    async (
-      subject: PublicKey,
-      subjectData: { disputeCount: number },
-      disputeType: DisputeType,
-      detailsCid: string,
-      stakeAmount: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [dispute] = getDisputePDA(subject, subjectData.disputeCount);
-
-      const tx = await executeWithSimulation(
-        program.methods
-          .submitAppeal(disputeType, detailsCid, stakeAmount)
-          .accountsPartial({
-            subject,
-          }),
-        "submitAppeal"
-      );
-
-      return { tx, dispute };
-    },
-    [
-      program,
-      wallet.publicKey,
-      getDisputePDA,
-      executeWithSimulation,
-    ]
-  );
-
-  const addToDispute = useCallback(
-    async (
-      subject: PublicKey,
-      dispute: PublicKey,
-      defenderPool: PublicKey | null,
-      detailsCid: string,
-      bond: BN
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [challengerRecord] = getChallengerRecordPDA(
-        dispute,
-        wallet.publicKey
-      );
-
-      const tx = await executeWithSimulation(
-        program.methods.addToDispute(detailsCid, bond).accountsPartial({
-          subject,
-          dispute,
-          defenderPool: defenderPool || null,
-        }),
-        "addToDispute"
-      );
-
-      return { tx, challengerRecord };
-    },
-    [program, wallet.publicKey, getChallengerRecordPDA, executeWithSimulation]
-  );
+  const addToDispute = useCallback(async (
+    subject: PublicKey,
+    dispute: PublicKey,
+    defenderPool: PublicKey | null,
+    detailsCid: string,
+    bond: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.addToDispute({
+      subject,
+      dispute,
+      defenderPool: defenderPool ?? undefined,
+      detailsCid,
+      bond,
+    });
+  }, [client]);
 
   // Voting
-  const voteOnDispute = useCallback(
-    async (
-      dispute: PublicKey,
-      choice: VoteChoice,
-      stakeAllocation: BN,
-      rationaleCid: string = ""
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const voteOnDispute = useCallback(async (
+    dispute: PublicKey,
+    choice: VoteChoice,
+    stakeAllocation: BN,
+    rationaleCid: string = ""
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.voteOnDispute({
+      dispute,
+      choice,
+      stakeAllocation,
+      rationaleCid,
+    });
+  }, [client]);
 
-      const [voteRecord] = getVoteRecordPDA(dispute, wallet.publicKey);
+  const voteOnAppeal = useCallback(async (
+    dispute: PublicKey,
+    choice: AppealVoteChoice,
+    stakeAllocation: BN,
+    rationaleCid: string = ""
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.voteOnAppeal({
+      dispute,
+      choice,
+      stakeAllocation,
+      rationaleCid,
+    });
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods
-          .voteOnDispute(choice, stakeAllocation, rationaleCid)
-          .accountsPartial({
-            dispute,
-          }),
-        "voteOnDispute"
-      );
-
-      return { tx, voteRecord };
-    },
-    [program, wallet.publicKey, getVoteRecordPDA, executeWithSimulation]
-  );
-
-  const voteOnAppeal = useCallback(
-    async (
-      dispute: PublicKey,
-      choice: AppealVoteChoice,
-      stakeAllocation: BN,
-      rationaleCid: string = ""
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const [voteRecord] = getVoteRecordPDA(dispute, wallet.publicKey);
-
-      const tx = await executeWithSimulation(
-        program.methods
-          .voteOnAppeal(choice, stakeAllocation, rationaleCid)
-          .accountsPartial({
-            dispute,
-          }),
-        "voteOnAppeal"
-      );
-
-      return { tx, voteRecord };
-    },
-    [program, wallet.publicKey, getVoteRecordPDA, executeWithSimulation]
-  );
-
-  const addToVote = useCallback(
-    async (dispute: PublicKey, additionalStake: BN) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      // Fetch dispute to get subject
-      const disputeAccount = await program.account.dispute.fetch(dispute);
-
-      const tx = await executeWithSimulation(
-        program.methods.addToVote(additionalStake).accountsPartial({
-          dispute,
-          subject: disputeAccount.subject,
-        }),
-        "addToVote"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const addToVote = useCallback(async (dispute: PublicKey, additionalStake: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    // Fetch dispute to get subject
+    const disputeAccount = await client.fetchDispute(dispute);
+    if (!disputeAccount) throw new Error("Dispute not found");
+    return client.addToVote({
+      dispute,
+      subject: disputeAccount.subject,
+      additionalStake,
+    });
+  }, [client]);
 
   // Resolution
-  const resolveDispute = useCallback(
-    async (
-      dispute: PublicKey,
-      subject: PublicKey,
-      defenderPool: PublicKey | null
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const resolveDispute = useCallback(async (dispute: PublicKey, subject: PublicKey) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.resolveDispute({ dispute, subject });
+  }, [client]);
 
-      const [protocolConfig] = getProtocolConfigPDA();
-
-      // Fetch protocol config to get treasury address
-      const configAccount = await program.account.protocolConfig.fetch(protocolConfig);
-
-      const tx = await executeWithSimulation(
-        program.methods.resolveDispute().accountsPartial({
-          dispute,
-          subject,
-          defenderPool: defenderPool || null,
-          protocolConfig,
-          treasury: configAccount.treasury,
-        }),
-        "resolveDispute"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, getProtocolConfigPDA, executeWithSimulation]
-  );
-
-  const processVoteResult = useCallback(
-    async (
-      dispute: PublicKey,
-      voteRecord: PublicKey,
-      jurorAccount: PublicKey
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
-
-      const tx = await executeWithSimulation(
-        program.methods.processVoteResult().accountsPartial({
-          dispute,
-          voteRecord,
-          jurorAccount,
-        }),
-        "processVoteResult"
-      );
-
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const unlockJurorStake = useCallback(async (dispute: PublicKey, voteRecord: PublicKey) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.unlockJurorStake({ dispute, voteRecord });
+  }, [client]);
 
   // Reward Claims
-  const claimJurorReward = useCallback(
-    async (dispute: PublicKey, subject: PublicKey, voteRecord: PublicKey) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const claimJurorReward = useCallback(async (
+    dispute: PublicKey,
+    subject: PublicKey,
+    voteRecord: PublicKey
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.claimJurorReward({ dispute, subject, voteRecord });
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.claimJurorReward().accountsPartial({
-          dispute,
-          subject,
-          voteRecord,
-        }),
-        "claimJurorReward"
-      );
+  const claimChallengerReward = useCallback(async (
+    dispute: PublicKey,
+    subject: PublicKey,
+    challengerRecord: PublicKey
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.claimChallengerReward({ dispute, subject, challengerRecord });
+  }, [client]);
 
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const claimDefenderReward = useCallback(async (
+    dispute: PublicKey,
+    subject: PublicKey,
+    defenderRecord: PublicKey
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.claimDefenderReward({ dispute, subject, defenderRecord });
+  }, [client]);
 
-  const claimChallengerReward = useCallback(
-    async (
-      dispute: PublicKey,
-      subject: PublicKey,
-      challengerRecord: PublicKey
-    ) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const closeEscrow = useCallback(async (dispute: PublicKey) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.closeEscrow(dispute);
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.claimChallengerReward().accountsPartial({
-          dispute,
-          subject,
-          challengerRecord,
-        }),
-        "claimChallengerReward"
-      );
+  // Fetch single accounts
+  const fetchDefenderPool = useCallback(async (defenderPool: PublicKey) => {
+    if (!client) return null;
+    return client.fetchDefenderPool(defenderPool);
+  }, [client]);
 
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const fetchSubject = useCallback(async (subject: PublicKey) => {
+    if (!client) return null;
+    return client.fetchSubject(subject);
+  }, [client]);
 
-  const claimDefenderReward = useCallback(
-    async (dispute: PublicKey, subject: PublicKey, defenderRecord: PublicKey) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const fetchDispute = useCallback(async (dispute: PublicKey) => {
+    if (!client) return null;
+    return client.fetchDispute(dispute);
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.claimDefenderReward().accountsPartial({
-          dispute,
-          subject,
-          defenderRecord,
-        }),
-        "claimDefenderReward"
-      );
+  const fetchJurorAccount = useCallback(async (jurorAccount: PublicKey) => {
+    if (!client) return null;
+    return client.fetchJurorAccount(jurorAccount);
+  }, [client]);
 
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const fetchChallengerAccount = useCallback(async (challengerAccount: PublicKey) => {
+    if (!client) return null;
+    return client.fetchChallengerAccount(challengerAccount);
+  }, [client]);
 
-  const claimPoolReward = useCallback(
-    async (dispute: PublicKey, subject: PublicKey, defenderPool: PublicKey) => {
-      if (!program || !wallet.publicKey)
-        throw new Error("Wallet not connected");
+  const fetchVoteRecord = useCallback(async (voteRecord: PublicKey) => {
+    if (!client) return null;
+    return client.fetchVoteRecord(voteRecord);
+  }, [client]);
 
-      const tx = await executeWithSimulation(
-        program.methods.claimPoolReward().accountsPartial({
-          dispute,
-          subject,
-          defenderPool,
-        }),
-        "claimPoolReward"
-      );
+  const fetchChallengerRecord = useCallback(async (challengerRecord: PublicKey) => {
+    if (!client) return null;
+    return client.fetchChallengerRecord(challengerRecord);
+  }, [client]);
 
-      return { tx };
-    },
-    [program, wallet.publicKey, executeWithSimulation]
-  );
+  const fetchDefenderRecord = useCallback(async (defenderRecord: PublicKey) => {
+    if (!client) return null;
+    return client.fetchDefenderRecord(defenderRecord);
+  }, [client]);
 
-  // Fetch accounts
-  const fetchDefenderPool = useCallback(
-    async (defenderPool: PublicKey) => {
-      if (!program) return null;
-      return program.account.defenderPool.fetch(defenderPool);
-    },
-    [program]
-  );
+  const fetchEscrow = useCallback(async (escrow: PublicKey) => {
+    if (!client) return null;
+    return client.fetchEscrow(escrow);
+  }, [client]);
 
-  const fetchSubject = useCallback(
-    async (subject: PublicKey) => {
-      if (!program) return null;
-      return program.account.subject.fetch(subject);
-    },
-    [program]
-  );
-
-  const fetchDispute = useCallback(
-    async (dispute: PublicKey) => {
-      if (!program) return null;
-      return program.account.dispute.fetch(dispute);
-    },
-    [program]
-  );
-
-  const fetchJurorAccount = useCallback(
-    async (jurorAccount: PublicKey) => {
-      if (!program) return null;
-      return program.account.jurorAccount.fetch(jurorAccount);
-    },
-    [program]
-  );
-
-  const fetchChallengerAccount = useCallback(
-    async (challengerAccount: PublicKey) => {
-      if (!program) return null;
-      return program.account.challengerAccount.fetch(challengerAccount);
-    },
-    [program]
-  );
-
-  const fetchVoteRecord = useCallback(
-    async (voteRecord: PublicKey) => {
-      if (!program) return null;
-      return program.account.voteRecord.fetch(voteRecord);
-    },
-    [program]
-  );
-
-  const fetchChallengerRecord = useCallback(
-    async (challengerRecord: PublicKey) => {
-      if (!program) return null;
-      return program.account.challengerRecord.fetch(challengerRecord);
-    },
-    [program]
-  );
-
-  const fetchDefenderRecord = useCallback(
-    async (defenderRecord: PublicKey) => {
-      if (!program) return null;
-      return program.account.defenderRecord.fetch(defenderRecord);
-    },
-    [program]
-  );
-
-  // List all accounts
+  // Fetch all accounts
   const fetchAllDefenderPools = useCallback(async () => {
-    if (!program) return [];
-    return program.account.defenderPool.all();
-  }, [program]);
+    if (!client) return [];
+    return client.fetchAllDefenderPools();
+  }, [client]);
 
   const fetchAllSubjects = useCallback(async () => {
-    if (!program) return [];
-    return program.account.subject.all();
-  }, [program]);
+    if (!client) return [];
+    return client.fetchAllSubjects();
+  }, [client]);
 
   const fetchAllDisputes = useCallback(async () => {
-    if (!program) return [];
-    return program.account.dispute.all();
-  }, [program]);
+    if (!client) return [];
+    return client.fetchAllDisputes();
+  }, [client]);
 
   const fetchAllJurors = useCallback(async () => {
-    if (!program) return [];
-    return program.account.jurorAccount.all();
-  }, [program]);
+    if (!client) return [];
+    return client.fetchAllJurors();
+  }, [client]);
 
-  // Fetch by filter
-  const fetchDisputesBySubject = useCallback(
-    async (subject: PublicKey) => {
-      if (!program) return [];
-      return program.account.dispute.all([
-        { memcmp: { offset: 8, bytes: subject.toBase58() } },
-      ]);
-    },
-    [program]
-  );
+  // Fetch filtered
+  const fetchDisputesBySubject = useCallback(async (subject: PublicKey) => {
+    if (!client) return [];
+    return client.fetchDisputesBySubject(subject);
+  }, [client]);
 
-  const fetchVotesByDispute = useCallback(
-    async (dispute: PublicKey) => {
-      if (!program) return [];
-      return program.account.voteRecord.all([
-        { memcmp: { offset: 8, bytes: dispute.toBase58() } },
-      ]);
-    },
-    [program]
-  );
+  const fetchVotesByDispute = useCallback(async (dispute: PublicKey) => {
+    if (!client) return [];
+    return client.fetchVotesByDispute(dispute);
+  }, [client]);
 
-  const fetchChallengersByDispute = useCallback(
-    async (dispute: PublicKey) => {
-      if (!program) return [];
-      return program.account.challengerRecord.all([
-        { memcmp: { offset: 8, bytes: dispute.toBase58() } },
-      ]);
-    },
-    [program]
-  );
+  const fetchChallengersByDispute = useCallback(async (dispute: PublicKey) => {
+    if (!client) return [];
+    return client.fetchChallengersByDispute(dispute);
+  }, [client]);
 
   return {
-    program,
-    provider,
+    client,
+    program: client?.program ?? null,
+    provider: client?.program?.provider ?? null,
     // PDAs
     getDefenderPoolPDA,
     getSubjectPDA,
     getJurorPDA,
     getDisputePDA,
+    getEscrowPDA,
     getChallengerPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
@@ -910,12 +478,12 @@ export const useTribunalcraft = () => {
     addToVote,
     // Resolution
     resolveDispute,
-    processVoteResult,
+    unlockJurorStake,
     // Rewards
     claimJurorReward,
     claimChallengerReward,
     claimDefenderReward,
-    claimPoolReward,
+    closeEscrow,
     // Fetch single
     fetchDefenderPool,
     fetchSubject,
@@ -925,6 +493,7 @@ export const useTribunalcraft = () => {
     fetchVoteRecord,
     fetchChallengerRecord,
     fetchDefenderRecord,
+    fetchEscrow,
     // Fetch all
     fetchAllDefenderPools,
     fetchAllSubjects,
@@ -937,6 +506,48 @@ export const useTribunalcraft = () => {
   };
 };
 
-// Re-export error types and utilities for components to use
-export { TribunalError, parseTransactionError } from "@/lib/transaction";
-export type { TransactionError } from "@/lib/transaction";
+// Re-export types from SDK for convenience
+export type {
+  ProtocolConfig,
+  DefenderPool,
+  Subject,
+  Dispute,
+  DisputeEscrow,
+  JurorAccount,
+  VoteRecord,
+  ChallengerAccount,
+  ChallengerRecord,
+  DefenderRecord,
+  DisputeType,
+  VoteChoice,
+  AppealVoteChoice,
+  TransactionResult,
+};
+
+// Re-export enums and helpers from SDK
+export {
+  SubjectStatusEnum,
+  DisputeStatusEnum,
+  ResolutionOutcomeEnum,
+  DisputeTypeEnum,
+  VoteChoiceEnum,
+  AppealVoteChoiceEnum,
+  isSubjectActive,
+  isSubjectDisputed,
+  isSubjectInvalidated,
+  isDisputePending,
+  isDisputeResolved,
+  isChallengerWins,
+  isDefenderWins,
+  isNoParticipation,
+  getDisputeTypeName,
+  getOutcomeName,
+  PROGRAM_ID,
+  MIN_JUROR_STAKE,
+  MIN_CHALLENGER_BOND,
+  MIN_DEFENDER_STAKE,
+  STAKE_UNLOCK_BUFFER,
+  TOTAL_FEE_BPS,
+  JUROR_SHARE_BPS,
+  WINNER_SHARE_BPS,
+} from "@tribunalcraft/sdk";

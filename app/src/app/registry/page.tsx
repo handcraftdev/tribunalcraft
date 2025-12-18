@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
@@ -8,7 +8,7 @@ import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import Link from "next/link";
-import type { DisputeType, VoteChoice } from "@/idl/types";
+import type { DisputeType, VoteChoice } from "@/hooks/useTribunalcraft";
 import type { SubjectContent, DisputeContent } from "@/lib/content-types";
 
 const DISPUTE_TYPES = [
@@ -41,8 +41,8 @@ const getStatusBadge = (status: any) => {
 
 const getOutcomeLabel = (outcome: any) => {
   if (outcome.none) return { label: "Voting", class: "text-gold" };
-  if (outcome.challengerWins) return { label: "Challenger Wins", class: "text-emerald" };
-  if (outcome.defenderWins) return { label: "Defender Wins", class: "text-crimson" };
+  if (outcome.challengerWins) return { label: "Challenger Wins", class: "text-crimson" };
+  if (outcome.defenderWins) return { label: "Defender Wins", class: "text-sky-400" };
   if (outcome.noParticipation) return { label: "No Quorum", class: "text-steel" };
   return { label: "Unknown", class: "text-steel" };
 };
@@ -101,6 +101,12 @@ const CheckIcon = () => (
   </svg>
 );
 
+const ChevronDownIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${expanded ? "rotate-180" : ""}`}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
 const Countdown = ({ endTime }: { endTime: number }) => {
   const [timeLeft, setTimeLeft] = useState("");
 
@@ -128,6 +134,183 @@ const Countdown = ({ endTime }: { endTime: number }) => {
   return <span className={isUrgent ? "text-crimson" : "text-gold"}>{timeLeft}</span>;
 };
 
+// Memoized Create Dispute Modal to prevent focus loss
+const CreateDisputeModal = memo(function CreateDisputeModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  subjectContent,
+  matchMode,
+  maxStake,
+  freeCase,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (form: { type: string; title: string; reason: string; requestedOutcome: string; bondAmount: string }) => void;
+  subjectContent: SubjectContent | null;
+  matchMode: boolean;
+  maxStake: number;
+  freeCase: boolean;
+  isLoading: boolean;
+}) {
+  const [form, setForm] = useState({
+    type: "other",
+    title: "",
+    reason: "",
+    requestedOutcome: "",
+    bondAmount: "0.05",
+  });
+
+  const handleSubmit = () => {
+    onSubmit(form);
+    setForm({ type: "other", title: "", reason: "", requestedOutcome: "", bondAmount: "0.05" });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-ivory">File Dispute</h3>
+          <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          {subjectContent && (
+            <div className="p-3 bg-obsidian border border-slate-light">
+              <p className="text-xs text-steel">Against Subject</p>
+              <p className="text-sm text-parchment font-medium">{subjectContent.title}</p>
+            </div>
+          )}
+          <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className="input w-full">
+            {DISPUTE_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </select>
+          <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" autoComplete="off" />
+          <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason" className="input w-full h-20" />
+          <textarea value={form.requestedOutcome} onChange={e => setForm(f => ({ ...f, requestedOutcome: e.target.value }))} placeholder="Requested Outcome" className="input w-full h-16" />
+          {!freeCase && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-steel">Bond Amount (SOL)</label>
+                {matchMode && (
+                  <span className="text-xs text-gold">
+                    Max: {(maxStake / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                  </span>
+                )}
+              </div>
+              <input value={form.bondAmount} onChange={e => setForm(f => ({ ...f, bondAmount: e.target.value }))} className="input w-full" autoComplete="off" />
+              {matchMode && (
+                <p className="text-[10px] text-steel mt-1">Match mode: bond cannot exceed defender stake</p>
+              )}
+            </div>
+          )}
+          <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full">
+            {isLoading ? "Submitting..." : "Submit Dispute"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Memoized Create Subject Modal to prevent focus loss
+const CreateSubjectModal = memo(function CreateSubjectModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (form: any, subjectType: string) => void;
+  isLoading: boolean;
+}) {
+  const [subjectType, setSubjectType] = useState<"standalone" | "linked" | "free">("standalone");
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    category: "contract" as SubjectContent["category"],
+    termsText: "",
+    maxStake: "1",
+    matchMode: false,
+    votingPeriod: "24",
+    initialStake: "0.1",
+  });
+
+  const handleSubmit = () => {
+    onSubmit(form, subjectType);
+    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: false, votingPeriod: "24", initialStake: "0.1" });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-ivory">Create Subject</h3>
+          <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="flex gap-1">
+            {(["standalone", "linked", "free"] as const).map(t => (
+              <button key={t} onClick={() => setSubjectType(t)} className={`flex-1 py-2 text-xs uppercase tracking-wide ${subjectType === t ? "bg-gold text-obsidian font-semibold" : "bg-slate-light/50 text-steel hover:text-parchment"}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-3">
+            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" autoComplete="off" />
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description" className="input w-full h-20" />
+            <div className="grid grid-cols-2 gap-3">
+              <textarea value={form.termsText} onChange={e => setForm(f => ({ ...f, termsText: e.target.value }))} placeholder="Terms" className="input w-full h-16" />
+              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as any }))} className="input w-full h-16">
+                {SUBJECT_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="border-t border-slate-light pt-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-steel mb-1 block">Voting Period (hours)</label>
+                <input value={form.votingPeriod} onChange={e => setForm(f => ({ ...f, votingPeriod: e.target.value }))} className="input w-full" autoComplete="off" />
+              </div>
+              {subjectType !== "free" && (
+                <div>
+                  <label className="text-xs text-steel mb-1 block">Protocol Fee</label>
+                  <div className="input w-full bg-slate-light/50 text-steel cursor-not-allowed">20% (19% jurors, 1% platform)</div>
+                </div>
+              )}
+            </div>
+            {subjectType === "standalone" && (
+              <div>
+                <label className="text-xs text-steel mb-1 block">Initial Stake (SOL)</label>
+                <input value={form.initialStake} onChange={e => setForm(f => ({ ...f, initialStake: e.target.value }))} className="input w-full" autoComplete="off" />
+              </div>
+            )}
+            {subjectType !== "free" && (
+              <label className="flex items-center gap-2 text-sm text-parchment cursor-pointer py-1">
+                <input type="checkbox" checked={form.matchMode} onChange={e => setForm(f => ({ ...f, matchMode: e.target.checked }))} className="w-4 h-4 accent-gold" />
+                Match Mode (stakers match each other)
+              </label>
+            )}
+            {subjectType === "linked" && form.matchMode && (
+              <div>
+                <label className="text-xs text-steel mb-1 block">Max Stake (SOL)</label>
+                <input value={form.maxStake} onChange={e => setForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" autoComplete="off" />
+              </div>
+            )}
+          </div>
+          <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full mt-2">
+            {isLoading ? "Creating..." : "Create Subject"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function RegistryPage() {
   const { publicKey } = useWallet();
   const {
@@ -152,6 +335,8 @@ export default function RegistryPage() {
     fetchVoteRecord,
     getJurorPDA,
     getVoteRecordPDA,
+    fetchVotesByDispute,
+    claimJurorReward,
   } = useTribunalcraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
@@ -171,6 +356,7 @@ export default function RegistryPage() {
   // Juror state
   const [jurorAccount, setJurorAccount] = useState<any>(null);
   const [existingVotes, setExistingVotes] = useState<Record<string, any>>({});
+  const [disputeVotes, setDisputeVotes] = useState<any[]>([]);
 
   // Modal state
   const [selectedItem, setSelectedItem] = useState<{ type: "subject" | "dispute"; data: any; subjectData?: any } | null>(null);
@@ -184,8 +370,11 @@ export default function RegistryPage() {
   const [addStakeAmount, setAddStakeAmount] = useState("0.1");
   const [addBondAmount, setAddBondAmount] = useState("0.05");
 
+  // History collapse state
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+
   // Section filter
-  const [activeFilter, setActiveFilter] = useState<"active" | "disputed" | "voted">("active");
+  const [activeFilter, setActiveFilter] = useState<"active" | "disputed" | "voted" | "claims">("active");
 
   // Create forms
   const [subjectType, setSubjectType] = useState<"standalone" | "linked" | "free">("standalone");
@@ -282,6 +471,36 @@ export default function RegistryPage() {
     loadData();
   }, [publicKey]);
 
+  // Fetch votes when a dispute is selected
+  useEffect(() => {
+    const fetchDisputeVotes = async () => {
+      if (selectedItem?.type === "dispute" && selectedItem.data) {
+        const votes = await fetchVotesByDispute(selectedItem.data.publicKey);
+        setDisputeVotes(votes || []);
+      } else if (selectedItem?.type === "subject") {
+        // Check if there's an active dispute for this subject
+        const dispute = disputes.find(d =>
+          d.account.subject.toBase58() === selectedItem.data.publicKey.toBase58() &&
+          d.account.status.pending
+        );
+        if (dispute) {
+          const votes = await fetchVotesByDispute(dispute.publicKey);
+          setDisputeVotes(votes || []);
+        } else {
+          setDisputeVotes([]);
+        }
+      } else {
+        setDisputeVotes([]);
+      }
+    };
+    fetchDisputeVotes();
+  }, [selectedItem, disputes, fetchVotesByDispute]);
+
+  // Reset history collapse when changing selection
+  useEffect(() => {
+    setHistoryExpanded(false);
+  }, [selectedItem]);
+
   // Filter data for sections
   const activeSubjects = subjects.filter(s => s.account.status.active);
 
@@ -289,23 +508,34 @@ export default function RegistryPage() {
   const votedKeys = new Set(myVotedDisputes.map(d => d.publicKey.toBase58()));
   const disputedItems = disputes.filter(d => d.account.status.pending && !votedKeys.has(d.publicKey.toBase58()));
 
-  // Dismissed disputes only (upheld disputes return subject to active)
-  const dismissedDisputes = disputes.filter(d => d.account.status.resolved && d.account.outcome.defenderWins);
+  // Invalidated subjects (challenger wins - subject was invalidated)
+  const invalidatedSubjects = subjects.filter(s => s.account.status.invalidated);
+
+  // Claimable disputes - resolved disputes where user voted (pending juror claims)
+  const claimableDisputes = disputes.filter(d => {
+    const voteRecord = existingVotes[d.publicKey.toBase58()];
+    return d.account.status.resolved && voteRecord && !voteRecord.rewardClaimed;
+  });
 
   // Get items based on active filter - all return subjects with optional dispute
   const getActiveItems = () => {
     switch (activeFilter) {
       case "active":
-        return activeSubjects.map(s => ({ subject: s, dispute: null }));
+        return activeSubjects.map(s => ({ subject: s, dispute: null, isResolved: false }));
       case "disputed":
         return disputedItems.map(d => {
           const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
-          return { subject, dispute: d };
+          return { subject, dispute: d, isResolved: false };
         }).filter(item => item.subject);
       case "voted":
         return myVotedDisputes.map(d => {
           const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
-          return { subject, dispute: d };
+          return { subject, dispute: d, isResolved: false };
+        }).filter(item => item.subject);
+      case "claims":
+        return claimableDisputes.map(d => {
+          const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
+          return { subject, dispute: d, isResolved: true };
         }).filter(item => item.subject);
     }
   };
@@ -469,9 +699,7 @@ export default function RegistryPage() {
     try {
       const dispute = disputes.find(d => d.publicKey.toBase58() === disputeKey);
       if (!dispute) throw new Error("Dispute not found");
-      const subjectData = await fetchSubject(dispute.account.subject);
-      const defenderPool = subjectData && !subjectData.defenderPool.equals(PublicKey.default) ? subjectData.defenderPool : null;
-      await resolveDispute(new PublicKey(disputeKey), dispute.account.subject, defenderPool);
+      await resolveDispute(new PublicKey(disputeKey), dispute.account.subject);
       setSuccess("Dispute resolved");
       setSelectedItem(null);
       await loadData();
@@ -481,16 +709,40 @@ export default function RegistryPage() {
     setActionLoading(false);
   };
 
+  const handleClaimJurorReward = async (disputeKey: string, subjectKey: string) => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const [voteRecordPda] = getVoteRecordPDA(new PublicKey(disputeKey), publicKey);
+      // Program now handles reputation processing automatically during claim
+      await claimJurorReward(new PublicKey(disputeKey), new PublicKey(subjectKey), voteRecordPda);
+      setSuccess("Juror reward claimed!");
+      setSelectedItem(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to claim juror reward");
+    }
+    setActionLoading(false);
+  };
+
+
   // Unified card component
-  const ItemCard = ({ subject, dispute }: { subject: any; dispute?: any }) => {
+  const ItemCard = ({ subject, dispute, isResolved = false }: { subject: any; dispute?: any; isResolved?: boolean }) => {
     const subjectKey = subject.publicKey.toBase58();
     const subjectContent = subjectContents[subjectKey];
-    const status = getStatusBadge(subject.account.status);
 
-    // Find active dispute for this subject if not provided
-    const activeDispute = dispute || disputes.find(d =>
+    // For resolved disputes, show "Dismissed" status, otherwise show subject's current status
+    const status = isResolved && dispute?.account.outcome.defenderWins
+      ? { label: "Dismissed", class: "bg-sky-500/20 text-sky-400" }
+      : isResolved && dispute?.account.outcome.challengerWins
+      ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
+      : getStatusBadge(subject.account.status);
+
+    // Find active dispute for this subject if not provided (only for non-resolved views)
+    const activeDispute = isResolved ? dispute : (dispute || disputes.find(d =>
       d.account.subject.toBase58() === subjectKey && d.account.status.pending
-    );
+    ));
     const disputeKey = activeDispute?.publicKey.toBase58();
     const disputeContent = disputeKey ? disputeContents[disputeKey] : null;
     const existingVote = disputeKey ? existingVotes[disputeKey] : null;
@@ -607,7 +859,14 @@ export default function RegistryPage() {
 
     const subjectKey = subject.publicKey.toBase58();
     const subjectContent = subjectContents[subjectKey];
-    const subjectStatus = getStatusBadge(subject.account.status);
+
+    // For resolved disputes, show resolved state instead of current subject state
+    const isResolvedDispute = dispute?.account.status.resolved;
+    const subjectStatus = isResolvedDispute && dispute?.account.outcome.defenderWins
+      ? { label: "Dismissed", class: "bg-sky-500/20 text-sky-400" }
+      : isResolvedDispute && dispute?.account.outcome.challengerWins
+      ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
+      : getStatusBadge(subject.account.status);
 
     // Dispute data
     const disputeKey = dispute?.publicKey.toBase58();
@@ -687,7 +946,7 @@ export default function RegistryPage() {
                 </div>
                 {/* Subject Actions */}
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
-                  {!subject.account.freeCase && (
+                  {!subject.account.freeCase && !dispute?.account.status.resolved && (
                     <>
                       <button onClick={() => handleAddStake(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400">
                         <span className="text-sky-400">Join Defenders</span>
@@ -701,7 +960,7 @@ export default function RegistryPage() {
                       />
                     </>
                   )}
-                  {subject.account.status.active && (
+                  {subject.account.status.active && !dispute?.account.status.resolved && (
                     <button onClick={() => { setSelectedItem(null); setShowCreateDispute(subjectKey); }} className="btn btn-secondary py-1.5 px-3 text-sm">
                       File Dispute
                     </button>
@@ -896,6 +1155,77 @@ export default function RegistryPage() {
               </div>
             )}
 
+            {/* ========== CLAIM SECTION (for resolved disputes) ========== */}
+            {dispute && isResolvedDispute && existingVote && !existingVote.rewardClaimed && publicKey && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-gold uppercase tracking-wider">Claim Reward</h4>
+                <div className="p-4 bg-obsidian border border-gold/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-parchment">Juror Reward</p>
+                      <p className="text-xs text-steel">
+                        You voted {existingVote.choice.forChallenger ? "for Challenger" : "for Defender"} •
+                        Stake: {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                      </p>
+                      <p className="text-xs text-steel mt-1">
+                        Outcome: <span className={outcome?.class}>{outcome?.label}</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleClaimJurorReward(disputeKey!, subjectKey)}
+                      disabled={actionLoading}
+                      className="btn btn-primary py-2 px-4"
+                    >
+                      {actionLoading ? "Claiming..." : "Claim"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========== ALL JUROR REMARKS SECTION ========== */}
+            {dispute && disputeVotes.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Juror Remarks ({disputeVotes.length})</h4>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {disputeVotes.map((vote, i) => {
+                    const hasRationale = vote.account.rationaleCid && vote.account.rationaleCid.length > 0;
+                    const isForChallenger = vote.account.choice.forChallenger;
+                    const isForDefender = vote.account.choice.forDefender;
+                    const jurorAddress = vote.account.juror.toBase58();
+                    const stakeAmount = vote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL;
+                    const votingPower = vote.account.votingPower.toNumber() / LAMPORTS_PER_SOL;
+
+                    return (
+                      <div key={i} className={`p-3 bg-obsidian border ${isForChallenger ? "border-crimson/30" : "border-sky-500/30"}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium ${isForChallenger ? "text-crimson" : "text-sky-400"}`}>
+                              {isForChallenger ? "FOR CHALLENGER" : isForDefender ? "FOR DEFENDER" : "ABSTAIN"}
+                            </span>
+                            <span className="text-[10px] text-steel">
+                              {jurorAddress.slice(0, 4)}...{jurorAddress.slice(-4)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs text-gold">{stakeAmount.toFixed(4)} SOL</span>
+                            {votingPower !== stakeAmount && (
+                              <span className="text-[10px] text-steel ml-1">({votingPower.toFixed(4)} power)</span>
+                            )}
+                          </div>
+                        </div>
+                        {hasRationale ? (
+                          <p className="text-xs text-parchment mt-1">{vote.account.rationaleCid}</p>
+                        ) : (
+                          <p className="text-xs text-steel/50 italic mt-1">No rationale provided</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* IPFS Link */}
             {disputeKey && disputeCids[disputeKey] && (
               <a href={getUrl(disputeCids[disputeKey])} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-light flex items-center gap-1">
@@ -903,7 +1233,7 @@ export default function RegistryPage() {
               </a>
             )}
 
-            {/* ========== HISTORY SECTION ========== */}
+            {/* ========== HISTORY SECTION (collapsible with full details) ========== */}
             {(() => {
               const pastDisputes = disputes.filter(d =>
                 d.account.subject.toBase58() === subjectKey &&
@@ -913,27 +1243,97 @@ export default function RegistryPage() {
               if (pastDisputes.length === 0) return null;
               return (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">History</h4>
-                  <div className="space-y-2">
-                    {pastDisputes.map((d, i) => {
-                      const dKey = d.publicKey.toBase58();
-                      const dContent = disputeContents[dKey];
-                      const dOutcome = getOutcomeLabel(d.account.outcome);
-                      return (
-                        <div key={i} className="p-3 bg-obsidian border border-slate-light">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-xs text-parchment">{dContent?.title || getDisputeTypeLabel(d.account.disputeType)}</p>
-                            <span className={`text-[10px] ${dOutcome.class}`}>{dOutcome.label}</span>
+                  <button
+                    onClick={() => setHistoryExpanded(!historyExpanded)}
+                    className="flex items-center gap-2 w-full text-left hover:opacity-80 transition-opacity"
+                  >
+                    <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">History ({pastDisputes.length})</h4>
+                    <ChevronDownIcon expanded={historyExpanded} />
+                  </button>
+                  {historyExpanded && (
+                    <div className="space-y-4">
+                      {pastDisputes.map((pastDispute, i) => {
+                        const dKey = pastDispute.publicKey.toBase58();
+                        const dContent = disputeContents[dKey];
+                        const dOutcome = getOutcomeLabel(pastDispute.account.outcome);
+                        const totalVotesHist = pastDispute.account.votesFavorWeight.toNumber() + pastDispute.account.votesAgainstWeight.toNumber();
+                        const favorPercentHist = totalVotesHist > 0 ? (pastDispute.account.votesFavorWeight.toNumber() / totalVotesHist) * 100 : 50;
+
+                        return (
+                          <div key={i} className="border border-slate-light">
+                            {/* History dispute header */}
+                            <div className="p-3 bg-slate-light/30 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-medium ${dOutcome.class}`}>{dOutcome.label}</span>
+                                <span className="text-[10px] text-steel">{new Date(pastDispute.account.resolvedAt.toNumber() * 1000).toLocaleDateString()}</span>
+                              </div>
+                              <span className="text-[10px] text-steel">{getDisputeTypeLabel(pastDispute.account.disputeType)}</span>
+                            </div>
+
+                            {/* History VS / Power bar */}
+                            <div className="p-3 bg-slate-light/10 space-y-2">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-sky-400">{pastDispute.account.snapshotDefenderCount} Defender{pastDispute.account.snapshotDefenderCount !== 1 ? 's' : ''}</span>
+                                <span className="text-crimson">{pastDispute.account.challengerCount} Challenger{pastDispute.account.challengerCount !== 1 ? 's' : ''}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-sky-400">
+                                  {((pastDispute.account.stakeHeld.toNumber() + pastDispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                                </span>
+                                <span className="text-crimson">
+                                  {(pastDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                                </span>
+                              </div>
+                              <div className="h-2 rounded overflow-hidden flex bg-obsidian">
+                                <div className="h-full" style={{ width: `${100 - favorPercentHist}%`, backgroundColor: '#0ea5e9' }} />
+                                <div className="h-full" style={{ width: `${favorPercentHist}%`, backgroundColor: '#dc2626' }} />
+                              </div>
+                              <div className="flex justify-between text-[10px]">
+                                <span className="text-sky-400">{(100 - favorPercentHist).toFixed(0)}%</span>
+                                <span className="text-steel">{pastDispute.account.voteCount} votes</span>
+                                <span className="text-crimson">{favorPercentHist.toFixed(0)}%</span>
+                              </div>
+                            </div>
+
+                            {/* History dispute details */}
+                            <div className="p-3 bg-obsidian space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm text-crimson font-medium">{dContent?.title || "Dispute"}</p>
+                                <span className="text-[10px] text-steel px-1.5 py-0.5 bg-slate-light/30 rounded">
+                                  {getDisputeTypeLabel(pastDispute.account.disputeType)}
+                                </span>
+                              </div>
+                              {dContent?.reason && (
+                                <div>
+                                  <p className="text-[10px] text-steel uppercase tracking-wider mb-0.5">Reason</p>
+                                  <p className="text-xs text-parchment">{dContent.reason}</p>
+                                </div>
+                              )}
+                              {dContent?.requestedOutcome && (
+                                <div>
+                                  <p className="text-[10px] text-steel uppercase tracking-wider mb-0.5">Requested Outcome</p>
+                                  <p className="text-xs text-parchment">{dContent.requestedOutcome}</p>
+                                </div>
+                              )}
+                              {/* Resolution info */}
+                              <div className="pt-2 border-t border-slate-light/30 grid grid-cols-2 gap-2 text-[10px]">
+                                <div>
+                                  <span className="text-steel">Resolved: </span>
+                                  <span className="text-parchment">{new Date(pastDispute.account.resolvedAt.toNumber() * 1000).toLocaleString()}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-steel">Duration: </span>
+                                  <span className="text-parchment">
+                                    {Math.round((pastDispute.account.votingEndsAt.toNumber() - pastDispute.account.votingStartsAt.toNumber()) / 3600)}h voting
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-3 text-[10px] text-steel">
-                            <span>{(d.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
-                            <span className="text-center">{d.account.voteCount} votes</span>
-                            <span className="text-right">{new Date(d.account.resolvedAt.toNumber() * 1000).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -944,8 +1344,8 @@ export default function RegistryPage() {
   };
 
   // Create Subject Modal
-  const createSubjectModalContent = showCreateSubject ? (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateSubject(false)}>
+  const createSubjectModalContent = (
+    <div className={`fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4 transition-opacity ${showCreateSubject ? "opacity-100" : "opacity-0 pointer-events-none"}`} onClick={() => setShowCreateSubject(false)}>
       <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-slate-light flex items-center justify-between">
           <h3 className="text-lg font-semibold text-ivory">Create Subject</h3>
@@ -1014,14 +1414,14 @@ export default function RegistryPage() {
         </div>
       </div>
     </div>
-  ) : null;
+  );
 
   // Create Dispute Modal (for filing new disputes only)
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
 
-  const createDisputeModalContent = showCreateDispute ? (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateDispute(null)}>
+  const createDisputeModalContent = (
+    <div className={`fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4 transition-opacity ${showCreateDispute ? "opacity-100" : "opacity-0 pointer-events-none"}`} onClick={() => setShowCreateDispute(null)}>
       <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-slate-light flex items-center justify-between">
           <h3 className="text-lg font-semibold text-ivory">File Dispute</h3>
@@ -1056,13 +1456,13 @@ export default function RegistryPage() {
               )}
             </div>
           )}
-          <button onClick={() => handleCreateDispute(showCreateDispute)} disabled={actionLoading || isUploading} className="btn btn-primary w-full">
+          <button onClick={() => handleCreateDispute(showCreateDispute!)} disabled={actionLoading || isUploading || !showCreateDispute} className="btn btn-primary w-full">
             {actionLoading || isUploading ? "Submitting..." : "Submit Dispute"}
           </button>
         </div>
       </div>
     </div>
-  ) : null;
+  );
 
   return (
     <div className="min-h-screen bg-obsidian">
@@ -1094,42 +1494,47 @@ export default function RegistryPage() {
                 <span className="text-xs text-steel ml-auto">{activeItems.length}</span>
               </div>
               {/* Filter Tabs */}
-              <div className="flex gap-1 mb-4 max-w-md">
-                {(["active", "disputed", "voted"] as const).map(f => (
+              <div className="flex gap-1 mb-4 max-w-xl">
+                {(["active", "disputed", "voted", "claims"] as const).map(f => (
                   <button
                     key={f}
                     onClick={() => setActiveFilter(f)}
-                    className={`flex-1 py-1.5 text-xs uppercase tracking-wide ${activeFilter === f ? "bg-gold text-obsidian font-semibold" : "bg-slate-light/50 text-steel hover:text-parchment"}`}
+                    className={`flex-1 py-1.5 text-xs uppercase tracking-wide ${activeFilter === f ? (f === "claims" ? "bg-gold text-obsidian font-semibold" : "bg-gold text-obsidian font-semibold") : "bg-slate-light/50 text-steel hover:text-parchment"}`}
                   >
-                    {f} ({f === "active" ? activeSubjects.length : f === "disputed" ? disputedItems.length : myVotedDisputes.length})
+                    {f} ({f === "active" ? activeSubjects.length : f === "disputed" ? disputedItems.length : f === "voted" ? myVotedDisputes.length : claimableDisputes.length})
                   </button>
                 ))}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {activeItems.length === 0 ? (
                   <p className="text-steel text-xs text-center py-4 col-span-full">
-                    {activeFilter === "active" ? "No active subjects" : activeFilter === "disputed" ? "No active disputes" : jurorAccount ? "No votes cast" : "Register as juror to vote"}
+                    {activeFilter === "active" ? "No active subjects" : activeFilter === "disputed" ? "No active disputes" : activeFilter === "voted" ? (jurorAccount ? "No votes cast" : "Register as juror to vote") : "No pending claims"}
                   </p>
                 ) : (
-                  activeItems.map((item: any, i: number) => <ItemCard key={i} subject={item.subject} dispute={item.dispute} />)
+                  activeItems.map((item: any, i: number) => <ItemCard key={i} subject={item.subject} dispute={item.dispute} isResolved={item.isResolved} />)
                 )}
               </div>
             </div>
 
-            {/* Dismissed Section */}
+            {/* Invalidated Section */}
             <div className="bg-slate/30 border border-slate-light p-4">
               <div className="flex items-center gap-2 mb-4">
                 <GavelIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dismissed</h2>
-                <span className="text-xs text-steel ml-auto">{dismissedDisputes.length}</span>
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalidated</h2>
+                <span className="text-xs text-steel ml-auto">{invalidatedSubjects.length}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {dismissedDisputes.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No dismissed disputes</p>
+                {invalidatedSubjects.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No invalidated subjects</p>
                 ) : (
-                  dismissedDisputes.map((d, i) => {
-                    const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
-                    return subject ? <ItemCard key={i} subject={subject} dispute={d} /> : null;
+                  invalidatedSubjects.map((s, i) => {
+                    // Find the resolved dispute that invalidated this subject
+                    const invalidatingDispute = disputes.find(d =>
+                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.status.resolved &&
+                      d.account.outcome.challengerWins
+                    );
+                    return <ItemCard key={i} subject={s} dispute={invalidatingDispute} isResolved={true} />;
                   })
                 )}
               </div>
