@@ -991,10 +991,7 @@ var idl_default = {
         {
           name: "owner",
           writable: true,
-          signer: true,
-          relations: [
-            "defender_pool"
-          ]
+          signer: true
         },
         {
           name: "defender_pool",
@@ -1141,123 +1138,6 @@ var idl_default = {
       args: [
         {
           name: "initial_stake",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "create_subject",
-      docs: [
-        "Create a standalone subject with initial stake"
-      ],
-      discriminator: [
-        243,
-        24,
-        101,
-        208,
-        170,
-        5,
-        242,
-        26
-      ],
-      accounts: [
-        {
-          name: "creator",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  115,
-                  117,
-                  98,
-                  106,
-                  101,
-                  99,
-                  116
-                ]
-              },
-              {
-                kind: "arg",
-                path: "subject_id"
-              }
-            ]
-          }
-        },
-        {
-          name: "defender_record",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  100,
-                  101,
-                  102,
-                  101,
-                  110,
-                  100,
-                  101,
-                  114,
-                  95,
-                  114,
-                  101,
-                  99,
-                  111,
-                  114,
-                  100
-                ]
-              },
-              {
-                kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "creator"
-              }
-            ]
-          }
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "subject_id",
-          type: "pubkey"
-        },
-        {
-          name: "details_cid",
-          type: "string"
-        },
-        {
-          name: "max_stake",
-          type: "u64"
-        },
-        {
-          name: "match_mode",
-          type: "bool"
-        },
-        {
-          name: "free_case",
-          type: "bool"
-        },
-        {
-          name: "voting_period",
-          type: "i64"
-        },
-        {
-          name: "stake",
           type: "u64"
         }
       ]

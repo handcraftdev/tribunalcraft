@@ -62,20 +62,6 @@ pub mod tribunalcraft {
     // Subject Instructions
     // =========================================================================
 
-    /// Create a standalone subject with initial stake
-    pub fn create_subject(
-        ctx: Context<CreateSubject>,
-        subject_id: Pubkey,
-        details_cid: String,
-        max_stake: u64,
-        match_mode: bool,
-        free_case: bool,
-        voting_period: i64,
-        stake: u64,
-    ) -> Result<()> {
-        instructions::create_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period, stake)
-    }
-
     /// Create a subject linked to a defender pool
     pub fn create_linked_subject(
         ctx: Context<CreateLinkedSubject>,
