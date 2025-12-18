@@ -3845,10 +3845,12 @@ declare class TribunalCraftClient {
     /**
      * Create a subject - unified method that handles all subject types
      *
+     * All staked subjects are linked to the creator's defender pool.
+     * Pool is auto-created by the program if it doesn't exist.
+     *
      * Subject type is determined by params:
-     * - freeCase: true → creates free subject (no stakes)
-     * - defenderPool provided → creates linked subject (pool-backed)
-     * - otherwise → creates standalone subject (requires stake)
+     * - freeCase: true → creates free subject (no stakes, no pool)
+     * - otherwise → creates linked subject (pool auto-created if needed)
      */
     createSubject(params: {
         subjectId: PublicKey;
@@ -3857,7 +3859,6 @@ declare class TribunalCraftClient {
         maxStake?: BN;
         matchMode?: boolean;
         stake?: BN;
-        defenderPool?: PublicKey;
         freeCase?: boolean;
     }): Promise<TransactionResult>;
     /**

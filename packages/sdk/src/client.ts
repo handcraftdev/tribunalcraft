@@ -427,10 +427,12 @@ export class TribunalCraftClient {
   /**
    * Create a subject - unified method that handles all subject types
    *
+   * All staked subjects are linked to the creator's defender pool.
+   * Pool is auto-created by the program if it doesn't exist.
+   *
    * Subject type is determined by params:
-   * - freeCase: true → creates free subject (no stakes)
-   * - defenderPool provided → creates linked subject (pool-backed)
-   * - otherwise → creates standalone subject (requires stake)
+   * - freeCase: true → creates free subject (no stakes, no pool)
+   * - otherwise → creates linked subject (pool auto-created if needed)
    */
   async createSubject(params: {
     subjectId: PublicKey;
@@ -439,16 +441,14 @@ export class TribunalCraftClient {
     // Optional - for staked subjects
     maxStake?: BN;
     matchMode?: boolean;
-    stake?: BN;
-    // Optional - for linked subjects
-    defenderPool?: PublicKey;
+    stake?: BN; // Initial stake to add after creation
     // Optional - for free subjects
     freeCase?: boolean;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
 
-    // Free subject - no stakes required
+    // Free subject - no stakes required, no pool
     if (params.freeCase) {
       const signature = await program.methods
         .createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod)
@@ -456,43 +456,29 @@ export class TribunalCraftClient {
       return { signature, accounts: { subject } };
     }
 
-    // Linked subject - backed by defender pool
-    if (params.defenderPool) {
-      const signature = await program.methods
-        .createLinkedSubject(
-          params.subjectId,
-          params.detailsCid,
-          params.maxStake ?? new BN(0),
-          params.matchMode ?? true,
-          false, // freeCase
-          params.votingPeriod
-        )
-        .accountsPartial({
-          defenderPool: params.defenderPool,
-        })
-        .rpc();
-      return { signature, accounts: { subject } };
-    }
+    // Staked subject - always linked to creator's pool (auto-created if needed)
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
 
-    // Standalone subject - requires initial stake
-    if (!params.stake || params.stake.isZero()) {
-      throw new Error("Standalone subjects require initial stake");
-    }
-
-    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
     const signature = await program.methods
-      .createSubject(
+      .createLinkedSubject(
         params.subjectId,
         params.detailsCid,
         params.maxStake ?? new BN(0),
         params.matchMode ?? true,
         false, // freeCase
-        params.votingPeriod,
-        params.stake
+        params.votingPeriod
       )
+      .accountsPartial({
+        defenderPool,
+      })
       .rpc();
 
-    return { signature, accounts: { subject, defenderRecord } };
+    // Add initial stake if provided
+    if (params.stake && !params.stake.isZero()) {
+      await this.addToStake(subject, params.stake);
+    }
+
+    return { signature, accounts: { subject, defenderPool } };
   }
 
   /**
