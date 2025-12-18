@@ -126,3 +126,40 @@ jobs:
         run: yarn build
         env:
           NEXT_PUBLIC_SOLANA_RPC_URL: https://api.devnet.solana.com
+
+  # Security Scan
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'yarn'
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Audit Dependencies
+        run: yarn audit --level high
+        continue-on-error: true
+
+      - name: Check for Secrets in Code
+        run: |
+          echo "Scanning for potential secrets..."
+          if grep -rE "(sk_live_|pk_live_|ghp_|gho_|AKIA[A-Z0-9]{16}|private_key|secret_key)" \
+            --include="*.ts" --include="*.tsx" --include="*.js" --include="*.json" \
+            --exclude-dir=node_modules --exclude-dir=.git --exclude="package-lock.json" --exclude="yarn.lock" .; then
+            echo "::warning::Potential secrets found in code - please review"
+          else
+            echo "No secrets detected"
+          fi
+
+      - name: Rust Security Audit
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo audit || true
+        working-directory: programs/tribunalcraft
