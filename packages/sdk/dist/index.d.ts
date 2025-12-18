@@ -5741,6 +5741,43 @@ var instructions = [
 				}
 			},
 			{
+				name: "protocol_config",
+				docs: [
+					"Protocol config for treasury address"
+				],
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								112,
+								114,
+								111,
+								116,
+								111,
+								99,
+								111,
+								108,
+								95,
+								99,
+								111,
+								110,
+								102,
+								105,
+								103
+							]
+						}
+					]
+				}
+			},
+			{
+				name: "treasury",
+				docs: [
+					"Treasury receives platform fee"
+				],
+				writable: true
+			},
+			{
 				name: "system_program",
 				address: "11111111111111111111111111111111"
 			}
@@ -7399,6 +7436,9 @@ var types = [
 				},
 				{
 					name: "Dormant"
+				},
+				{
+					name: "Restoring"
 				}
 			]
 		}
