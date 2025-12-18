@@ -69,6 +69,7 @@ export interface Dispute {
   isRestore: boolean;
   restoreStake: BN;
   restorer: PublicKey;
+  detailsCid: string;
 }
 
 // NOTE: DisputeEscrow removed - no escrow in simplified model
