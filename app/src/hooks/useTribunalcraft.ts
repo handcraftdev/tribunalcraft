@@ -122,53 +122,18 @@ export const useTribunalcraft = () => {
   }, [client]);
 
   // Subject Management
-  const createSubject = useCallback(async (
-    subjectId: PublicKey,
-    detailsCid: string,
-    maxStake: BN,
-    matchMode: boolean,
-    votingPeriod: BN,
-    stake: BN
-  ) => {
+  const createSubject = useCallback(async (params: {
+    subjectId: PublicKey;
+    detailsCid: string;
+    votingPeriod: BN;
+    maxStake?: BN;
+    matchMode?: boolean;
+    stake?: BN;
+    defenderPool?: PublicKey;
+    freeCase?: boolean;
+  }) => {
     if (!client) throw new Error("Client not initialized");
-    return client.createSubject({
-      subjectId,
-      detailsCid,
-      maxStake,
-      matchMode,
-      freeCase: false,
-      votingPeriod,
-      stake,
-    });
-  }, [client]);
-
-  const createLinkedSubject = useCallback(async (
-    defenderPool: PublicKey,
-    subjectId: PublicKey,
-    detailsCid: string,
-    maxStake: BN,
-    matchMode: boolean,
-    votingPeriod: BN
-  ) => {
-    if (!client) throw new Error("Client not initialized");
-    return client.createLinkedSubject({
-      defenderPool,
-      subjectId,
-      detailsCid,
-      maxStake,
-      matchMode,
-      freeCase: false,
-      votingPeriod,
-    });
-  }, [client]);
-
-  const createFreeSubject = useCallback(async (
-    subjectId: PublicKey,
-    detailsCid: string,
-    votingPeriod: BN
-  ) => {
-    if (!client) throw new Error("Client not initialized");
-    return client.createFreeSubject({ subjectId, detailsCid, votingPeriod });
+    return client.createSubject(params);
   }, [client]);
 
   const addToStake = useCallback(async (
@@ -467,8 +432,6 @@ export const useTribunalcraft = () => {
     withdrawPool,
     // Subject
     createSubject,
-    createLinkedSubject,
-    createFreeSubject,
     addToStake,
     // Juror
     registerJuror,

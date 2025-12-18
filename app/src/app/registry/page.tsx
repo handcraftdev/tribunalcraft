@@ -305,8 +305,6 @@ export default function RegistryPage() {
   const {
     client,
     createSubject,
-    createLinkedSubject,
-    createFreeSubject,
     submitDispute,
     submitFreeDispute,
     submitRestore,
@@ -552,26 +550,29 @@ export default function RegistryPage() {
       });
       if (!uploadResult) throw new Error("Failed to upload content");
 
-      const maxStake = new BN(parseFloat(form.maxStake) * LAMPORTS_PER_SOL);
-      const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
       const subjectKeypair = Keypair.generate();
       const subjectId = subjectKeypair.publicKey;
+      const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
+      const maxStake = new BN(parseFloat(form.maxStake || "1") * LAMPORTS_PER_SOL);
 
-      if (subjectType === "free") {
-        await createFreeSubject(subjectId, uploadResult.cid, votingPeriod);
-      } else if (subjectType === "linked") {
-        if (!publicKey) throw new Error("Wallet not connected");
-        const [defenderPool] = getDefenderPoolPDA(publicKey);
-        await createLinkedSubject(defenderPool, subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod);
-        // Add direct stake if specified
+      // Create subject with unified method - type determined by params
+      await createSubject({
+        subjectId,
+        detailsCid: uploadResult.cid,
+        votingPeriod,
+        maxStake,
+        matchMode: form.matchMode,
+        freeCase: subjectType === "free",
+        defenderPool: subjectType === "linked" ? getDefenderPoolPDA(publicKey)[0] : undefined,
+        stake: subjectType === "standalone" ? new BN(parseFloat(form.directStake || "0.1") * LAMPORTS_PER_SOL) : undefined,
+      });
+
+      // Add direct stake for linked subjects if specified
+      if (subjectType === "linked") {
         const directStake = parseFloat(form.directStake || "0");
         if (directStake > 0) {
-          const directStakeLamports = new BN(directStake * LAMPORTS_PER_SOL);
-          await addToStake(subjectId, directStakeLamports);
+          await addToStake(subjectId, new BN(directStake * LAMPORTS_PER_SOL));
         }
-      } else {
-        const initialStake = new BN(parseFloat(form.directStake || "0.1") * LAMPORTS_PER_SOL);
-        await createSubject(subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod, initialStake);
       }
 
       setSuccess("Subject created");
@@ -581,7 +582,7 @@ export default function RegistryPage() {
       setError(err.message || "Failed to create subject");
     }
     setActionLoading(false);
-  }, [publicKey, uploadSubject, createFreeSubject, createLinkedSubject, createSubject, getDefenderPoolPDA, loadData]);
+  }, [publicKey, uploadSubject, createSubject, getDefenderPoolPDA, addToStake, loadData]);
 
   const handleCreateDispute = useCallback(async (form: { type: string; title: string; reason: string; requestedOutcome: string; bondAmount: string }) => {
     if (!publicKey || !showCreateDispute) return;
