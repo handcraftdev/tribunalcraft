@@ -170,15 +170,11 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   onClose,
   onSubmit,
   isLoading,
-  hasPool,
-  poolAvailable,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (form: any, subjectType: string) => void;
   isLoading: boolean;
-  hasPool: boolean;
-  poolAvailable: number;
 }) {
   const [subjectType, setSubjectType] = useState<"staked" | "free">("staked");
   const [form, setForm] = useState({
@@ -187,29 +183,14 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
     category: "contract" as SubjectContent["category"],
     termsText: "",
     maxStake: "1",
-    matchMode: true, // Default to match mode
+    matchMode: true,
     votingPeriod: "24",
-    directStake: "0", // Direct stake for linked subjects (optional, 0 = pool only)
+    directStake: "0",
   });
 
   const handleSubmit = () => {
-    // Determine actual subject type based on pool availability
-    let actualType: string;
-    if (subjectType === "free") {
-      actualType = "free";
-    } else if (hasPool) {
-      actualType = "linked";
-    } else {
-      actualType = "standalone";
-      // Validate standalone requires initial stake
-      const stake = parseFloat(form.directStake || "0");
-      if (stake <= 0) {
-        alert("Standalone subjects require initial stake > 0");
-        return;
-      }
-    }
-    onSubmit(form, actualType);
-    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0.1" });
+    onSubmit(form, subjectType);
+    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0" });
   };
 
   if (!isOpen) return null;
@@ -255,22 +236,11 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
             </div>
             {subjectType === "staked" && (
               <>
-                {/* For standalone (no pool), show initial stake - required */}
-                {!hasPool && (
-                  <div>
-                    <label className="text-xs text-steel mb-1 block">Initial Stake (SOL) <span className="text-crimson">*</span></label>
-                    <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0.1" />
-                    <p className="text-[10px] text-steel mt-1">Required for standalone subjects</p>
-                  </div>
-                )}
-                {/* For linked (has pool), show optional direct stake */}
-                {hasPool && (
-                  <div>
-                    <label className="text-xs text-steel mb-1 block">Direct Stake (SOL) - Optional</label>
-                    <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0 (pool only)" />
-                    <p className="text-[10px] text-steel mt-1">Add personal stake in addition to pool backing</p>
-                  </div>
-                )}
+                <div>
+                  <label className="text-xs text-steel mb-1 block">Initial Stake (SOL)</label>
+                  <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder="0 (optional)" />
+                  <p className="text-[10px] text-steel mt-1">Optional - can add stake later via pool or direct staking</p>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
                     <input type="radio" name="stakeMode" checked={form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: true }))} className="w-4 h-4 accent-gold" />
@@ -281,7 +251,7 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
                     <span className="text-sm text-parchment">Proportional</span>
                   </label>
                 </div>
-                {form.matchMode && hasPool && (
+                {form.matchMode && (
                   <div>
                     <label className="text-xs text-steel mb-1 block">Max Stake per Dispute (SOL)</label>
                     <input value={form.maxStake} onChange={e => setForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" autoComplete="off" />
@@ -554,8 +524,9 @@ export default function RegistryPage() {
       const subjectId = subjectKeypair.publicKey;
       const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
       const maxStake = new BN(parseFloat(form.maxStake || "1") * LAMPORTS_PER_SOL);
+      const initialStake = parseFloat(form.directStake || "0");
 
-      // Create subject with unified method - type determined by params
+      // Create subject - all staked subjects are linked (pool auto-created)
       await createSubject({
         subjectId,
         detailsCid: uploadResult.cid,
@@ -563,17 +534,8 @@ export default function RegistryPage() {
         maxStake,
         matchMode: form.matchMode,
         freeCase: subjectType === "free",
-        defenderPool: subjectType === "linked" ? getDefenderPoolPDA(publicKey)[0] : undefined,
-        stake: subjectType === "standalone" ? new BN(parseFloat(form.directStake || "0.1") * LAMPORTS_PER_SOL) : undefined,
+        stake: initialStake > 0 ? new BN(initialStake * LAMPORTS_PER_SOL) : undefined,
       });
-
-      // Add direct stake for linked subjects if specified
-      if (subjectType === "linked") {
-        const directStake = parseFloat(form.directStake || "0");
-        if (directStake > 0) {
-          await addToStake(subjectId, new BN(directStake * LAMPORTS_PER_SOL));
-        }
-      }
 
       setSuccess("Subject created");
       setShowCreateSubject(false);
@@ -582,7 +544,7 @@ export default function RegistryPage() {
       setError(err.message || "Failed to create subject");
     }
     setActionLoading(false);
-  }, [publicKey, uploadSubject, createSubject, getDefenderPoolPDA, addToStake, loadData]);
+  }, [publicKey, uploadSubject, createSubject, loadData]);
 
   const handleCreateDispute = useCallback(async (form: { type: string; title: string; reason: string; requestedOutcome: string; bondAmount: string }) => {
     if (!publicKey || !showCreateDispute) return;
@@ -1060,8 +1022,6 @@ export default function RegistryPage() {
         onClose={() => setShowCreateSubject(false)}
         onSubmit={handleCreateSubject}
         isLoading={actionLoading || isUploading}
-        hasPool={pool !== null}
-        poolAvailable={pool?.account?.availableStake?.toNumber() ?? 0}
       />
       <CreateDisputeModal
         isOpen={!!showCreateDispute}
