@@ -351,15 +351,27 @@ export default function RegistryPage() {
       for (const d of disputesData) {
         const disputeKey = d.publicKey.toBase58();
         if (!disputeCids[disputeKey]) {
-          fetchChallengersByDispute(d.publicKey).then(challengers => {
-            if (challengers && challengers.length > 0) {
-              const cid = challengers[0].account.detailsCid;
+          // For restorations, CID is stored directly on dispute account
+          if (d.account.isRestore) {
+            const cid = d.account.detailsCid;
+            if (cid) {
               setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
               fetchDisputeContent(cid).then(content => {
                 if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
               });
             }
-          });
+          } else {
+            // For regular disputes, get CID from first challenger
+            fetchChallengersByDispute(d.publicKey).then(challengers => {
+              if (challengers && challengers.length > 0) {
+                const cid = challengers[0].account.detailsCid;
+                setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
+                fetchDisputeContent(cid).then(content => {
+                  if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
+                });
+              }
+            });
+          }
         }
       }
 
@@ -453,7 +465,7 @@ export default function RegistryPage() {
 
   // Filter data for sections
   const validSubjects = subjects.filter(s => s.account.status.valid);
-  const disputedItems = disputes.filter(d => d.account.status.pending);
+  const disputedItems = disputes.filter(d => d.account.status.pending && !d.account.isRestore);
   const invalidSubjects = subjects.filter(s => s.account.status.invalid);
   const dormantSubjects = subjects.filter(s => s.account.status.dormant);
   const restoringSubjects = subjects.filter(s => s.account.status.restoring);
