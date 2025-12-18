@@ -348,10 +348,13 @@ export const SubjectModal = memo(function SubjectModal({
   });
 
   const subjectKey = subject.publicKey.toBase58();
+  const isInvalid = subject.account.status.invalid;
 
   // For resolved disputes, show resolved state
   const isResolvedDispute = dispute?.account.status.resolved;
-  const subjectStatus = isResolvedDispute && dispute?.account.outcome.defenderWins
+  const subjectStatus = isInvalid
+    ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
+    : isResolvedDispute && dispute?.account.outcome.defenderWins
     ? { label: "Dismissed", class: "bg-sky-500/20 text-sky-400" }
     : isResolvedDispute && dispute?.account.outcome.challengerWins
     ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
@@ -390,8 +393,14 @@ export const SubjectModal = memo(function SubjectModal({
   const hasDefenderClaim = defenderRecord && !defenderRecord.rewardClaimed;
   const hasAnyClaim = hasJurorClaim || hasChallengerClaim || hasDefenderClaim;
 
-  // Sort past disputes by resolved date (latest first)
-  const sortedPastDisputes = [...pastDisputes].sort((a, b) =>
+  // Combine all resolved disputes for history
+  // Include current dispute if it's resolved, plus all past disputes
+  const allHistoryDisputes = dispute?.account.status.resolved
+    ? [dispute, ...pastDisputes]
+    : pastDisputes;
+
+  // Sort disputes by resolved date (latest first)
+  const sortedHistoryDisputes = [...allHistoryDisputes].sort((a, b) =>
     b.account.resolvedAt.toNumber() - a.account.resolvedAt.toNumber()
   );
 
@@ -441,7 +450,7 @@ export const SubjectModal = memo(function SubjectModal({
                   <p className="text-sky-400">
                     {!subject.account.freeCase ? (
                       <>
-                        {`${(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
+                        {`${(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
                         {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && (
                           <span className="text-steel text-xs"> (max {(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})</span>
                         )}
@@ -454,17 +463,17 @@ export const SubjectModal = memo(function SubjectModal({
                   <p className="text-sky-400">{subject.account.defenderCount}</p>
                 </div>
               </div>
-              {/* Subject Actions */}
+              {/* Subject Actions - based on subject status, not dispute status */}
               {showActions && (
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
-                  {!subject.account.freeCase && !isResolvedDispute && onAddStake && (
+                  {!subject.account.freeCase && subject.account.status.valid && onAddStake && (
                     <JoinForm
                       type="defender"
                       onJoin={onAddStake}
                       isLoading={actionLoading}
                     />
                   )}
-                  {subject.account.status.active && !isResolvedDispute && onFileDispute && (
+                  {subject.account.status.valid && onFileDispute && (
                     <button onClick={onFileDispute} className="btn btn-secondary py-1.5 px-3 text-sm">
                       File Dispute
                     </button>
@@ -474,8 +483,8 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           </div>
 
-          {/* VS / POWER BAR SECTION */}
-          {dispute && (
+          {/* VS / POWER BAR SECTION - hide for invalidated */}
+          {dispute && !isInvalid && (
             <div className="space-y-3">
               <div className="p-4 bg-slate-light/20 border border-slate-light space-y-3">
                 <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
@@ -527,8 +536,8 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           )}
 
-          {/* DISPUTE SECTION */}
-          {dispute && (
+          {/* DISPUTE SECTION - hide for invalidated */}
+          {dispute && !isInvalid && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <div className="w-1 h-4 bg-crimson rounded"></div>
@@ -574,8 +583,8 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           )}
 
-          {/* JUROR SECTION */}
-          {showActions && dispute && isPending && !votingEnded && onVote && (
+          {/* JUROR SECTION - hide for invalidated */}
+          {showActions && dispute && !isInvalid && isPending && !votingEnded && onVote && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Juror</h4>
               <div className="p-4 bg-obsidian border border-slate-light space-y-3">
@@ -594,8 +603,8 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           )}
 
-          {/* CLAIM SECTION */}
-          {showActions && dispute && isResolvedDispute && hasAnyClaim && (
+          {/* CLAIM SECTION - hide for invalidated */}
+          {showActions && dispute && !isInvalid && isResolvedDispute && hasAnyClaim && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-gold uppercase tracking-wider">Claim Rewards</h4>
               <div className="p-4 bg-obsidian border border-gold/30 space-y-3">
@@ -648,8 +657,8 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           )}
 
-          {/* JUROR REMARKS SECTION (current dispute) */}
-          {dispute && disputeVotes.length > 0 && (
+          {/* JUROR REMARKS SECTION (current dispute) - hide for invalidated */}
+          {dispute && !isInvalid && disputeVotes.length > 0 && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Juror Remarks ({disputeVotes.length})</h4>
               <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -698,22 +707,28 @@ export const SubjectModal = memo(function SubjectModal({
           )}
 
           {/* HISTORY SECTION - collapsible with juror remarks */}
-          {sortedPastDisputes.length > 0 && (
+          {sortedHistoryDisputes.length > 0 && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">
-                History ({sortedPastDisputes.length})
+                Dispute History ({sortedHistoryDisputes.length})
               </h4>
               <div className="space-y-2">
-                {sortedPastDisputes.map((pastDispute, i) => {
-                  const dKey = pastDispute.publicKey.toBase58();
-                  const dContent = pastDisputeContents[dKey];
-                  // Note: We don't have votes per past dispute here, would need to be passed in
+                {sortedHistoryDisputes.map((historyDispute, i) => {
+                  const dKey = historyDispute.publicKey.toBase58();
+                  // Use current disputeContent if this is the current dispute, otherwise from pastDisputeContents
+                  const dContent = dispute && dKey === dispute.publicKey.toBase58()
+                    ? disputeContent
+                    : pastDisputeContents[dKey];
+                  // Include votes for current dispute if it's in history
+                  const dVotes = dispute && dKey === dispute.publicKey.toBase58()
+                    ? disputeVotes
+                    : [];
                   return (
                     <HistoryItem
                       key={i}
-                      pastDispute={pastDispute}
+                      pastDispute={historyDispute}
                       disputeContent={dContent}
-                      votes={[]}
+                      votes={dVotes}
                       defaultExpanded={i === 0}
                     />
                   );

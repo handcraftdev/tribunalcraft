@@ -43,13 +43,20 @@ export const SubjectCard = memo(function SubjectCard({
   onClick,
 }: SubjectCardProps) {
   const subjectKey = subject.publicKey.toBase58();
+  const isInvalid = subject.account.status.invalid;
 
-  // For resolved disputes, show outcome status
-  const status = isResolved && dispute?.account.outcome.defenderWins
+  // For invalidated subjects, show simple status
+  // For resolved disputes on non-invalidated subjects, show outcome
+  const status = isInvalid
+    ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
+    : isResolved && dispute?.account.outcome.defenderWins
     ? { label: "Dismissed", class: "bg-sky-500/20 text-sky-400" }
     : isResolved && dispute?.account.outcome.challengerWins
-    ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
+    ? { label: "Challenger Won", class: "bg-crimson/20 text-crimson" }
     : getStatusBadge(subject.account.status);
+
+  // Show dispute info only for non-invalidated subjects with active disputes
+  const showDisputeInfo = dispute && !isInvalid;
 
   // Dispute voting info
   const totalVotes = dispute
@@ -64,11 +71,11 @@ export const SubjectCard = memo(function SubjectCard({
   const JUROR_SHARE_BPS = 9500;
   let jurorFees = "FREE";
   if (!subject.account.freeCase) {
-    if (dispute) {
-      const bondPool = dispute.account.totalBond.toNumber();
+    if (showDisputeInfo) {
+      const bondPool = dispute!.account.totalBond.toNumber();
       const matchedStake = subject.account.matchMode
-        ? dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()
-        : dispute.account.snapshotTotalStake.toNumber();
+        ? dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()
+        : dispute!.account.snapshotTotalStake.toNumber();
       const totalPool = bondPool + matchedStake;
       const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
       const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
@@ -84,6 +91,8 @@ export const SubjectCard = memo(function SubjectCard({
       className={`p-3 bg-obsidian border cursor-pointer transition-all ${
         existingVote
           ? "border-emerald/30 hover:border-emerald/50"
+          : isInvalid
+          ? "border-crimson/30 hover:border-crimson/50"
           : "border-slate-light hover:border-gold/50"
       }`}
     >
@@ -109,8 +118,8 @@ export const SubjectCard = memo(function SubjectCard({
         {subjectContent?.description?.slice(0, 50) || "Loading..."}
       </p>
 
-      {/* Dispute Info */}
-      {dispute && (
+      {/* Dispute Info - only for non-invalidated subjects */}
+      {showDisputeInfo && (
         <div className="mb-2 pt-2 border-t border-slate-light/50">
           <div className="flex items-center justify-between text-[10px] mb-1">
             <span className="text-crimson font-medium">
@@ -151,20 +160,20 @@ export const SubjectCard = memo(function SubjectCard({
       <div className="grid grid-cols-3 text-[10px] pt-2 border-t border-slate-light/50">
         <span>
           {!subject.account.freeCase && (
-            dispute ? (
+            showDisputeInfo ? (
               <>
                 <span className="text-sky-400">
-                  {((dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)}
+                  {((dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)}
                 </span>
                 <span className="text-steel"> / </span>
                 <span className="text-crimson">
-                  {(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
+                  {(dispute!.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
                 </span>
               </>
             ) : (
               <>
                 <span className="text-sky-400">
-                  {(subject.account.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
+                  {(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
                 </span>
                 {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && (
                   <span className="text-steel">
@@ -177,11 +186,13 @@ export const SubjectCard = memo(function SubjectCard({
         </span>
         <span className="text-center">
           <span className="text-sky-400">{subject.account.defenderCount}</span>
-          {dispute && (
+          {showDisputeInfo ? (
             <>
               <span className="text-steel"> vs </span>
-              <span className="text-crimson">{dispute.account.challengerCount}</span>
+              <span className="text-crimson">{dispute!.account.challengerCount}</span>
             </>
+          ) : (
+            <span className="text-steel"> ({subject.account.disputeCount})</span>
           )}
         </span>
         <span className="text-gold text-right">{jurorFees}</span>

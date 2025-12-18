@@ -25,9 +25,9 @@ export const SUBJECT_CATEGORIES = [
 
 // Helper functions
 export const getStatusBadge = (status: any) => {
-  if (status.active) return { label: "Active", class: "bg-emerald/20 text-emerald" };
+  if (status.valid) return { label: "Valid", class: "bg-emerald/20 text-emerald" };
   if (status.disputed) return { label: "Disputed", class: "bg-gold/20 text-gold" };
-  if (status.invalidated) return { label: "Invalidated", class: "bg-crimson/20 text-crimson" };
+  if (status.invalid) return { label: "Invalid", class: "bg-crimson/20 text-crimson" };
   return { label: "Unknown", class: "bg-steel/20 text-steel" };
 };
 
@@ -52,7 +52,7 @@ export interface SubjectData {
     defenderPool: PublicKey;
     detailsCid: string;
     status: any;
-    totalStake: any;
+    availableStake: any;
     maxStake: any;
     votingPeriod: any;
     defenderCount: number;

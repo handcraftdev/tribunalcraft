@@ -111,7 +111,7 @@ export default function Dashboard() {
   }, [publicKey, client]);
 
   const activeDisputes = disputes.filter(d => d.account.status.pending);
-  const totalStaked = subjects.reduce((acc, s) => acc + (s.account.totalStake?.toNumber() || 0), 0);
+  const totalStaked = subjects.reduce((acc, s) => acc + (s.account.availableStake?.toNumber() || 0), 0);
 
   return (
     <div className="min-h-screen bg-obsidian">

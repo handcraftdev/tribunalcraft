@@ -251,8 +251,8 @@ export default function RegistryPage() {
   const [showCreateSubject, setShowCreateSubject] = useState(false);
   const [showCreateDispute, setShowCreateDispute] = useState<string | null>(null);
 
-  // Section filter - only global data (Active and Disputed)
-  const [activeFilter, setActiveFilter] = useState<"active" | "disputed">("active");
+  // Section filter - only global data (Valid and Disputed)
+  const [activeFilter, setActiveFilter] = useState<"valid" | "disputed">("valid");
 
   const loadData = async () => {
     setLoading(true);
@@ -380,15 +380,15 @@ export default function RegistryPage() {
   }, [selectedItem, publicKey]);
 
   // Filter data for sections
-  const activeSubjects = subjects.filter(s => s.account.status.active);
+  const validSubjects = subjects.filter(s => s.account.status.valid);
   const disputedItems = disputes.filter(d => d.account.status.pending);
-  const invalidatedSubjects = subjects.filter(s => s.account.status.invalidated);
+  const invalidSubjects = subjects.filter(s => s.account.status.invalid);
 
   // Get items based on active filter
   const getActiveItems = () => {
     switch (activeFilter) {
-      case "active":
-        return activeSubjects.map(s => ({ subject: s, dispute: null as DisputeData | null }));
+      case "valid":
+        return validSubjects.map(s => ({ subject: s, dispute: null as DisputeData | null }));
       case "disputed":
         return disputedItems.map(d => {
           const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
@@ -649,9 +649,9 @@ export default function RegistryPage() {
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Browse</h2>
                 <span className="text-xs text-steel ml-auto">{activeItems.length}</span>
               </div>
-              {/* Filter Tabs - only Active and Disputed */}
+              {/* Filter Tabs - only Valid and Disputed */}
               <div className="flex gap-1 mb-4 max-w-md">
-                {(["active", "disputed"] as const).map(f => (
+                {(["valid", "disputed"] as const).map(f => (
                   <button
                     key={f}
                     onClick={() => setActiveFilter(f)}
@@ -661,14 +661,14 @@ export default function RegistryPage() {
                         : "bg-slate-light/50 text-steel hover:text-parchment"
                     }`}
                   >
-                    {f} ({f === "active" ? activeSubjects.length : disputedItems.length})
+                    {f} ({f === "valid" ? validSubjects.length : disputedItems.length})
                   </button>
                 ))}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {activeItems.length === 0 ? (
                   <p className="text-steel text-xs text-center py-4 col-span-full">
-                    {activeFilter === "active" ? "No active subjects" : "No active disputes"}
+                    {activeFilter === "valid" ? "No valid subjects" : "No active disputes"}
                   </p>
                 ) : (
                   activeItems.map((item, i) => (
@@ -686,18 +686,18 @@ export default function RegistryPage() {
               </div>
             </div>
 
-            {/* Invalidated Section */}
+            {/* Invalid Section */}
             <div className="bg-slate/30 border border-slate-light p-4">
               <div className="flex items-center gap-2 mb-4">
                 <GavelIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalidated</h2>
-                <span className="text-xs text-steel ml-auto">{invalidatedSubjects.length}</span>
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalid</h2>
+                <span className="text-xs text-steel ml-auto">{invalidSubjects.length}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {invalidatedSubjects.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No invalidated subjects</p>
+                {invalidSubjects.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No invalid subjects</p>
                 ) : (
-                  invalidatedSubjects.map((s, i) => {
+                  invalidSubjects.map((s, i) => {
                     const invalidatingDispute = disputes.find(d =>
                       d.account.subject.toBase58() === s.publicKey.toBase58() &&
                       d.account.status.resolved &&
