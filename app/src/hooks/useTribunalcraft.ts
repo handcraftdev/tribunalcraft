@@ -11,7 +11,6 @@ import {
   type DefenderPool,
   type Subject,
   type Dispute,
-  type DisputeEscrow,
   type JurorAccount,
   type VoteRecord,
   type ChallengerAccount,
@@ -67,10 +66,6 @@ export const useTribunalcraft = () => {
 
   const getDisputePDA = useCallback((subject: PublicKey, disputeCount: number) => {
     return pda.dispute(subject, disputeCount);
-  }, []);
-
-  const getEscrowPDA = useCallback((dispute: PublicKey) => {
-    return pda.escrow(dispute);
   }, []);
 
   const getChallengerPDA = useCallback((challenger: PublicKey) => {
@@ -173,11 +168,10 @@ export const useTribunalcraft = () => {
   const addToStake = useCallback(async (
     subject: PublicKey,
     stake: BN,
-    dispute?: PublicKey,
-    escrow?: PublicKey
+    proportionalDispute?: { dispute: PublicKey; treasury: PublicKey }
   ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addToStake(subject, stake, dispute, escrow);
+    return client.addToStake(subject, stake, proportionalDispute);
   }, [client]);
 
   // Juror Management
@@ -352,11 +346,6 @@ export const useTribunalcraft = () => {
     return client.claimDefenderReward({ dispute, subject, defenderRecord });
   }, [client]);
 
-  const closeEscrow = useCallback(async (dispute: PublicKey) => {
-    if (!client) throw new Error("Client not initialized");
-    return client.closeEscrow(dispute);
-  }, [client]);
-
   // Fetch single accounts
   const fetchDefenderPool = useCallback(async (defenderPool: PublicKey) => {
     if (!client) return null;
@@ -396,11 +385,6 @@ export const useTribunalcraft = () => {
   const fetchDefenderRecord = useCallback(async (defenderRecord: PublicKey) => {
     if (!client) return null;
     return client.fetchDefenderRecord(defenderRecord);
-  }, [client]);
-
-  const fetchEscrow = useCallback(async (escrow: PublicKey) => {
-    if (!client) return null;
-    return client.fetchEscrow(escrow);
   }, [client]);
 
   // Fetch all accounts
@@ -449,7 +433,6 @@ export const useTribunalcraft = () => {
     getSubjectPDA,
     getJurorPDA,
     getDisputePDA,
-    getEscrowPDA,
     getChallengerPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
@@ -488,7 +471,6 @@ export const useTribunalcraft = () => {
     claimJurorReward,
     claimChallengerReward,
     claimDefenderReward,
-    closeEscrow,
     // Fetch single
     fetchDefenderPool,
     fetchSubject,
@@ -498,7 +480,6 @@ export const useTribunalcraft = () => {
     fetchVoteRecord,
     fetchChallengerRecord,
     fetchDefenderRecord,
-    fetchEscrow,
     // Fetch all
     fetchAllDefenderPools,
     fetchAllSubjects,
@@ -517,7 +498,6 @@ export type {
   DefenderPool,
   Subject,
   Dispute,
-  DisputeEscrow,
   JurorAccount,
   VoteRecord,
   ChallengerAccount,
