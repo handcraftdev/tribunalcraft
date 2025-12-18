@@ -6,7 +6,6 @@ import {
   SUBJECT_SEED,
   JUROR_SEED,
   DISPUTE_SEED,
-  ESCROW_SEED,
   CHALLENGER_SEED,
   CHALLENGER_RECORD_SEED,
   DEFENDER_RECORD_SEED,
@@ -71,15 +70,7 @@ export class PDA {
     );
   }
 
-  /**
-   * Derive Dispute Escrow PDA
-   */
-  escrow(dispute: PublicKey): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [ESCROW_SEED, dispute.toBuffer()],
-      this.programId
-    );
-  }
+  // NOTE: escrow PDA removed - no escrow in simplified model
 
   /**
    * Derive Challenger Account PDA

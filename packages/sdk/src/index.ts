@@ -11,7 +11,7 @@ export type {
   DefenderPool,
   Subject,
   Dispute,
-  DisputeEscrow,
+  // NOTE: DisputeEscrow removed - no escrow in simplified model
   JurorAccount,
   VoteRecord,
   ChallengerAccount,
@@ -56,7 +56,7 @@ export {
   SUBJECT_SEED,
   JUROR_SEED,
   DISPUTE_SEED,
-  ESCROW_SEED,
+  // NOTE: ESCROW_SEED removed - no escrow in simplified model
   CHALLENGER_SEED,
   CHALLENGER_RECORD_SEED,
   DEFENDER_RECORD_SEED,

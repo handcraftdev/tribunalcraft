@@ -15,7 +15,7 @@ import type {
   DefenderPool,
   Subject,
   Dispute,
-  DisputeEscrow,
+  // NOTE: DisputeEscrow removed - no escrow in simplified model
   JurorAccount,
   VoteRecord,
   ChallengerAccount,
@@ -297,13 +297,28 @@ export class TribunalCraftClient {
 
   /**
    * Add stake to a standalone subject
+   * If subject has active dispute in proportional mode, pass dispute, protocolConfig, and treasury
+   * Fees are deducted in proportional mode during active dispute
    */
-  async addToStake(subject: PublicKey, stake: BN): Promise<TransactionResult> {
+  async addToStake(
+    subject: PublicKey,
+    stake: BN,
+    proportionalDispute?: {
+      dispute: PublicKey;
+      treasury: PublicKey;
+    }
+  ): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
+    const [protocolConfig] = this.pda.protocolConfig();
 
     const signature = await program.methods
       .addToStake(stake)
-      .accountsPartial({ subject })
+      .accountsPartial({
+        subject,
+        dispute: proportionalDispute?.dispute ?? null,
+        protocolConfig: proportionalDispute ? protocolConfig : null,
+        treasury: proportionalDispute?.treasury ?? null,
+      })
       .rpc();
 
     return { signature };
@@ -555,23 +570,12 @@ export class TribunalCraftClient {
     subject: PublicKey;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [protocolConfig] = this.pda.protocolConfig();
-    const [escrow] = this.pda.escrow(params.dispute);
-
-    // Fetch treasury address
-    const configAccount = await this.fetchProtocolConfig();
-    if (!configAccount) {
-      throw new Error("Protocol config not initialized");
-    }
 
     const signature = await program.methods
       .resolveDispute()
       .accountsPartial({
         dispute: params.dispute,
         subject: params.subject,
-        escrow,
-        protocolConfig,
-        treasury: configAccount.treasury,
       })
       .rpc();
 
@@ -607,14 +611,12 @@ export class TribunalCraftClient {
     voteRecord: PublicKey;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [escrow] = this.pda.escrow(params.dispute);
 
     const signature = await program.methods
       .claimJurorReward()
       .accountsPartial({
         dispute: params.dispute,
         subject: params.subject,
-        escrow,
         voteRecord: params.voteRecord,
       })
       .rpc();
@@ -631,14 +633,12 @@ export class TribunalCraftClient {
     challengerRecord: PublicKey;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [escrow] = this.pda.escrow(params.dispute);
 
     const signature = await program.methods
       .claimChallengerReward()
       .accountsPartial({
         dispute: params.dispute,
         subject: params.subject,
-        escrow,
         challengerRecord: params.challengerRecord,
       })
       .rpc();
@@ -655,14 +655,12 @@ export class TribunalCraftClient {
     defenderRecord: PublicKey;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [escrow] = this.pda.escrow(params.dispute);
 
     const signature = await program.methods
       .claimDefenderReward()
       .accountsPartial({
         dispute: params.dispute,
         subject: params.subject,
-        escrow,
         defenderRecord: params.defenderRecord,
       })
       .rpc();
@@ -670,31 +668,7 @@ export class TribunalCraftClient {
     return { signature };
   }
 
-  /**
-   * Close escrow after all claims are complete
-   */
-  async closeEscrow(dispute: PublicKey): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [escrow] = this.pda.escrow(dispute);
-    const [protocolConfig] = this.pda.protocolConfig();
-
-    const configAccount = await this.fetchProtocolConfig();
-    if (!configAccount) {
-      throw new Error("Protocol config not initialized");
-    }
-
-    const signature = await program.methods
-      .closeEscrow()
-      .accountsPartial({
-        dispute,
-        escrow,
-        protocolConfig,
-        treasury: configAccount.treasury,
-      })
-      .rpc();
-
-    return { signature };
-  }
+  // NOTE: closeEscrow removed - no escrow in simplified model
 
   // ===========================================================================
   // Account Fetchers
@@ -769,19 +743,7 @@ export class TribunalCraftClient {
     }
   }
 
-  /**
-   * Fetch dispute escrow
-   */
-  async fetchEscrow(dispute: PublicKey): Promise<DisputeEscrow | null> {
-    const [address] = this.pda.escrow(dispute);
-    try {
-      return (await this.anchorProgram.account.disputeEscrow.fetch(
-        address
-      )) as DisputeEscrow | null;
-    } catch {
-      return null;
-    }
-  }
+  // NOTE: fetchEscrow removed - no escrow in simplified model
 
   /**
    * Fetch juror account by address

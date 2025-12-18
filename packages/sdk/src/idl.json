@@ -102,6 +102,14 @@
           "optional": true
         },
         {
+          "name": "pool_owner_defender_record",
+          "docs": [
+            "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "challenger_account",
           "writable": true,
           "pda": {
@@ -131,32 +139,6 @@
         {
           "name": "dispute",
           "writable": true
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA for this dispute"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
         },
         {
           "name": "challenger_record",
@@ -195,6 +177,43 @@
               }
             ]
           }
+        },
+        {
+          "name": "protocol_config",
+          "docs": [
+            "Protocol config for treasury address"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury receives fees"
+          ],
+          "writable": true
         },
         {
           "name": "system_program",
@@ -272,6 +291,53 @@
               }
             ]
           }
+        },
+        {
+          "name": "dispute",
+          "docs": [
+            "Optional: Active dispute (required if subject has active dispute in proportional mode)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "protocol_config",
+          "docs": [
+            "Protocol config for treasury address (required if proportional dispute)"
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury receives fees (required if proportional dispute)"
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "system_program",
@@ -435,6 +501,7 @@
         },
         {
           "name": "subject",
+          "writable": true,
           "relations": [
             "dispute"
           ]
@@ -445,32 +512,6 @@
           "relations": [
             "challenger_record"
           ]
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA holds all funds"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
         },
         {
           "name": "challenger_record",
@@ -509,6 +550,7 @@
         },
         {
           "name": "subject",
+          "writable": true,
           "relations": [
             "dispute",
             "defender_record"
@@ -517,32 +559,6 @@
         {
           "name": "dispute",
           "writable": true
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA holds all funds"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
         },
         {
           "name": "defender_record",
@@ -636,136 +652,20 @@
         },
         {
           "name": "subject",
+          "writable": true,
           "relations": [
             "dispute"
           ]
         },
         {
           "name": "dispute",
+          "writable": true,
           "relations": [
             "vote_record"
           ]
         },
         {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA holds all funds"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
-        },
-        {
           "name": "vote_record",
-          "writable": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "close_escrow",
-      "docs": [
-        "Close escrow after all claims are complete",
-        "Returns rent to closer, sends any dust to treasury"
-      ],
-      "discriminator": [
-        139,
-        171,
-        94,
-        146,
-        191,
-        91,
-        144,
-        50
-      ],
-      "accounts": [
-        {
-          "name": "closer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "dispute"
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "Escrow to close - must have all claims complete"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protocol_config",
-          "docs": [
-            "Protocol config for treasury"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury",
           "writable": true
         },
         {
@@ -1274,66 +1174,6 @@
           ]
         },
         {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA holds all funds for this dispute"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protocol_config",
-          "docs": [
-            "Protocol config for treasury address"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury",
-          "writable": true
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1520,6 +1360,14 @@
           "optional": true
         },
         {
+          "name": "pool_owner_defender_record",
+          "docs": [
+            "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "challenger_account",
           "writable": true,
           "pda": {
@@ -1576,32 +1424,6 @@
           }
         },
         {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA holds all funds for this dispute"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              }
-            ]
-          }
-        },
-        {
           "name": "challenger_record",
           "writable": true,
           "pda": {
@@ -1638,6 +1460,43 @@
               }
             ]
           }
+        },
+        {
+          "name": "protocol_config",
+          "docs": [
+            "Protocol config for treasury address"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury receives fees"
+          ],
+          "writable": true
         },
         {
           "name": "system_program",
@@ -2314,19 +2173,6 @@
       ]
     },
     {
-      "name": "DisputeEscrow",
-      "discriminator": [
-        4,
-        51,
-        35,
-        202,
-        114,
-        140,
-        92,
-        65
-      ]
-    },
-    {
       "name": "JurorAccount",
       "discriminator": [
         138,
@@ -2794,7 +2640,15 @@
           {
             "name": "stake",
             "docs": [
-              "Amount staked to back the subject"
+              "Total amount staked to back the subject (on subject account)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "stake_in_escrow",
+            "docs": [
+              "Amount of stake currently at risk in escrow (during active dispute)",
+              "This is the amount that will be used for claim calculations"
             ],
             "type": "u64"
           },
@@ -3009,116 +2863,6 @@
               "Stake posted by appellant (for appeals only)"
             ],
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "DisputeEscrow",
-      "docs": [
-        "DisputeEscrow holds all funds for a single dispute.",
-        "One PDA per dispute - consolidates bonds and stakes in one place."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "dispute",
-            "docs": [
-              "Associated dispute account"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "subject",
-            "docs": [
-              "Associated subject account"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "total_bonds",
-            "docs": [
-              "Total challenger bonds deposited"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "total_stakes",
-            "docs": [
-              "Total defender stakes deposited (from subject + pool)"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "bonds_claimed",
-            "docs": [
-              "Bonds withdrawn via challenger claims"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "stakes_claimed",
-            "docs": [
-              "Stakes withdrawn via defender claims"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "juror_rewards_paid",
-            "docs": [
-              "Rewards paid to jurors"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "platform_fee_paid",
-            "docs": [
-              "Platform fee sent to treasury"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "challengers_claimed",
-            "docs": [
-              "Number of challengers who have claimed"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "defenders_claimed",
-            "docs": [
-              "Number of defenders who have claimed"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "expected_challengers",
-            "docs": [
-              "Expected number of challengers (for close validation)"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "expected_defenders",
-            "docs": [
-              "Expected number of defenders (snapshot at dispute creation)"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "PDA bump"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "created_at",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
           }
         ]
       }

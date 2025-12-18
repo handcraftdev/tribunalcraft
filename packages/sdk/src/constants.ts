@@ -11,7 +11,7 @@ export const DEFENDER_POOL_SEED = Buffer.from("defender_pool");
 export const SUBJECT_SEED = Buffer.from("subject");
 export const JUROR_SEED = Buffer.from("juror");
 export const DISPUTE_SEED = Buffer.from("dispute");
-export const ESCROW_SEED = Buffer.from("escrow");
+// NOTE: ESCROW_SEED removed - no escrow in simplified model
 export const CHALLENGER_SEED = Buffer.from("challenger");
 export const CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
 export const DEFENDER_RECORD_SEED = Buffer.from("defender_record");

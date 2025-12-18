@@ -70,22 +70,7 @@ export interface Dispute {
   appealStake: BN;
 }
 
-export interface DisputeEscrow {
-  dispute: PublicKey;
-  subject: PublicKey;
-  totalBonds: BN;
-  totalStakes: BN;
-  bondsClaimed: BN;
-  stakesClaimed: BN;
-  jurorRewardsPaid: BN;
-  platformFeePaid: BN;
-  challengersClaimed: number;
-  defendersClaimed: number;
-  expectedChallengers: number;
-  expectedDefenders: number;
-  bump: number;
-  createdAt: BN;
-}
+// NOTE: DisputeEscrow removed - no escrow in simplified model
 
 export interface JurorAccount {
   juror: PublicKey;

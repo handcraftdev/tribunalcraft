@@ -28,10 +28,6 @@ declare class PDA {
      */
     dispute(subject: PublicKey, disputeCount: number): [PublicKey, number];
     /**
-     * Derive Dispute Escrow PDA
-     */
-    escrow(dispute: PublicKey): [PublicKey, number];
-    /**
      * Derive Challenger Account PDA
      */
     challengerAccount(challenger: PublicKey): [PublicKey, number];
@@ -160,6 +156,14 @@ type Tribunalcraft = {
                     "optional": true;
                 },
                 {
+                    "name": "poolOwnerDefenderRecord";
+                    "docs": [
+                        "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+                    ];
+                    "writable": true;
+                    "optional": true;
+                },
+                {
                     "name": "challengerAccount";
                     "writable": true;
                     "pda": {
@@ -189,32 +193,6 @@ type Tribunalcraft = {
                 {
                     "name": "dispute";
                     "writable": true;
-                },
-                {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA for this dispute"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
                 },
                 {
                     "name": "challengerRecord";
@@ -253,6 +231,43 @@ type Tribunalcraft = {
                             }
                         ];
                     };
+                },
+                {
+                    "name": "protocolConfig";
+                    "docs": [
+                        "Protocol config for treasury address"
+                    ];
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    112,
+                                    114,
+                                    111,
+                                    116,
+                                    111,
+                                    99,
+                                    111,
+                                    108,
+                                    95,
+                                    99,
+                                    111,
+                                    110,
+                                    102,
+                                    105,
+                                    103
+                                ];
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "treasury";
+                    "docs": [
+                        "Treasury receives fees"
+                    ];
+                    "writable": true;
                 },
                 {
                     "name": "systemProgram";
@@ -330,6 +345,53 @@ type Tribunalcraft = {
                             }
                         ];
                     };
+                },
+                {
+                    "name": "dispute";
+                    "docs": [
+                        "Optional: Active dispute (required if subject has active dispute in proportional mode)"
+                    ];
+                    "writable": true;
+                    "optional": true;
+                },
+                {
+                    "name": "protocolConfig";
+                    "docs": [
+                        "Protocol config for treasury address (required if proportional dispute)"
+                    ];
+                    "optional": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    112,
+                                    114,
+                                    111,
+                                    116,
+                                    111,
+                                    99,
+                                    111,
+                                    108,
+                                    95,
+                                    99,
+                                    111,
+                                    110,
+                                    102,
+                                    105,
+                                    103
+                                ];
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "treasury";
+                    "docs": [
+                        "Treasury receives fees (required if proportional dispute)"
+                    ];
+                    "writable": true;
+                    "optional": true;
                 },
                 {
                     "name": "systemProgram";
@@ -493,6 +555,7 @@ type Tribunalcraft = {
                 },
                 {
                     "name": "subject";
+                    "writable": true;
                     "relations": [
                         "dispute"
                     ];
@@ -503,32 +566,6 @@ type Tribunalcraft = {
                     "relations": [
                         "challengerRecord"
                     ];
-                },
-                {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA holds all funds"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
                 },
                 {
                     "name": "challengerRecord";
@@ -567,6 +604,7 @@ type Tribunalcraft = {
                 },
                 {
                     "name": "subject";
+                    "writable": true;
                     "relations": [
                         "dispute",
                         "defenderRecord"
@@ -575,32 +613,6 @@ type Tribunalcraft = {
                 {
                     "name": "dispute";
                     "writable": true;
-                },
-                {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA holds all funds"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
                 },
                 {
                     "name": "defenderRecord";
@@ -694,136 +706,20 @@ type Tribunalcraft = {
                 },
                 {
                     "name": "subject";
+                    "writable": true;
                     "relations": [
                         "dispute"
                     ];
                 },
                 {
                     "name": "dispute";
+                    "writable": true;
                     "relations": [
                         "voteRecord"
                     ];
                 },
                 {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA holds all funds"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
-                },
-                {
                     "name": "voteRecord";
-                    "writable": true;
-                },
-                {
-                    "name": "systemProgram";
-                    "address": "11111111111111111111111111111111";
-                }
-            ];
-            "args": [];
-        },
-        {
-            "name": "closeEscrow";
-            "docs": [
-                "Close escrow after all claims are complete",
-                "Returns rent to closer, sends any dust to treasury"
-            ];
-            "discriminator": [
-                139,
-                171,
-                94,
-                146,
-                191,
-                91,
-                144,
-                50
-            ];
-            "accounts": [
-                {
-                    "name": "closer";
-                    "writable": true;
-                    "signer": true;
-                },
-                {
-                    "name": "dispute";
-                },
-                {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow to close - must have all claims complete"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "protocolConfig";
-                    "docs": [
-                        "Protocol config for treasury"
-                    ];
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    112,
-                                    114,
-                                    111,
-                                    116,
-                                    111,
-                                    99,
-                                    111,
-                                    108,
-                                    95,
-                                    99,
-                                    111,
-                                    110,
-                                    102,
-                                    105,
-                                    103
-                                ];
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "treasury";
                     "writable": true;
                 },
                 {
@@ -1332,66 +1228,6 @@ type Tribunalcraft = {
                     ];
                 },
                 {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA holds all funds for this dispute"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "protocolConfig";
-                    "docs": [
-                        "Protocol config for treasury address"
-                    ];
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    112,
-                                    114,
-                                    111,
-                                    116,
-                                    111,
-                                    99,
-                                    111,
-                                    108,
-                                    95,
-                                    99,
-                                    111,
-                                    110,
-                                    102,
-                                    105,
-                                    103
-                                ];
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "treasury";
-                    "writable": true;
-                },
-                {
                     "name": "systemProgram";
                     "address": "11111111111111111111111111111111";
                 }
@@ -1578,6 +1414,14 @@ type Tribunalcraft = {
                     "optional": true;
                 },
                 {
+                    "name": "poolOwnerDefenderRecord";
+                    "docs": [
+                        "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+                    ];
+                    "writable": true;
+                    "optional": true;
+                },
+                {
                     "name": "challengerAccount";
                     "writable": true;
                     "pda": {
@@ -1634,32 +1478,6 @@ type Tribunalcraft = {
                     };
                 },
                 {
-                    "name": "escrow";
-                    "docs": [
-                        "Escrow PDA holds all funds for this dispute"
-                    ];
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    101,
-                                    115,
-                                    99,
-                                    114,
-                                    111,
-                                    119
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            }
-                        ];
-                    };
-                },
-                {
                     "name": "challengerRecord";
                     "writable": true;
                     "pda": {
@@ -1696,6 +1514,43 @@ type Tribunalcraft = {
                             }
                         ];
                     };
+                },
+                {
+                    "name": "protocolConfig";
+                    "docs": [
+                        "Protocol config for treasury address"
+                    ];
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    112,
+                                    114,
+                                    111,
+                                    116,
+                                    111,
+                                    99,
+                                    111,
+                                    108,
+                                    95,
+                                    99,
+                                    111,
+                                    110,
+                                    102,
+                                    105,
+                                    103
+                                ];
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "treasury";
+                    "docs": [
+                        "Treasury receives fees"
+                    ];
+                    "writable": true;
                 },
                 {
                     "name": "systemProgram";
@@ -2372,19 +2227,6 @@ type Tribunalcraft = {
             ];
         },
         {
-            "name": "disputeEscrow";
-            "discriminator": [
-                4,
-                51,
-                35,
-                202,
-                114,
-                140,
-                92,
-                65
-            ];
-        },
-        {
             "name": "jurorAccount";
             "discriminator": [
                 138,
@@ -2852,7 +2694,15 @@ type Tribunalcraft = {
                     {
                         "name": "stake";
                         "docs": [
-                            "Amount staked to back the subject"
+                            "Total amount staked to back the subject (on subject account)"
+                        ];
+                        "type": "u64";
+                    },
+                    {
+                        "name": "stakeInEscrow";
+                        "docs": [
+                            "Amount of stake currently at risk in escrow (during active dispute)",
+                            "This is the amount that will be used for claim calculations"
                         ];
                         "type": "u64";
                     },
@@ -3067,116 +2917,6 @@ type Tribunalcraft = {
                             "Stake posted by appellant (for appeals only)"
                         ];
                         "type": "u64";
-                    }
-                ];
-            };
-        },
-        {
-            "name": "disputeEscrow";
-            "docs": [
-                "DisputeEscrow holds all funds for a single dispute.",
-                "One PDA per dispute - consolidates bonds and stakes in one place."
-            ];
-            "type": {
-                "kind": "struct";
-                "fields": [
-                    {
-                        "name": "dispute";
-                        "docs": [
-                            "Associated dispute account"
-                        ];
-                        "type": "pubkey";
-                    },
-                    {
-                        "name": "subject";
-                        "docs": [
-                            "Associated subject account"
-                        ];
-                        "type": "pubkey";
-                    },
-                    {
-                        "name": "totalBonds";
-                        "docs": [
-                            "Total challenger bonds deposited"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "totalStakes";
-                        "docs": [
-                            "Total defender stakes deposited (from subject + pool)"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "bondsClaimed";
-                        "docs": [
-                            "Bonds withdrawn via challenger claims"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "stakesClaimed";
-                        "docs": [
-                            "Stakes withdrawn via defender claims"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "jurorRewardsPaid";
-                        "docs": [
-                            "Rewards paid to jurors"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "platformFeePaid";
-                        "docs": [
-                            "Platform fee sent to treasury"
-                        ];
-                        "type": "u64";
-                    },
-                    {
-                        "name": "challengersClaimed";
-                        "docs": [
-                            "Number of challengers who have claimed"
-                        ];
-                        "type": "u8";
-                    },
-                    {
-                        "name": "defendersClaimed";
-                        "docs": [
-                            "Number of defenders who have claimed"
-                        ];
-                        "type": "u8";
-                    },
-                    {
-                        "name": "expectedChallengers";
-                        "docs": [
-                            "Expected number of challengers (for close validation)"
-                        ];
-                        "type": "u8";
-                    },
-                    {
-                        "name": "expectedDefenders";
-                        "docs": [
-                            "Expected number of defenders (snapshot at dispute creation)"
-                        ];
-                        "type": "u8";
-                    },
-                    {
-                        "name": "bump";
-                        "docs": [
-                            "PDA bump"
-                        ];
-                        "type": "u8";
-                    },
-                    {
-                        "name": "createdAt";
-                        "docs": [
-                            "Creation timestamp"
-                        ];
-                        "type": "i64";
                     }
                 ];
             };
@@ -3736,22 +3476,6 @@ interface Dispute {
     isAppeal: boolean;
     appealStake: BN;
 }
-interface DisputeEscrow {
-    dispute: PublicKey;
-    subject: PublicKey;
-    totalBonds: BN;
-    totalStakes: BN;
-    bondsClaimed: BN;
-    stakesClaimed: BN;
-    jurorRewardsPaid: BN;
-    platformFeePaid: BN;
-    challengersClaimed: number;
-    defendersClaimed: number;
-    expectedChallengers: number;
-    expectedDefenders: number;
-    bump: number;
-    createdAt: BN;
-}
 interface JurorAccount {
     juror: PublicKey;
     totalStake: BN;
@@ -4008,8 +3732,13 @@ declare class TribunalCraftClient {
     }): Promise<TransactionResult>;
     /**
      * Add stake to a standalone subject
+     * If subject has active dispute in proportional mode, pass dispute, protocolConfig, and treasury
+     * Fees are deducted in proportional mode during active dispute
      */
-    addToStake(subject: PublicKey, stake: BN): Promise<TransactionResult>;
+    addToStake(subject: PublicKey, stake: BN, proportionalDispute?: {
+        dispute: PublicKey;
+        treasury: PublicKey;
+    }): Promise<TransactionResult>;
     /**
      * Register as a juror with initial stake
      */
@@ -4131,10 +3860,6 @@ declare class TribunalCraftClient {
         defenderRecord: PublicKey;
     }): Promise<TransactionResult>;
     /**
-     * Close escrow after all claims are complete
-     */
-    closeEscrow(dispute: PublicKey): Promise<TransactionResult>;
-    /**
      * Fetch protocol config
      */
     fetchProtocolConfig(): Promise<ProtocolConfig | null>;
@@ -4158,10 +3883,6 @@ declare class TribunalCraftClient {
      * Fetch dispute by address
      */
     fetchDispute(address: PublicKey): Promise<Dispute | null>;
-    /**
-     * Fetch dispute escrow
-     */
-    fetchEscrow(dispute: PublicKey): Promise<DisputeEscrow | null>;
     /**
      * Fetch juror account by address
      */
@@ -4247,7 +3968,6 @@ declare const DEFENDER_POOL_SEED: Buffer<ArrayBuffer>;
 declare const SUBJECT_SEED: Buffer<ArrayBuffer>;
 declare const JUROR_SEED: Buffer<ArrayBuffer>;
 declare const DISPUTE_SEED: Buffer<ArrayBuffer>;
-declare const ESCROW_SEED: Buffer<ArrayBuffer>;
 declare const CHALLENGER_SEED: Buffer<ArrayBuffer>;
 declare const CHALLENGER_RECORD_SEED: Buffer<ArrayBuffer>;
 declare const DEFENDER_RECORD_SEED: Buffer<ArrayBuffer>;
@@ -4369,6 +4089,14 @@ var instructions = [
 				optional: true
 			},
 			{
+				name: "pool_owner_defender_record",
+				docs: [
+					"Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+				],
+				writable: true,
+				optional: true
+			},
+			{
 				name: "challenger_account",
 				writable: true,
 				pda: {
@@ -4398,32 +4126,6 @@ var instructions = [
 			{
 				name: "dispute",
 				writable: true
-			},
-			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA for this dispute"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
 			},
 			{
 				name: "challenger_record",
@@ -4462,6 +4164,43 @@ var instructions = [
 						}
 					]
 				}
+			},
+			{
+				name: "protocol_config",
+				docs: [
+					"Protocol config for treasury address"
+				],
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								112,
+								114,
+								111,
+								116,
+								111,
+								99,
+								111,
+								108,
+								95,
+								99,
+								111,
+								110,
+								102,
+								105,
+								103
+							]
+						}
+					]
+				}
+			},
+			{
+				name: "treasury",
+				docs: [
+					"Treasury receives fees"
+				],
+				writable: true
 			},
 			{
 				name: "system_program",
@@ -4539,6 +4278,53 @@ var instructions = [
 						}
 					]
 				}
+			},
+			{
+				name: "dispute",
+				docs: [
+					"Optional: Active dispute (required if subject has active dispute in proportional mode)"
+				],
+				writable: true,
+				optional: true
+			},
+			{
+				name: "protocol_config",
+				docs: [
+					"Protocol config for treasury address (required if proportional dispute)"
+				],
+				optional: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								112,
+								114,
+								111,
+								116,
+								111,
+								99,
+								111,
+								108,
+								95,
+								99,
+								111,
+								110,
+								102,
+								105,
+								103
+							]
+						}
+					]
+				}
+			},
+			{
+				name: "treasury",
+				docs: [
+					"Treasury receives fees (required if proportional dispute)"
+				],
+				writable: true,
+				optional: true
 			},
 			{
 				name: "system_program",
@@ -4702,6 +4488,7 @@ var instructions = [
 			},
 			{
 				name: "subject",
+				writable: true,
 				relations: [
 					"dispute"
 				]
@@ -4712,32 +4499,6 @@ var instructions = [
 				relations: [
 					"challenger_record"
 				]
-			},
-			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA holds all funds"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
 			},
 			{
 				name: "challenger_record",
@@ -4777,6 +4538,7 @@ var instructions = [
 			},
 			{
 				name: "subject",
+				writable: true,
 				relations: [
 					"dispute",
 					"defender_record"
@@ -4785,32 +4547,6 @@ var instructions = [
 			{
 				name: "dispute",
 				writable: true
-			},
-			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA holds all funds"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
 			},
 			{
 				name: "defender_record",
@@ -4905,137 +4641,20 @@ var instructions = [
 			},
 			{
 				name: "subject",
+				writable: true,
 				relations: [
 					"dispute"
 				]
 			},
 			{
 				name: "dispute",
+				writable: true,
 				relations: [
 					"vote_record"
 				]
 			},
 			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA holds all funds"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
-			},
-			{
 				name: "vote_record",
-				writable: true
-			},
-			{
-				name: "system_program",
-				address: "11111111111111111111111111111111"
-			}
-		],
-		args: [
-		]
-	},
-	{
-		name: "close_escrow",
-		docs: [
-			"Close escrow after all claims are complete",
-			"Returns rent to closer, sends any dust to treasury"
-		],
-		discriminator: [
-			139,
-			171,
-			94,
-			146,
-			191,
-			91,
-			144,
-			50
-		],
-		accounts: [
-			{
-				name: "closer",
-				writable: true,
-				signer: true
-			},
-			{
-				name: "dispute"
-			},
-			{
-				name: "escrow",
-				docs: [
-					"Escrow to close - must have all claims complete"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
-			},
-			{
-				name: "protocol_config",
-				docs: [
-					"Protocol config for treasury"
-				],
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								112,
-								114,
-								111,
-								116,
-								111,
-								99,
-								111,
-								108,
-								95,
-								99,
-								111,
-								110,
-								102,
-								105,
-								103
-							]
-						}
-					]
-				}
-			},
-			{
-				name: "treasury",
 				writable: true
 			},
 			{
@@ -5546,66 +5165,6 @@ var instructions = [
 				]
 			},
 			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA holds all funds for this dispute"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
-			},
-			{
-				name: "protocol_config",
-				docs: [
-					"Protocol config for treasury address"
-				],
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								112,
-								114,
-								111,
-								116,
-								111,
-								99,
-								111,
-								108,
-								95,
-								99,
-								111,
-								110,
-								102,
-								105,
-								103
-							]
-						}
-					]
-				}
-			},
-			{
-				name: "treasury",
-				writable: true
-			},
-			{
 				name: "system_program",
 				address: "11111111111111111111111111111111"
 			}
@@ -5793,6 +5352,14 @@ var instructions = [
 				optional: true
 			},
 			{
+				name: "pool_owner_defender_record",
+				docs: [
+					"Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
+				],
+				writable: true,
+				optional: true
+			},
+			{
 				name: "challenger_account",
 				writable: true,
 				pda: {
@@ -5849,32 +5416,6 @@ var instructions = [
 				}
 			},
 			{
-				name: "escrow",
-				docs: [
-					"Escrow PDA holds all funds for this dispute"
-				],
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								101,
-								115,
-								99,
-								114,
-								111,
-								119
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						}
-					]
-				}
-			},
-			{
 				name: "challenger_record",
 				writable: true,
 				pda: {
@@ -5911,6 +5452,43 @@ var instructions = [
 						}
 					]
 				}
+			},
+			{
+				name: "protocol_config",
+				docs: [
+					"Protocol config for treasury address"
+				],
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								112,
+								114,
+								111,
+								116,
+								111,
+								99,
+								111,
+								108,
+								95,
+								99,
+								111,
+								110,
+								102,
+								105,
+								103
+							]
+						}
+					]
+				}
+			},
+			{
+				name: "treasury",
+				docs: [
+					"Treasury receives fees"
+				],
+				writable: true
 			},
 			{
 				name: "system_program",
@@ -6589,19 +6167,6 @@ var accounts = [
 		]
 	},
 	{
-		name: "DisputeEscrow",
-		discriminator: [
-			4,
-			51,
-			35,
-			202,
-			114,
-			140,
-			92,
-			65
-		]
-	},
-	{
 		name: "JurorAccount",
 		discriminator: [
 			138,
@@ -7069,7 +6634,15 @@ var types = [
 				{
 					name: "stake",
 					docs: [
-						"Amount staked to back the subject"
+						"Total amount staked to back the subject (on subject account)"
+					],
+					type: "u64"
+				},
+				{
+					name: "stake_in_escrow",
+					docs: [
+						"Amount of stake currently at risk in escrow (during active dispute)",
+						"This is the amount that will be used for claim calculations"
 					],
 					type: "u64"
 				},
@@ -7284,116 +6857,6 @@ var types = [
 						"Stake posted by appellant (for appeals only)"
 					],
 					type: "u64"
-				}
-			]
-		}
-	},
-	{
-		name: "DisputeEscrow",
-		docs: [
-			"DisputeEscrow holds all funds for a single dispute.",
-			"One PDA per dispute - consolidates bonds and stakes in one place."
-		],
-		type: {
-			kind: "struct",
-			fields: [
-				{
-					name: "dispute",
-					docs: [
-						"Associated dispute account"
-					],
-					type: "pubkey"
-				},
-				{
-					name: "subject",
-					docs: [
-						"Associated subject account"
-					],
-					type: "pubkey"
-				},
-				{
-					name: "total_bonds",
-					docs: [
-						"Total challenger bonds deposited"
-					],
-					type: "u64"
-				},
-				{
-					name: "total_stakes",
-					docs: [
-						"Total defender stakes deposited (from subject + pool)"
-					],
-					type: "u64"
-				},
-				{
-					name: "bonds_claimed",
-					docs: [
-						"Bonds withdrawn via challenger claims"
-					],
-					type: "u64"
-				},
-				{
-					name: "stakes_claimed",
-					docs: [
-						"Stakes withdrawn via defender claims"
-					],
-					type: "u64"
-				},
-				{
-					name: "juror_rewards_paid",
-					docs: [
-						"Rewards paid to jurors"
-					],
-					type: "u64"
-				},
-				{
-					name: "platform_fee_paid",
-					docs: [
-						"Platform fee sent to treasury"
-					],
-					type: "u64"
-				},
-				{
-					name: "challengers_claimed",
-					docs: [
-						"Number of challengers who have claimed"
-					],
-					type: "u8"
-				},
-				{
-					name: "defenders_claimed",
-					docs: [
-						"Number of defenders who have claimed"
-					],
-					type: "u8"
-				},
-				{
-					name: "expected_challengers",
-					docs: [
-						"Expected number of challengers (for close validation)"
-					],
-					type: "u8"
-				},
-				{
-					name: "expected_defenders",
-					docs: [
-						"Expected number of defenders (snapshot at dispute creation)"
-					],
-					type: "u8"
-				},
-				{
-					name: "bump",
-					docs: [
-						"PDA bump"
-					],
-					type: "u8"
-				},
-				{
-					name: "created_at",
-					docs: [
-						"Creation timestamp"
-					],
-					type: "i64"
 				}
 			]
 		}
@@ -7899,4 +7362,4 @@ var idl = {
 	types: types
 };
 
-export { type AppealVoteChoice, AppealVoteChoiceEnum, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeEscrow, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, ESCROW_SEED, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectActive, isSubjectDisputed, isSubjectInvalidated, pda };
+export { type AppealVoteChoice, AppealVoteChoiceEnum, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectActive, isSubjectDisputed, isSubjectInvalidated, pda };
