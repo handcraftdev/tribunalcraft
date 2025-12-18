@@ -3104,9 +3104,10 @@
             }
           },
           {
-            "name": "total_stake",
+            "name": "available_stake",
             "docs": [
-              "Total stake backing this subject (standalone mode only)"
+              "Available stake for disputes (direct stakes + pool contribution when disputed)",
+              "Updated at resolution: available_stake -= stake_at_risk"
             ],
             "type": "u64"
           },
@@ -3206,13 +3207,13 @@
         "kind": "enum",
         "variants": [
           {
-            "name": "Active"
+            "name": "Valid"
           },
           {
             "name": "Disputed"
           },
           {
-            "name": "Invalidated"
+            "name": "Invalid"
           }
         ]
       }

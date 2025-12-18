@@ -34,9 +34,9 @@ export {
   VoteChoiceEnum,
   AppealVoteChoiceEnum,
   // Type Guards
-  isSubjectActive,
+  isSubjectValid,
   isSubjectDisputed,
-  isSubjectInvalidated,
+  isSubjectInvalid,
   isDisputePending,
   isDisputeResolved,
   isChallengerWins,

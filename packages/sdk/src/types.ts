@@ -28,7 +28,7 @@ export interface Subject {
   defenderPool: PublicKey;
   detailsCid: string;
   status: SubjectStatus;
-  totalStake: BN;
+  availableStake: BN;
   maxStake: BN;
   votingPeriod: BN;
   defenderCount: number;
@@ -139,9 +139,9 @@ export interface DefenderRecord {
 // =============================================================================
 
 export type SubjectStatus =
-  | { active: Record<string, never> }
+  | { valid: Record<string, never> }
   | { disputed: Record<string, never> }
-  | { invalidated: Record<string, never> };
+  | { invalid: Record<string, never> };
 
 export type DisputeStatus =
   | { pending: Record<string, never> }
@@ -176,9 +176,9 @@ export type AppealVoteChoice =
 // =============================================================================
 
 export const SubjectStatusEnum = {
-  Active: { active: {} } as SubjectStatus,
+  Valid: { valid: {} } as SubjectStatus,
   Disputed: { disputed: {} } as SubjectStatus,
-  Invalidated: { invalidated: {} } as SubjectStatus,
+  Invalid: { invalid: {} } as SubjectStatus,
 };
 
 export const DisputeStatusEnum = {
@@ -218,16 +218,16 @@ export const AppealVoteChoiceEnum = {
 // Helper Functions
 // =============================================================================
 
-export function isSubjectActive(status: SubjectStatus): boolean {
-  return "active" in status;
+export function isSubjectValid(status: SubjectStatus): boolean {
+  return "valid" in status;
 }
 
 export function isSubjectDisputed(status: SubjectStatus): boolean {
   return "disputed" in status;
 }
 
-export function isSubjectInvalidated(status: SubjectStatus): boolean {
-  return "invalidated" in status;
+export function isSubjectInvalid(status: SubjectStatus): boolean {
+  return "invalid" in status;
 }
 
 export function isDisputePending(status: DisputeStatus): boolean {

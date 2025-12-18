@@ -3110,9 +3110,10 @@ export type Tribunalcraft = {
             }
           },
           {
-            "name": "totalStake",
+            "name": "availableStake",
             "docs": [
-              "Total stake backing this subject (standalone mode only)"
+              "Available stake for disputes (direct stakes + pool contribution when disputed)",
+              "Updated at resolution: available_stake -= stake_at_risk"
             ],
             "type": "u64"
           },
@@ -3212,13 +3213,13 @@ export type Tribunalcraft = {
         "kind": "enum",
         "variants": [
           {
-            "name": "active"
+            "name": "valid"
           },
           {
             "name": "disputed"
           },
           {
-            "name": "invalidated"
+            "name": "invalid"
           }
         ]
       }

@@ -3158,9 +3158,10 @@ type Tribunalcraft = {
                         };
                     },
                     {
-                        "name": "totalStake";
+                        "name": "availableStake";
                         "docs": [
-                            "Total stake backing this subject (standalone mode only)"
+                            "Available stake for disputes (direct stakes + pool contribution when disputed)",
+                            "Updated at resolution: available_stake -= stake_at_risk"
                         ];
                         "type": "u64";
                     },
@@ -3260,13 +3261,13 @@ type Tribunalcraft = {
                 "kind": "enum";
                 "variants": [
                     {
-                        "name": "active";
+                        "name": "valid";
                     },
                     {
                         "name": "disputed";
                     },
                     {
-                        "name": "invalidated";
+                        "name": "invalid";
                     }
                 ];
             };
@@ -3436,7 +3437,7 @@ interface Subject {
     defenderPool: PublicKey;
     detailsCid: string;
     status: SubjectStatus;
-    totalStake: BN;
+    availableStake: BN;
     maxStake: BN;
     votingPeriod: BN;
     defenderCount: number;
@@ -3534,11 +3535,11 @@ interface DefenderRecord {
     stakedAt: BN;
 }
 type SubjectStatus = {
-    active: Record<string, never>;
+    valid: Record<string, never>;
 } | {
     disputed: Record<string, never>;
 } | {
-    invalidated: Record<string, never>;
+    invalid: Record<string, never>;
 };
 type DisputeStatus = {
     pending: Record<string, never>;
@@ -3582,9 +3583,9 @@ type AppealVoteChoice = {
     againstRestoration: Record<string, never>;
 };
 declare const SubjectStatusEnum: {
-    Active: SubjectStatus;
+    Valid: SubjectStatus;
     Disputed: SubjectStatus;
-    Invalidated: SubjectStatus;
+    Invalid: SubjectStatus;
 };
 declare const DisputeStatusEnum: {
     Pending: DisputeStatus;
@@ -3614,9 +3615,9 @@ declare const AppealVoteChoiceEnum: {
     ForRestoration: AppealVoteChoice;
     AgainstRestoration: AppealVoteChoice;
 };
-declare function isSubjectActive(status: SubjectStatus): boolean;
+declare function isSubjectValid(status: SubjectStatus): boolean;
 declare function isSubjectDisputed(status: SubjectStatus): boolean;
-declare function isSubjectInvalidated(status: SubjectStatus): boolean;
+declare function isSubjectInvalid(status: SubjectStatus): boolean;
 declare function isDisputePending(status: DisputeStatus): boolean;
 declare function isDisputeResolved(status: DisputeStatus): boolean;
 declare function isChallengerWins(outcome: ResolutionOutcome): boolean;
@@ -7098,9 +7099,10 @@ var types = [
 					}
 				},
 				{
-					name: "total_stake",
+					name: "available_stake",
 					docs: [
-						"Total stake backing this subject (standalone mode only)"
+						"Available stake for disputes (direct stakes + pool contribution when disputed)",
+						"Updated at resolution: available_stake -= stake_at_risk"
 					],
 					type: "u64"
 				},
@@ -7200,13 +7202,13 @@ var types = [
 			kind: "enum",
 			variants: [
 				{
-					name: "Active"
+					name: "Valid"
 				},
 				{
 					name: "Disputed"
 				},
 				{
-					name: "Invalidated"
+					name: "Invalid"
 				}
 			]
 		}
@@ -7362,4 +7364,4 @@ var idl = {
 	types: types
 };
 
-export { type AppealVoteChoice, AppealVoteChoiceEnum, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectActive, isSubjectDisputed, isSubjectInvalidated, pda };
+export { type AppealVoteChoice, AppealVoteChoiceEnum, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectInvalid, isSubjectValid, pda };

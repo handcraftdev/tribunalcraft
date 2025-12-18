@@ -59,9 +59,9 @@ __export(index_exports, {
   isDisputePending: () => isDisputePending,
   isDisputeResolved: () => isDisputeResolved,
   isNoParticipation: () => isNoParticipation,
-  isSubjectActive: () => isSubjectActive,
   isSubjectDisputed: () => isSubjectDisputed,
-  isSubjectInvalidated: () => isSubjectInvalidated,
+  isSubjectInvalid: () => isSubjectInvalid,
+  isSubjectValid: () => isSubjectValid,
   pda: () => pda
 });
 module.exports = __toCommonJS(index_exports);
@@ -3299,9 +3299,10 @@ var idl_default = {
             }
           },
           {
-            name: "total_stake",
+            name: "available_stake",
             docs: [
-              "Total stake backing this subject (standalone mode only)"
+              "Available stake for disputes (direct stakes + pool contribution when disputed)",
+              "Updated at resolution: available_stake -= stake_at_risk"
             ],
             type: "u64"
           },
@@ -3401,13 +3402,13 @@ var idl_default = {
         kind: "enum",
         variants: [
           {
-            name: "Active"
+            name: "Valid"
           },
           {
             name: "Disputed"
           },
           {
-            name: "Invalidated"
+            name: "Invalid"
           }
         ]
       }
@@ -4128,9 +4129,9 @@ var TribunalCraftClient = class {
 
 // src/types.ts
 var SubjectStatusEnum = {
-  Active: { active: {} },
+  Valid: { valid: {} },
   Disputed: { disputed: {} },
-  Invalidated: { invalidated: {} }
+  Invalid: { invalid: {} }
 };
 var DisputeStatusEnum = {
   Pending: { pending: {} },
@@ -4160,14 +4161,14 @@ var AppealVoteChoiceEnum = {
   ForRestoration: { forRestoration: {} },
   AgainstRestoration: { againstRestoration: {} }
 };
-function isSubjectActive(status) {
-  return "active" in status;
+function isSubjectValid(status) {
+  return "valid" in status;
 }
 function isSubjectDisputed(status) {
   return "disputed" in status;
 }
-function isSubjectInvalidated(status) {
-  return "invalidated" in status;
+function isSubjectInvalid(status) {
+  return "invalid" in status;
 }
 function isDisputePending(status) {
   return "pending" in status;
@@ -4243,8 +4244,8 @@ function getOutcomeName(outcome) {
   isDisputePending,
   isDisputeResolved,
   isNoParticipation,
-  isSubjectActive,
   isSubjectDisputed,
-  isSubjectInvalidated,
+  isSubjectInvalid,
+  isSubjectValid,
   pda
 });
