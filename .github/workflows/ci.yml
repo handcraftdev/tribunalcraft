@@ -59,10 +59,12 @@ jobs:
         run: anchor build
 
       - name: Setup Test Keypair
-        run: solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
+        run: |
+          solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
+          solana config set --url localhost
 
       - name: Run Tests
-        run: anchor test
+        run: anchor test --provider.cluster localnet
 
   # Test SDK
   test-sdk:
