@@ -1,0 +1,83 @@
+name: CI - Program
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'programs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Anchor.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'programs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Anchor.toml'
+
+concurrency:
+  group: program-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: 3.0.12
+  ANCHOR_VERSION: 0.32.1
+
+jobs:
+  test-program:
+    name: Test Program
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Solana
+        env:
+          SOLANA_VER: ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VER}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          solana --version
+          cargo-build-sbf --version
+
+      - name: Install Anchor
+        env:
+          ANCHOR_VER: ${{ env.ANCHOR_VERSION }}
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v${ANCHOR_VER} anchor-cli --locked
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Program
+        run: anchor build
+
+      - name: Setup Test Keypair
+        run: |
+          solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
+          solana config set --url localhost
+
+      - name: Run Tests
+        run: anchor test --provider.cluster localnet
