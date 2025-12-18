@@ -1,0 +1,53 @@
+name: CI - Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'packages/sdk/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'packages/sdk/**'
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install SDK Dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: packages/sdk
+
+      - name: Build SDK
+        run: yarn build
+        working-directory: packages/sdk
+
+      - name: Install Frontend Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Lint
+        run: yarn lint
+        continue-on-error: true
+
+      - name: Build
+        run: yarn build
+        env:
+          NEXT_PUBLIC_SOLANA_RPC_URL: https://api.devnet.solana.com
