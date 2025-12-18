@@ -20,6 +20,7 @@ import {
   type VoteChoice,
   type RestoreVoteChoice,
   type TransactionResult,
+  type SimulationResult,
 } from "@tribunalcraft/sdk";
 import { BN } from "@coral-xyz/anchor";
 
@@ -33,8 +34,13 @@ export const useTribunalcraft = () => {
   const [client, setClient] = useState<TribunalCraftClient | null>(null);
 
   // Initialize client when connection changes
+  // Enable simulation in development to help debug transaction failures
   useEffect(() => {
-    const newClient = new TribunalCraftClient({ connection });
+    const isDev = process.env.NODE_ENV === "development";
+    const newClient = new TribunalCraftClient({
+      connection,
+      simulateFirst: isDev,
+    });
     setClient(newClient);
   }, [connection]);
 
@@ -424,6 +430,17 @@ export const useTribunalcraft = () => {
     return client.fetchChallengersByDispute(dispute);
   }, [client]);
 
+  // Simulation controls
+  const setSimulateFirst = useCallback((enabled: boolean) => {
+    if (client) {
+      client.simulateFirst = enabled;
+    }
+  }, [client]);
+
+  const getSimulateFirst = useCallback(() => {
+    return client?.simulateFirst ?? false;
+  }, [client]);
+
   return {
     client,
     program: client?.program ?? null,
@@ -489,6 +506,9 @@ export const useTribunalcraft = () => {
     fetchDisputesBySubject,
     fetchVotesByDispute,
     fetchChallengersByDispute,
+    // Simulation
+    setSimulateFirst,
+    getSimulateFirst,
   };
 };
 
@@ -507,6 +527,7 @@ export type {
   VoteChoice,
   RestoreVoteChoice,
   TransactionResult,
+  SimulationResult,
 };
 
 // Re-export enums and helpers from SDK

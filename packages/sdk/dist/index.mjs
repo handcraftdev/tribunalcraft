@@ -1,4 +1,7 @@
 // src/client.ts
+import {
+  Transaction
+} from "@solana/web3.js";
 import { Program, AnchorProvider } from "@coral-xyz/anchor";
 
 // src/pda.ts
@@ -3537,12 +3540,39 @@ var idl_default = {
 };
 
 // src/client.ts
+var ERROR_CODES = {
+  6e3: "Unauthorized",
+  6001: "InvalidConfig",
+  6002: "StakeBelowMinimum",
+  6003: "BondBelowMinimum",
+  6004: "InsufficientStake",
+  6005: "InsufficientAvailableStake",
+  6006: "StakeLocked",
+  6007: "SubjectCannotBeDisputed",
+  6008: "SubjectCannotBeStaked",
+  6009: "DisputeAlreadyExists",
+  6010: "DisputeNotFound",
+  6011: "DisputeAlreadyResolved",
+  6012: "VotingNotStarted",
+  6013: "VotingEnded",
+  6014: "VotingNotEnded",
+  6015: "AlreadyVoted",
+  6016: "InvalidVoteChoice",
+  6017: "RewardAlreadyClaimed",
+  6018: "NotOnWinningSide",
+  6019: "InvalidSubjectStatus",
+  6020: "AppealNotAllowed",
+  6021: "AppealAlreadyExists",
+  6022: "NotRestorer",
+  6023: "RestorationFailed"
+};
 var TribunalCraftClient = class {
   constructor(config) {
     this.connection = config.connection;
     this.programId = config.programId ?? PROGRAM_ID;
     this.pda = new PDA(this.programId);
     this.wallet = config.wallet ?? null;
+    this.simulateFirst = config.simulateFirst ?? false;
     const readOnlyProvider = new AnchorProvider(
       this.connection,
       {},
@@ -3594,6 +3624,119 @@ var TribunalCraftClient = class {
       throw new Error("Wallet not connected. Call setWallet() first.");
     }
     return { wallet: this.wallet, program: this.anchorProgram };
+  }
+  // ===========================================================================
+  // Transaction Simulation
+  // ===========================================================================
+  /**
+   * Parse program error from simulation logs
+   */
+  parseErrorFromLogs(logs) {
+    for (const log of logs) {
+      const customErrorMatch = log.match(/Program log: AnchorError.*Error Code: (\w+)\. Error Number: (\d+)\. Error Message: (.+)\./);
+      if (customErrorMatch) {
+        const errorCode = parseInt(customErrorMatch[2], 10);
+        const errorMessage = customErrorMatch[3];
+        return { code: errorCode, message: `${customErrorMatch[1]}: ${errorMessage}` };
+      }
+      const errorNumberMatch = log.match(/Error Number: (\d+)/);
+      if (errorNumberMatch) {
+        const code = parseInt(errorNumberMatch[1], 10);
+        const message = ERROR_CODES[code] || `Unknown error (${code})`;
+        return { code, message };
+      }
+      const instructionErrorMatch = log.match(/Program.*failed: custom program error: 0x([0-9a-fA-F]+)/);
+      if (instructionErrorMatch) {
+        const code = parseInt(instructionErrorMatch[1], 16);
+        const message = ERROR_CODES[code] || `Custom error 0x${instructionErrorMatch[1]}`;
+        return { code, message };
+      }
+      if (log.includes("Error:") || log.includes("failed:")) {
+        return { message: log };
+      }
+    }
+    return { message: "Transaction simulation failed" };
+  }
+  /**
+   * Simulate a transaction and return detailed results
+   */
+  async simulateTransaction(tx) {
+    try {
+      let response;
+      if (tx instanceof Transaction) {
+        const { blockhash } = await this.connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = this.wallet?.publicKey;
+        const result = await this.connection.simulateTransaction(tx);
+        response = result.value;
+      } else {
+        const result = await this.connection.simulateTransaction(tx);
+        response = result.value;
+      }
+      if (response.err) {
+        const { code, message } = this.parseErrorFromLogs(response.logs || []);
+        return {
+          success: false,
+          error: message,
+          errorCode: code,
+          logs: response.logs || [],
+          unitsConsumed: response.unitsConsumed
+        };
+      }
+      return {
+        success: true,
+        logs: response.logs || [],
+        unitsConsumed: response.unitsConsumed
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        logs: []
+      };
+    }
+  }
+  /**
+   * Build and simulate a method call without sending
+   * Returns simulation result with parsed errors
+   */
+  async simulateMethod(methodName, args, accounts) {
+    const { program } = this.getWalletAndProgram();
+    try {
+      const method = program.methods[methodName](...args);
+      if (accounts) {
+        method.accountsPartial(accounts);
+      }
+      const tx = await method.transaction();
+      return this.simulateTransaction(tx);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        logs: []
+      };
+    }
+  }
+  /**
+   * Helper to run RPC with optional simulation first
+   * Wraps Anchor's rpc() call with simulation check
+   */
+  async rpcWithSimulation(methodBuilder, actionName) {
+    if (this.simulateFirst) {
+      console.log(`[Simulation] ${actionName}...`);
+      const tx = await methodBuilder.transaction();
+      const result = await this.simulateTransaction(tx);
+      if (!result.success) {
+        const errorMsg = `Simulation failed for ${actionName}: ${result.error}`;
+        console.error(errorMsg);
+        if (result.logs && result.logs.length > 0) {
+          console.error("Logs:", result.logs.slice(-10).join("\n"));
+        }
+        throw new Error(errorMsg);
+      }
+      console.log(`[Simulation] ${actionName} passed (${result.unitsConsumed} CU)`);
+    }
+    return methodBuilder.rpc();
   }
   // ===========================================================================
   // Protocol Config
@@ -3759,10 +3902,11 @@ var TribunalCraftClient = class {
       dispute,
       wallet.publicKey
     );
-    const signature = await program.methods.submitDispute(params.disputeType, params.detailsCid, params.bond).accountsPartial({
+    const methodBuilder = program.methods.submitDispute(params.disputeType, params.detailsCid, params.bond).accountsPartial({
       subject: params.subject,
       defenderPool: params.defenderPool ?? null
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(methodBuilder, "submitDispute");
     return { signature, accounts: { dispute, challengerRecord } };
   }
   /**
@@ -3806,11 +3950,12 @@ var TribunalCraftClient = class {
     if (!config) {
       throw new Error("Protocol config not initialized");
     }
-    const signature = await program.methods.submitRestore(params.disputeType, params.detailsCid, params.stakeAmount).accountsPartial({
+    const methodBuilder = program.methods.submitRestore(params.disputeType, params.detailsCid, params.stakeAmount).accountsPartial({
       subject: params.subject,
       protocolConfig,
       treasury: config.treasury
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(methodBuilder, "submitRestore");
     return { signature, accounts: { dispute } };
   }
   // ===========================================================================
@@ -3822,11 +3967,12 @@ var TribunalCraftClient = class {
   async voteOnDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
-    const signature = await program.methods.voteOnDispute(
+    const methodBuilder = program.methods.voteOnDispute(
       params.choice,
       params.stakeAllocation,
       params.rationaleCid ?? ""
-    ).accountsPartial({ dispute: params.dispute }).rpc();
+    ).accountsPartial({ dispute: params.dispute });
+    const signature = await this.rpcWithSimulation(methodBuilder, "voteOnDispute");
     return { signature, accounts: { voteRecord } };
   }
   /**
@@ -3835,11 +3981,12 @@ var TribunalCraftClient = class {
   async voteOnRestore(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
-    const signature = await program.methods.voteOnRestore(
+    const methodBuilder = program.methods.voteOnRestore(
       params.choice,
       params.stakeAllocation,
       params.rationaleCid ?? ""
-    ).accountsPartial({ dispute: params.dispute }).rpc();
+    ).accountsPartial({ dispute: params.dispute });
+    const signature = await this.rpcWithSimulation(methodBuilder, "voteOnRestore");
     return { signature, accounts: { voteRecord } };
   }
   /**
@@ -3861,10 +4008,11 @@ var TribunalCraftClient = class {
    */
   async resolveDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.resolveDispute().accountsPartial({
+    const methodBuilder = program.methods.resolveDispute().accountsPartial({
       dispute: params.dispute,
       subject: params.subject
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(methodBuilder, "resolveDispute");
     return { signature };
   }
   /**
@@ -4127,7 +4275,7 @@ var TribunalCraftClient = class {
 };
 
 // src/types.ts
-import { PublicKey as PublicKey3 } from "@solana/web3.js";
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
 import { BN as BN2 } from "@coral-xyz/anchor";
 var SubjectStatusEnum = {
   Valid: { valid: {} },
@@ -4213,7 +4361,7 @@ function getOutcomeName(outcome) {
   return "Unknown";
 }
 function canLinkedSubjectBeDisputed(subject, pool, minBond) {
-  if (subject.defenderPool.equals(new PublicKey3(0))) {
+  if (subject.defenderPool.equals(new PublicKey4(0))) {
     return true;
   }
   if (!pool) {

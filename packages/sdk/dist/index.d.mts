@@ -1,4 +1,4 @@
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey, Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { BN, Wallet, Program } from '@coral-xyz/anchor';
 
 /**
@@ -3733,10 +3733,19 @@ declare function canLinkedSubjectBeDisputed(subject: Subject, pool: DefenderPool
  */
 declare function getEffectiveStatus(subject: Subject, pool: DefenderPool | null, minBond: BN): SubjectStatus;
 
+interface SimulationResult {
+    success: boolean;
+    error?: string;
+    errorCode?: number;
+    logs?: string[];
+    unitsConsumed?: number;
+}
 interface TribunalCraftClientConfig {
     connection: Connection;
     wallet?: Wallet;
     programId?: PublicKey;
+    /** If true, all transactions will be simulated before sending */
+    simulateFirst?: boolean;
 }
 interface TransactionResult {
     signature: string;
@@ -3766,6 +3775,7 @@ declare class TribunalCraftClient {
     readonly connection: Connection;
     readonly programId: PublicKey;
     readonly pda: PDA;
+    simulateFirst: boolean;
     private wallet;
     private anchorProgram;
     constructor(config: TribunalCraftClientConfig);
@@ -3786,6 +3796,24 @@ declare class TribunalCraftClient {
      * Get wallet and program, throwing if not connected
      */
     private getWalletAndProgram;
+    /**
+     * Parse program error from simulation logs
+     */
+    private parseErrorFromLogs;
+    /**
+     * Simulate a transaction and return detailed results
+     */
+    simulateTransaction(tx: Transaction | VersionedTransaction): Promise<SimulationResult>;
+    /**
+     * Build and simulate a method call without sending
+     * Returns simulation result with parsed errors
+     */
+    simulateMethod(methodName: string, args: unknown[], accounts?: Record<string, PublicKey | null>): Promise<SimulationResult>;
+    /**
+     * Helper to run RPC with optional simulation first
+     * Wraps Anchor's rpc() call with simulation check
+     */
+    private rpcWithSimulation;
     /**
      * Initialize protocol config (one-time setup by deployer)
      */
@@ -7526,4 +7554,4 @@ var idl = {
 	types: types
 };
 
-export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, canLinkedSubjectBeDisputed, getDisputeTypeName, getEffectiveStatus, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };
+export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, canLinkedSubjectBeDisputed, getDisputeTypeName, getEffectiveStatus, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };

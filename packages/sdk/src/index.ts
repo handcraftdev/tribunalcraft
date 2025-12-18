@@ -1,6 +1,6 @@
 // Main Client
 export { TribunalCraftClient } from "./client";
-export type { TribunalCraftClientConfig, TransactionResult } from "./client";
+export type { TribunalCraftClientConfig, TransactionResult, SimulationResult } from "./client";
 
 // PDA Helpers
 export { PDA, pda } from "./pda";
