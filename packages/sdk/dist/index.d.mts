@@ -3571,6 +3571,7 @@ interface Dispute {
     isRestore: boolean;
     restoreStake: BN;
     restorer: PublicKey;
+    detailsCid: string;
 }
 interface JurorAccount {
     juror: PublicKey;
@@ -3905,6 +3906,7 @@ declare class TribunalCraftClient {
         subject: PublicKey;
         disputeCount: number;
         defenderPool?: PublicKey;
+        poolOwner?: PublicKey;
         disputeType: DisputeType;
         detailsCid: string;
         bond: BN;
@@ -3925,6 +3927,7 @@ declare class TribunalCraftClient {
         subject: PublicKey;
         dispute: PublicKey;
         defenderPool?: PublicKey;
+        poolOwner?: PublicKey;
         detailsCid: string;
         bond: BN;
     }): Promise<TransactionResult>;
@@ -4076,7 +4079,7 @@ declare class TribunalCraftClient {
         account: Subject;
     }>>;
     /**
-     * Fetch all disputes
+     * Fetch all disputes (with error handling for old account formats)
      */
     fetchAllDisputes(): Promise<Array<{
         publicKey: PublicKey;

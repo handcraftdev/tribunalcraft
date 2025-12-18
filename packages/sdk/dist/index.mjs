@@ -3963,9 +3963,16 @@ var TribunalCraftClient = class {
       dispute,
       wallet.publicKey
     );
+    const poolOwnerDefenderRecord = params.poolOwner ? this.pda.defenderRecord(params.subject, params.poolOwner)[0] : null;
+    const [protocolConfig] = this.pda.protocolConfig();
+    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
+    const treasury = protocolConfigAccount.treasury;
     const methodBuilder = program.methods.submitDispute(params.disputeType, params.detailsCid, params.bond).accountsPartial({
       subject: params.subject,
-      defenderPool: params.defenderPool ?? null
+      defenderPool: params.defenderPool ?? null,
+      poolOwnerDefenderRecord,
+      protocolConfig,
+      treasury
     });
     const signature = await this.rpcWithSimulation(methodBuilder, "submitDispute");
     return { signature, accounts: { dispute, challengerRecord } };
@@ -3992,10 +3999,17 @@ var TribunalCraftClient = class {
       params.dispute,
       wallet.publicKey
     );
+    const poolOwnerDefenderRecord = params.poolOwner ? this.pda.defenderRecord(params.subject, params.poolOwner)[0] : null;
+    const [protocolConfig] = this.pda.protocolConfig();
+    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
+    const treasury = protocolConfigAccount.treasury;
     const signature = await program.methods.addToDispute(params.detailsCid, params.bond).accountsPartial({
       subject: params.subject,
       dispute: params.dispute,
-      defenderPool: params.defenderPool ?? null
+      defenderPool: params.defenderPool ?? null,
+      poolOwnerDefenderRecord,
+      protocolConfig,
+      treasury
     }).rpc();
     return { signature, accounts: { challengerRecord } };
   }
@@ -4293,11 +4307,16 @@ var TribunalCraftClient = class {
     return accounts;
   }
   /**
-   * Fetch all disputes
+   * Fetch all disputes (with error handling for old account formats)
    */
   async fetchAllDisputes() {
-    const accounts = await this.anchorProgram.account.dispute.all();
-    return accounts;
+    try {
+      const accounts = await this.anchorProgram.account.dispute.all();
+      return accounts;
+    } catch (err) {
+      console.warn("Failed to fetch disputes:", err);
+      return [];
+    }
   }
   /**
    * Fetch all juror accounts
