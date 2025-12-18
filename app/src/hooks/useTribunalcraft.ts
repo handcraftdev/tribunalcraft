@@ -204,7 +204,7 @@ export const useTribunalcraft = () => {
   // Dispute Management
   const submitDispute = useCallback(async (
     subject: PublicKey,
-    subjectData: { disputeCount: number; defenderPool: PublicKey },
+    subjectData: { disputeCount: number; defenderPool: PublicKey; poolOwner?: PublicKey },
     disputeType: DisputeType,
     detailsCid: string,
     bond: BN
@@ -215,6 +215,7 @@ export const useTribunalcraft = () => {
       subject,
       disputeCount: subjectData.disputeCount,
       defenderPool: isLinked ? subjectData.defenderPool : undefined,
+      poolOwner: isLinked ? subjectData.poolOwner : undefined,
       disputeType,
       detailsCid,
       bond,
@@ -257,6 +258,7 @@ export const useTribunalcraft = () => {
     subject: PublicKey,
     dispute: PublicKey,
     defenderPool: PublicKey | null,
+    poolOwner: PublicKey | null,
     detailsCid: string,
     bond: BN
   ) => {
@@ -265,6 +267,7 @@ export const useTribunalcraft = () => {
       subject,
       dispute,
       defenderPool: defenderPool ?? undefined,
+      poolOwner: poolOwner ?? undefined,
       detailsCid,
       bond,
     });
