@@ -32,8 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
         uses: actions/cache@v4
