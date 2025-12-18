@@ -458,8 +458,10 @@ export class TribunalCraftClient {
 
     // Staked subject - always linked to creator's pool (auto-created if needed)
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
 
-    const signature = await program.methods
+    // Build createLinkedSubject instruction
+    const createSubjectIx = await program.methods
       .createLinkedSubject(
         params.subjectId,
         params.detailsCid,
@@ -471,13 +473,31 @@ export class TribunalCraftClient {
       .accountsPartial({
         defenderPool,
       })
-      .rpc();
+      .instruction();
 
-    // Add initial stake if provided
+    // If initial stake provided, bundle addToStake in same transaction
     if (params.stake && !params.stake.isZero()) {
-      await this.addToStake(subject, params.stake);
+      const addStakeIx = await program.methods
+        .addToStake(params.stake)
+        .accountsPartial({
+          subject,
+          defenderRecord,
+          dispute: null,
+          protocolConfig: null,
+          treasury: null,
+        })
+        .instruction();
+
+      // Send both instructions in single transaction
+      const tx = new Transaction();
+      tx.add(createSubjectIx, addStakeIx);
+      const signature = await (program.provider as AnchorProvider).sendAndConfirm(tx);
+      return { signature, accounts: { subject, defenderPool, defenderRecord } };
     }
 
+    // No initial stake - just create subject
+    const tx = new Transaction().add(createSubjectIx);
+    const signature = await (program.provider as AnchorProvider).sendAndConfirm(tx);
     return { signature, accounts: { subject, defenderPool } };
   }
 

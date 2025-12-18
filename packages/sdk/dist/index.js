@@ -3938,7 +3938,8 @@ var TribunalCraftClient = class {
       return { signature: signature2, accounts: { subject } };
     }
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
-    const signature = await program.methods.createLinkedSubject(
+    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
+    const createSubjectIx = await program.methods.createLinkedSubject(
       params.subjectId,
       params.detailsCid,
       params.maxStake ?? new import_anchor.BN(0),
@@ -3948,10 +3949,22 @@ var TribunalCraftClient = class {
       params.votingPeriod
     ).accountsPartial({
       defenderPool
-    }).rpc();
+    }).instruction();
     if (params.stake && !params.stake.isZero()) {
-      await this.addToStake(subject, params.stake);
+      const addStakeIx = await program.methods.addToStake(params.stake).accountsPartial({
+        subject,
+        defenderRecord,
+        dispute: null,
+        protocolConfig: null,
+        treasury: null
+      }).instruction();
+      const tx2 = new import_web33.Transaction();
+      tx2.add(createSubjectIx, addStakeIx);
+      const signature2 = await program.provider.sendAndConfirm(tx2);
+      return { signature: signature2, accounts: { subject, defenderPool, defenderRecord } };
     }
+    const tx = new import_web33.Transaction().add(createSubjectIx);
+    const signature = await program.provider.sendAndConfirm(tx);
     return { signature, accounts: { subject, defenderPool } };
   }
   /**
