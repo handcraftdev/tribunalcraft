@@ -1,4 +1,4 @@
-import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -146,18 +146,25 @@ async function main() {
     {
       publicKey: wallet!.publicKey,
       signTransaction: async (tx) => {
-        tx.sign(wallet!);
+        if (tx instanceof Transaction) {
+          tx.partialSign(wallet!);
+        }
         return tx;
       },
       signAllTransactions: async (txs) => {
-        txs.forEach(tx => tx.sign(wallet!));
+        txs.forEach(tx => {
+          if (tx instanceof Transaction) {
+            tx.partialSign(wallet!);
+          }
+        });
         return txs;
       },
     },
     { commitment: 'confirmed' }
   );
 
-  const program = new Program(idl, provider);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const program = new Program(idl as any, provider);
 
   // Derive config PDA
   const [configPda] = PublicKey.findProgramAddressSync(
@@ -169,7 +176,8 @@ async function main() {
 
   // Check if already initialized
   try {
-    const existingConfig = await program.account.protocolConfig.fetch(configPda);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingConfig = await (program.account as any).protocolConfig.fetch(configPda);
     console.log('\nProtocol config already initialized:');
     console.log(`  Authority: ${existingConfig.authority.toBase58()}`);
     console.log(`  Treasury: ${existingConfig.treasury.toBase58()}`);
