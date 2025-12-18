@@ -1,0 +1,69 @@
+name: Publish SDK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: .
+
+      - name: Extract Version from Tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update Version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm version "$VERSION" --no-git-tag-version
+
+      - name: Build
+        run: yarn build
+
+      - name: Type Check
+        run: yarn typecheck
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        with:
+          name: SDK v${{ steps.version.outputs.version }}
+          body: |
+            ## @tribunalcraft/sdk v${{ steps.version.outputs.version }}
+
+            Install:
+            ```bash
+            npm install @tribunalcraft/sdk@${{ steps.version.outputs.version }}
+            ```
+
+            or
+
+            ```bash
+            yarn add @tribunalcraft/sdk@${{ steps.version.outputs.version }}
+            ```
+          generate_release_notes: true

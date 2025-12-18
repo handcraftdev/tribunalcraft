@@ -2,6 +2,8 @@
   "name": "@tribunalcraft/sdk",
   "version": "0.1.0",
   "description": "SDK for interacting with TribunalCraft Solana program",
+  "author": "TribunalCraft",
+  "license": "MIT",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -13,9 +15,11 @@
     }
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",

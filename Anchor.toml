@@ -11,6 +11,9 @@ tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
 [programs.devnet]
 tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
 
+[programs.mainnet]
+tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
+
 [registry]
 url = "https://api.apr.dev"
 

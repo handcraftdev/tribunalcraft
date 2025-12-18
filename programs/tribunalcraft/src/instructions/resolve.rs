@@ -398,7 +398,6 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
             let loss = (challenger_account.reputation as u32 * REPUTATION_LOSS_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
             challenger_account.reputation = challenger_account.reputation.saturating_sub(loss);
             challenger_account.disputes_dismissed += 1;
-            escrow.challengers_claimed += 1;
 
             msg!("Dispute dismissed - challenger loses bond");
         }
