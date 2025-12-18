@@ -52,7 +52,9 @@ __export(index_exports, {
   VOTE_RECORD_SEED: () => VOTE_RECORD_SEED,
   VoteChoiceEnum: () => VoteChoiceEnum,
   WINNER_SHARE_BPS: () => WINNER_SHARE_BPS,
+  canLinkedSubjectBeDisputed: () => canLinkedSubjectBeDisputed,
   getDisputeTypeName: () => getDisputeTypeName,
+  getEffectiveStatus: () => getEffectiveStatus,
   getOutcomeName: () => getOutcomeName,
   isChallengerWins: () => isChallengerWins,
   isDefenderWins: () => isDefenderWins,
@@ -4197,6 +4199,8 @@ var TribunalCraftClient = class {
 };
 
 // src/types.ts
+var import_web33 = require("@solana/web3.js");
+var import_anchor2 = require("@coral-xyz/anchor");
 var SubjectStatusEnum = {
   Valid: { valid: {} },
   Disputed: { disputed: {} },
@@ -4280,6 +4284,29 @@ function getOutcomeName(outcome) {
   if ("noParticipation" in outcome) return "No Participation";
   return "Unknown";
 }
+function canLinkedSubjectBeDisputed(subject, pool, minBond) {
+  if (subject.defenderPool.equals(new import_web33.PublicKey(0))) {
+    return true;
+  }
+  if (!pool) {
+    return false;
+  }
+  if (subject.matchMode) {
+    const totalAvailable = pool.available.add(subject.availableStake);
+    const requiredHold = import_anchor2.BN.min(minBond, subject.maxStake);
+    return totalAvailable.gte(requiredHold);
+  }
+  return true;
+}
+function getEffectiveStatus(subject, pool, minBond) {
+  if (!isSubjectValid(subject.status)) {
+    return subject.status;
+  }
+  if (!canLinkedSubjectBeDisputed(subject, pool, minBond)) {
+    return SubjectStatusEnum.Dormant;
+  }
+  return subject.status;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   CHALLENGER_RECORD_SEED,
@@ -4314,7 +4341,9 @@ function getOutcomeName(outcome) {
   VOTE_RECORD_SEED,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
+  canLinkedSubjectBeDisputed,
   getDisputeTypeName,
+  getEffectiveStatus,
   getOutcomeName,
   isChallengerWins,
   isDefenderWins,

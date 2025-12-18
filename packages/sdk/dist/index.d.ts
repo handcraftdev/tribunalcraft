@@ -3721,6 +3721,17 @@ declare function isDefenderWins(outcome: ResolutionOutcome): boolean;
 declare function isNoParticipation(outcome: ResolutionOutcome): boolean;
 declare function getDisputeTypeName(disputeType: DisputeType): string;
 declare function getOutcomeName(outcome: ResolutionOutcome): string;
+/**
+ * Check if a linked subject can be disputed based on pool availability.
+ * For linked match-mode subjects, validates pool has enough balance.
+ * Returns true if subject can be disputed, false if pool is drained.
+ */
+declare function canLinkedSubjectBeDisputed(subject: Subject, pool: DefenderPool | null, minBond: BN): boolean;
+/**
+ * Get effective status for a subject, considering pool balance for linked subjects.
+ * Returns "dormant" for linked match-mode subjects if pool is drained below minimum.
+ */
+declare function getEffectiveStatus(subject: Subject, pool: DefenderPool | null, minBond: BN): SubjectStatus;
 
 interface TribunalCraftClientConfig {
     connection: Connection;
@@ -7515,4 +7526,4 @@ var idl = {
 	types: types
 };
 
-export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };
+export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, canLinkedSubjectBeDisputed, getDisputeTypeName, getEffectiveStatus, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };

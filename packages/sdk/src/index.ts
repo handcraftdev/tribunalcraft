@@ -47,6 +47,9 @@ export {
   // Name Getters
   getDisputeTypeName,
   getOutcomeName,
+  // Effective Status Helpers
+  canLinkedSubjectBeDisputed,
+  getEffectiveStatus,
 } from "./types";
 
 // Constants

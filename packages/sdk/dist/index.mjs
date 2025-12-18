@@ -4127,6 +4127,8 @@ var TribunalCraftClient = class {
 };
 
 // src/types.ts
+import { PublicKey as PublicKey3 } from "@solana/web3.js";
+import { BN as BN2 } from "@coral-xyz/anchor";
 var SubjectStatusEnum = {
   Valid: { valid: {} },
   Disputed: { disputed: {} },
@@ -4210,6 +4212,29 @@ function getOutcomeName(outcome) {
   if ("noParticipation" in outcome) return "No Participation";
   return "Unknown";
 }
+function canLinkedSubjectBeDisputed(subject, pool, minBond) {
+  if (subject.defenderPool.equals(new PublicKey3(0))) {
+    return true;
+  }
+  if (!pool) {
+    return false;
+  }
+  if (subject.matchMode) {
+    const totalAvailable = pool.available.add(subject.availableStake);
+    const requiredHold = BN2.min(minBond, subject.maxStake);
+    return totalAvailable.gte(requiredHold);
+  }
+  return true;
+}
+function getEffectiveStatus(subject, pool, minBond) {
+  if (!isSubjectValid(subject.status)) {
+    return subject.status;
+  }
+  if (!canLinkedSubjectBeDisputed(subject, pool, minBond)) {
+    return SubjectStatusEnum.Dormant;
+  }
+  return subject.status;
+}
 export {
   CHALLENGER_RECORD_SEED,
   CHALLENGER_SEED,
@@ -4243,7 +4268,9 @@ export {
   VOTE_RECORD_SEED,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
+  canLinkedSubjectBeDisputed,
   getDisputeTypeName,
+  getEffectiveStatus,
   getOutcomeName,
   isChallengerWins,
   isDefenderWins,

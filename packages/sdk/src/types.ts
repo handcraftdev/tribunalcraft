@@ -282,3 +282,57 @@ export function getOutcomeName(outcome: ResolutionOutcome): string {
   if ("noParticipation" in outcome) return "No Participation";
   return "Unknown";
 }
+
+/**
+ * Check if a linked subject can be disputed based on pool availability.
+ * For linked match-mode subjects, validates pool has enough balance.
+ * Returns true if subject can be disputed, false if pool is drained.
+ */
+export function canLinkedSubjectBeDisputed(
+  subject: Subject,
+  pool: DefenderPool | null,
+  minBond: BN
+): boolean {
+  // Non-linked subjects don't depend on pool
+  if (subject.defenderPool.equals(new PublicKey(0))) {
+    return true;
+  }
+
+  // Must have pool for linked subjects
+  if (!pool) {
+    return false;
+  }
+
+  // Match mode: need pool.available + subject.availableStake >= min(minBond, maxStake)
+  if (subject.matchMode) {
+    const totalAvailable = pool.available.add(subject.availableStake);
+    const requiredHold = BN.min(minBond, subject.maxStake);
+    return totalAvailable.gte(requiredHold);
+  }
+
+  // Proportional mode: pool just needs some available for contribution
+  // Even with 0 pool.available, proportional mode can still work with direct stake
+  return true;
+}
+
+/**
+ * Get effective status for a subject, considering pool balance for linked subjects.
+ * Returns "dormant" for linked match-mode subjects if pool is drained below minimum.
+ */
+export function getEffectiveStatus(
+  subject: Subject,
+  pool: DefenderPool | null,
+  minBond: BN
+): SubjectStatus {
+  // If already disputed/invalid/dormant/restoring, return as-is
+  if (!isSubjectValid(subject.status)) {
+    return subject.status;
+  }
+
+  // Check if linked subject can actually be disputed
+  if (!canLinkedSubjectBeDisputed(subject, pool, minBond)) {
+    return SubjectStatusEnum.Dormant;
+  }
+
+  return subject.status;
+}
