@@ -43,6 +43,7 @@ export default function JurorPage() {
     addToStake,
     addToDispute,
     getDisputePDA,
+    fetchDefenderPool,
   } = useTribunalcraft();
 
   const { fetchSubject: fetchSubjectContent, fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
@@ -374,14 +375,24 @@ export default function JurorPage() {
       const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
       const [disputePda] = getDisputePDA(subject.publicKey, subject.account.disputeCount - 1);
       const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
-      await addToDispute(subject.publicKey, disputePda, defenderPool, "", bond);
+
+      // Get pool owner if subject is linked
+      let poolOwner: PublicKey | null = null;
+      if (defenderPool) {
+        const defenderPoolData = await fetchDefenderPool(defenderPool);
+        if (defenderPoolData) {
+          poolOwner = defenderPoolData.owner;
+        }
+      }
+
+      await addToDispute(subject.publicKey, disputePda, defenderPool, poolOwner, "", bond);
       setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getDisputePDA, addToDispute, loadData]);
+  }, [publicKey, selectedItem, getDisputePDA, addToDispute, loadData, fetchDefenderPool]);
 
   // Helper functions
   const formatReputation = (rep: number) => `${(rep / 100).toFixed(1)}%`;
