@@ -3843,36 +3843,22 @@ declare class TribunalCraftClient {
      */
     withdrawPool(amount: BN): Promise<TransactionResult>;
     /**
-     * Create a standalone subject with initial stake
+     * Create a subject - unified method that handles all subject types
+     *
+     * Subject type is determined by params:
+     * - freeCase: true → creates free subject (no stakes)
+     * - defenderPool provided → creates linked subject (pool-backed)
+     * - otherwise → creates standalone subject (requires stake)
      */
     createSubject(params: {
         subjectId: PublicKey;
         detailsCid: string;
-        maxStake: BN;
-        matchMode: boolean;
+        votingPeriod: BN;
+        maxStake?: BN;
+        matchMode?: boolean;
+        stake?: BN;
+        defenderPool?: PublicKey;
         freeCase?: boolean;
-        votingPeriod: BN;
-        stake: BN;
-    }): Promise<TransactionResult>;
-    /**
-     * Create a subject linked to a defender pool
-     */
-    createLinkedSubject(params: {
-        defenderPool: PublicKey;
-        subjectId: PublicKey;
-        detailsCid: string;
-        maxStake: BN;
-        matchMode: boolean;
-        freeCase?: boolean;
-        votingPeriod: BN;
-    }): Promise<TransactionResult>;
-    /**
-     * Create a free subject (no stake required)
-     */
-    createFreeSubject(params: {
-        subjectId: PublicKey;
-        detailsCid: string;
-        votingPeriod: BN;
     }): Promise<TransactionResult>;
     /**
      * Add stake to a standalone subject

@@ -3921,52 +3921,49 @@ var TribunalCraftClient = class {
   // Subject Management
   // ===========================================================================
   /**
-   * Create a standalone subject with initial stake
+   * Create a subject - unified method that handles all subject types
+   *
+   * Subject type is determined by params:
+   * - freeCase: true → creates free subject (no stakes)
+   * - defenderPool provided → creates linked subject (pool-backed)
+   * - otherwise → creates standalone subject (requires stake)
    */
   async createSubject(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
-    const [defenderRecord] = this.pda.defenderRecord(
-      subject,
-      wallet.publicKey
-    );
+    if (params.freeCase) {
+      const signature2 = await program.methods.createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod).rpc();
+      return { signature: signature2, accounts: { subject } };
+    }
+    if (params.defenderPool) {
+      const signature2 = await program.methods.createLinkedSubject(
+        params.subjectId,
+        params.detailsCid,
+        params.maxStake ?? new import_anchor.BN(0),
+        params.matchMode ?? true,
+        false,
+        // freeCase
+        params.votingPeriod
+      ).accountsPartial({
+        defenderPool: params.defenderPool
+      }).rpc();
+      return { signature: signature2, accounts: { subject } };
+    }
+    if (!params.stake || params.stake.isZero()) {
+      throw new Error("Standalone subjects require initial stake");
+    }
+    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
     const signature = await program.methods.createSubject(
       params.subjectId,
       params.detailsCid,
-      params.maxStake,
-      params.matchMode,
-      params.freeCase ?? false,
+      params.maxStake ?? new import_anchor.BN(0),
+      params.matchMode ?? true,
+      false,
+      // freeCase
       params.votingPeriod,
       params.stake
     ).rpc();
     return { signature, accounts: { subject, defenderRecord } };
-  }
-  /**
-   * Create a subject linked to a defender pool
-   */
-  async createLinkedSubject(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [subject] = this.pda.subject(params.subjectId);
-    const signature = await program.methods.createLinkedSubject(
-      params.subjectId,
-      params.detailsCid,
-      params.maxStake,
-      params.matchMode,
-      params.freeCase ?? false,
-      params.votingPeriod
-    ).accountsPartial({
-      defenderPool: params.defenderPool
-    }).rpc();
-    return { signature, accounts: { subject } };
-  }
-  /**
-   * Create a free subject (no stake required)
-   */
-  async createFreeSubject(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [subject] = this.pda.subject(params.subjectId);
-    const signature = await program.methods.createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod).rpc();
-    return { signature, accounts: { subject } };
   }
   /**
    * Add stake to a standalone subject

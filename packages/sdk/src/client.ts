@@ -425,87 +425,74 @@ export class TribunalCraftClient {
   // ===========================================================================
 
   /**
-   * Create a standalone subject with initial stake
+   * Create a subject - unified method that handles all subject types
+   *
+   * Subject type is determined by params:
+   * - freeCase: true → creates free subject (no stakes)
+   * - defenderPool provided → creates linked subject (pool-backed)
+   * - otherwise → creates standalone subject (requires stake)
    */
   async createSubject(params: {
     subjectId: PublicKey;
     detailsCid: string;
-    maxStake: BN;
-    matchMode: boolean;
-    freeCase?: boolean;
     votingPeriod: BN;
-    stake: BN;
+    // Optional - for staked subjects
+    maxStake?: BN;
+    matchMode?: boolean;
+    stake?: BN;
+    // Optional - for linked subjects
+    defenderPool?: PublicKey;
+    // Optional - for free subjects
+    freeCase?: boolean;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
-    const [defenderRecord] = this.pda.defenderRecord(
-      subject,
-      wallet.publicKey
-    );
 
+    // Free subject - no stakes required
+    if (params.freeCase) {
+      const signature = await program.methods
+        .createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod)
+        .rpc();
+      return { signature, accounts: { subject } };
+    }
+
+    // Linked subject - backed by defender pool
+    if (params.defenderPool) {
+      const signature = await program.methods
+        .createLinkedSubject(
+          params.subjectId,
+          params.detailsCid,
+          params.maxStake ?? new BN(0),
+          params.matchMode ?? true,
+          false, // freeCase
+          params.votingPeriod
+        )
+        .accountsPartial({
+          defenderPool: params.defenderPool,
+        })
+        .rpc();
+      return { signature, accounts: { subject } };
+    }
+
+    // Standalone subject - requires initial stake
+    if (!params.stake || params.stake.isZero()) {
+      throw new Error("Standalone subjects require initial stake");
+    }
+
+    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
     const signature = await program.methods
       .createSubject(
         params.subjectId,
         params.detailsCid,
-        params.maxStake,
-        params.matchMode,
-        params.freeCase ?? false,
+        params.maxStake ?? new BN(0),
+        params.matchMode ?? true,
+        false, // freeCase
         params.votingPeriod,
         params.stake
       )
       .rpc();
 
     return { signature, accounts: { subject, defenderRecord } };
-  }
-
-  /**
-   * Create a subject linked to a defender pool
-   */
-  async createLinkedSubject(params: {
-    defenderPool: PublicKey;
-    subjectId: PublicKey;
-    detailsCid: string;
-    maxStake: BN;
-    matchMode: boolean;
-    freeCase?: boolean;
-    votingPeriod: BN;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [subject] = this.pda.subject(params.subjectId);
-
-    const signature = await program.methods
-      .createLinkedSubject(
-        params.subjectId,
-        params.detailsCid,
-        params.maxStake,
-        params.matchMode,
-        params.freeCase ?? false,
-        params.votingPeriod
-      )
-      .accountsPartial({
-        defenderPool: params.defenderPool,
-      })
-      .rpc();
-
-    return { signature, accounts: { subject } };
-  }
-
-  /**
-   * Create a free subject (no stake required)
-   */
-  async createFreeSubject(params: {
-    subjectId: PublicKey;
-    detailsCid: string;
-    votingPeriod: BN;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [subject] = this.pda.subject(params.subjectId);
-
-    const signature = await program.methods
-      .createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod)
-      .rpc();
-
-    return { signature, accounts: { subject } };
   }
 
   /**
