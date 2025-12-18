@@ -667,6 +667,8 @@ h4 {
 .bg-obsidian { background: var(--obsidian); }
 .bg-slate { background: var(--slate); }
 .bg-slate-light { background: var(--slate-light); }
+.bg-crimson { background: var(--crimson); }
+.bg-sky-500 { background: #0ea5e9; }
 
 .border-gold { border-color: var(--gold); }
 .border-slate { border-color: var(--slate-light); }

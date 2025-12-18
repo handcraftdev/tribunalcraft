@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, memo, useCallback } from "react";
+import { useState, useEffect, memo, useCallback, useRef, useLayoutEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
@@ -311,9 +311,135 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   );
 });
 
+// Memoized Vote Form to prevent focus loss
+const VoteForm = memo(function VoteForm({
+  existingVote,
+  onVote,
+  isLoading,
+}: {
+  existingVote: any;
+  onVote: (stake: string, choice: "forChallenger" | "forDefender", rationale: string) => void;
+  isLoading: boolean;
+}) {
+  const [voteStake, setVoteStake] = useState("0.01");
+  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forDefender");
+  const [voteRationale, setVoteRationale] = useState("");
+
+  const handleSubmit = () => {
+    onVote(voteStake, voteChoice, voteRationale);
+    if (!existingVote) setVoteRationale("");
+  };
+
+  return (
+    <>
+      {existingVote && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-steel">Your Vote:</span>
+          <span className={`font-medium ${existingVote.choice.forChallenger ? "text-crimson" : "text-sky-400"}`}>
+            {existingVote.choice.forChallenger ? "FOR CHALLENGER" : existingVote.choice.forDefender ? "FOR DEFENDER" : "ABSTAIN"} - {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+          </span>
+        </div>
+      )}
+      {existingVote ? (
+        <p className="text-xs text-steel">Add more stake to your vote:</p>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            {(["forDefender", "forChallenger"] as const).map((choice) => (
+              <button
+                key={choice}
+                onClick={() => setVoteChoice(choice)}
+                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
+                  voteChoice === choice
+                    ? choice === "forDefender" ? "bg-sky-500 text-obsidian"
+                    : "bg-crimson text-ivory"
+                    : "bg-slate-light hover:bg-slate text-parchment"
+                }`}
+              >
+                {choice === "forDefender" ? "For Defender" : "For Challenger"}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={voteRationale}
+            onChange={(e) => setVoteRationale(e.target.value)}
+            placeholder="Rationale for your vote (optional)"
+            className="input w-full text-sm py-2 h-16 resize-none"
+          />
+        </>
+      )}
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          value={voteStake}
+          onChange={(e) => setVoteStake(e.target.value)}
+          className="input flex-1 text-sm py-2"
+          placeholder="Stake amount"
+        />
+        <span className="text-steel text-sm">SOL</span>
+        <button
+          onClick={handleSubmit}
+          disabled={isLoading}
+          className="btn btn-primary py-2 px-4"
+        >
+          {isLoading ? "..." : existingVote ? "Add" : "Vote"}
+        </button>
+      </div>
+    </>
+  );
+});
+
+// Memoized Join Form to prevent focus loss
+const JoinForm = memo(function JoinForm({
+  type,
+  onJoin,
+  isLoading,
+}: {
+  type: "defender" | "challenger";
+  onJoin: (amount: string) => void;
+  isLoading: boolean;
+}) {
+  const [amount, setAmount] = useState(type === "defender" ? "0.1" : "0.05");
+
+  return (
+    <div className="flex gap-2 flex-1">
+      {type === "defender" ? (
+        <>
+          <button onClick={() => onJoin(amount)} disabled={isLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400 shrink-0">
+            <span className="text-sky-400">Join Defenders</span>
+          </button>
+          <input
+            type="text"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="input flex-1 min-w-0 text-sm py-1.5"
+            placeholder="Amount"
+          />
+          <span className="text-steel text-sm shrink-0">SOL</span>
+        </>
+      ) : (
+        <>
+          <input
+            type="text"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="input flex-1 min-w-0 text-sm py-1.5"
+            placeholder="Bond"
+          />
+          <span className="text-steel text-sm shrink-0">SOL</span>
+          <button onClick={() => onJoin(amount)} disabled={isLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-crimson/50 hover:border-crimson shrink-0">
+            <span className="text-crimson">Join Challengers</span>
+          </button>
+        </>
+      )}
+    </div>
+  );
+});
+
 export default function RegistryPage() {
   const { publicKey } = useWallet();
   const {
+    client,
     createSubject,
     createLinkedSubject,
     createFreeSubject,
@@ -337,6 +463,13 @@ export default function RegistryPage() {
     getVoteRecordPDA,
     fetchVotesByDispute,
     claimJurorReward,
+    claimChallengerReward,
+    claimDefenderReward,
+    getChallengerRecordPDA,
+    getDefenderRecordPDA,
+    fetchChallengerRecord,
+    fetchDefenderRecord,
+    getEscrowPDA,
   } = useTribunalcraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
@@ -358,17 +491,32 @@ export default function RegistryPage() {
   const [existingVotes, setExistingVotes] = useState<Record<string, any>>({});
   const [disputeVotes, setDisputeVotes] = useState<any[]>([]);
 
+  // Challenger/Defender records for claims
+  const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
+  const [defenderRecords, setDefenderRecords] = useState<Record<string, any>>({});
+
   // Modal state
   const [selectedItem, setSelectedItem] = useState<{ type: "subject" | "dispute"; data: any; subjectData?: any } | null>(null);
   const [showCreateSubject, setShowCreateSubject] = useState(false);
   const [showCreateDispute, setShowCreateDispute] = useState<string | null>(null);
 
-  // Voting state
-  const [voteStake, setVoteStake] = useState("0.01");
-  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forDefender");
-  const [voteRationale, setVoteRationale] = useState("");
-  const [addStakeAmount, setAddStakeAmount] = useState("0.1");
-  const [addBondAmount, setAddBondAmount] = useState("0.05");
+  // Scroll preservation for modal
+  const modalScrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositionRef = useRef(0);
+
+  // Save scroll position before re-render
+  useLayoutEffect(() => {
+    if (modalScrollRef.current) {
+      scrollPositionRef.current = modalScrollRef.current.scrollTop;
+    }
+  });
+
+  // Restore scroll position after re-render
+  useEffect(() => {
+    if (modalScrollRef.current && scrollPositionRef.current > 0) {
+      modalScrollRef.current.scrollTop = scrollPositionRef.current;
+    }
+  });
 
   // History collapse state
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -376,26 +524,6 @@ export default function RegistryPage() {
   // Section filter
   const [activeFilter, setActiveFilter] = useState<"active" | "disputed" | "voted" | "claims">("active");
 
-  // Create forms
-  const [subjectType, setSubjectType] = useState<"standalone" | "linked" | "free">("standalone");
-  const [subjectForm, setSubjectForm] = useState({
-    title: "",
-    description: "",
-    category: "contract" as SubjectContent["category"],
-    termsText: "",
-    maxStake: "1",
-    matchMode: false,
-    votingPeriod: "24",
-    initialStake: "0.1",
-  });
-
-  const [disputeForm, setDisputeForm] = useState({
-    type: "other" as const,
-    title: "",
-    reason: "",
-    requestedOutcome: "",
-    bondAmount: "0.05",
-  });
 
   const loadData = async () => {
     setLoading(true);
@@ -405,8 +533,8 @@ export default function RegistryPage() {
         fetchAllSubjects(),
         fetchAllDisputes(),
       ]);
-      setSubjects(subjectsData);
-      setDisputes(disputesData);
+      setSubjects(subjectsData || []);
+      setDisputes(disputesData || []);
 
       // Fetch content for all subjects
       for (const s of subjectsData) {
@@ -447,9 +575,12 @@ export default function RegistryPage() {
           const jurorData = await fetchJurorAccount(jurorPda);
           setJurorAccount(jurorData);
 
-          const pendingDisputes = disputesData.filter((d: any) => d.account.status.pending);
+          // Fetch vote records for pending and resolved disputes (for claims)
+          const relevantDisputes = disputesData.filter((d: any) =>
+            d.account.status.pending || d.account.status.resolved
+          );
           const votes: Record<string, any> = {};
-          for (const d of pendingDisputes) {
+          for (const d of relevantDisputes) {
             const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
             try {
               const voteRecord = await fetchVoteRecord(voteRecordPda);
@@ -460,6 +591,29 @@ export default function RegistryPage() {
         } catch {
           setJurorAccount(null);
         }
+
+        // Fetch challenger records for resolved disputes
+        const resolvedDisputes = disputesData.filter((d: any) => d.account.status.resolved);
+        const challRecords: Record<string, any> = {};
+        for (const d of resolvedDisputes) {
+          const [challengerRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
+          try {
+            const record = await fetchChallengerRecord(challengerRecordPda);
+            if (record) challRecords[d.publicKey.toBase58()] = record;
+          } catch {}
+        }
+        setChallengerRecords(challRecords);
+
+        // Fetch defender records for subjects with resolved disputes
+        const defRecords: Record<string, any> = {};
+        for (const d of resolvedDisputes) {
+          const [defenderRecordPda] = getDefenderRecordPDA(d.account.subject, publicKey);
+          try {
+            const record = await fetchDefenderRecord(defenderRecordPda);
+            if (record) defRecords[d.account.subject.toBase58()] = record;
+          } catch {}
+        }
+        setDefenderRecords(defRecords);
       }
     } catch (err: any) {
       setError(err.message || "Failed to load data");
@@ -468,8 +622,10 @@ export default function RegistryPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [publicKey]);
+    if (client) {
+      loadData();
+    }
+  }, [publicKey, client]);
 
   // Fetch votes when a dispute is selected
   useEffect(() => {
@@ -511,10 +667,19 @@ export default function RegistryPage() {
   // Invalidated subjects (challenger wins - subject was invalidated)
   const invalidatedSubjects = subjects.filter(s => s.account.status.invalidated);
 
-  // Claimable disputes - resolved disputes where user voted (pending juror claims)
+  // Claimable disputes - resolved disputes where user has any unclaimed reward
   const claimableDisputes = disputes.filter(d => {
-    const voteRecord = existingVotes[d.publicKey.toBase58()];
-    return d.account.status.resolved && voteRecord && !voteRecord.rewardClaimed;
+    const disputeKey = d.publicKey.toBase58();
+    const subjectKey = d.account.subject.toBase58();
+    const voteRecord = existingVotes[disputeKey];
+    const challengerRecord = challengerRecords[disputeKey];
+    const defenderRecord = defenderRecords[subjectKey];
+
+    const hasJurorClaim = voteRecord && !voteRecord.rewardClaimed;
+    const hasChallengerClaim = challengerRecord && !challengerRecord.rewardClaimed;
+    const hasDefenderClaim = defenderRecord && !defenderRecord.rewardClaimed;
+
+    return d.account.status.resolved && (hasJurorClaim || hasChallengerClaim || hasDefenderClaim);
   });
 
   // Get items based on active filter - all return subjects with optional dispute
@@ -542,21 +707,21 @@ export default function RegistryPage() {
   const activeItems = getActiveItems();
 
   // Handlers
-  const handleCreateSubject = async () => {
+  const handleCreateSubject = useCallback(async (form: any, subjectType: string) => {
     if (!publicKey) return;
     setActionLoading(true);
     setError(null);
     try {
       const uploadResult = await uploadSubject({
-        title: subjectForm.title,
-        description: subjectForm.description,
-        category: subjectForm.category,
-        termsText: subjectForm.termsText,
+        title: form.title,
+        description: form.description,
+        category: form.category,
+        termsText: form.termsText,
       });
       if (!uploadResult) throw new Error("Failed to upload content");
 
-      const maxStake = new BN(parseFloat(subjectForm.maxStake) * LAMPORTS_PER_SOL);
-      const votingPeriod = new BN(parseInt(subjectForm.votingPeriod) * 3600);
+      const maxStake = new BN(parseFloat(form.maxStake) * LAMPORTS_PER_SOL);
+      const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
 
       const subjectKeypair = Keypair.generate();
       const subjectId = subjectKeypair.publicKey;
@@ -566,41 +731,44 @@ export default function RegistryPage() {
       } else if (subjectType === "linked") {
         if (!publicKey) throw new Error("Wallet not connected");
         const [defenderPool] = getDefenderPoolPDA(publicKey);
-        await createLinkedSubject(defenderPool, subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod);
+        await createLinkedSubject(defenderPool, subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod);
       } else {
-        const initialStake = new BN(parseFloat(subjectForm.initialStake) * LAMPORTS_PER_SOL);
-        await createSubject(subjectId, uploadResult.cid, maxStake, subjectForm.matchMode, votingPeriod, initialStake);
+        const initialStake = new BN(parseFloat(form.initialStake) * LAMPORTS_PER_SOL);
+        await createSubject(subjectId, uploadResult.cid, maxStake, form.matchMode, votingPeriod, initialStake);
       }
 
       setSuccess("Subject created");
       setShowCreateSubject(false);
-      setSubjectForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: false, votingPeriod: "24", initialStake: "0.1" });
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to create subject");
     }
     setActionLoading(false);
-  };
+  }, [publicKey, uploadSubject, createFreeSubject, createLinkedSubject, createSubject, getDefenderPoolPDA, loadData]);
 
-  const handleCreateDispute = async (subjectKey: string) => {
-    if (!publicKey) return;
+  const handleCreateDispute = useCallback(async (form: { type: string; title: string; reason: string; requestedOutcome: string; bondAmount: string }) => {
+    if (!publicKey || !showCreateDispute) return;
     setActionLoading(true);
     setError(null);
     try {
-      const subject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
+      const subject = subjects.find(s => s.publicKey.toBase58() === showCreateDispute);
       if (!subject) throw new Error("Subject not found");
 
+      // Map form type key to content type
+      const disputeTypeInfo = DISPUTE_TYPES.find(t => t.key === form.type);
+      const contentType = (disputeTypeInfo?.contentKey ?? "other") as "breach" | "fraud" | "non_delivery" | "quality" | "refund" | "other";
+
       const uploadResult = await uploadDispute({
-        title: disputeForm.title,
-        reason: disputeForm.reason,
-        type: disputeForm.type,
+        title: form.title,
+        reason: form.reason,
+        type: contentType,
         subjectCid: subject.account.detailsCid,
-        requestedOutcome: disputeForm.requestedOutcome,
+        requestedOutcome: form.requestedOutcome,
       });
       if (!uploadResult) throw new Error("Failed to upload content");
 
-      const disputeType: DisputeType = { [disputeForm.type]: {} } as DisputeType;
-      const bond = new BN(parseFloat(disputeForm.bondAmount) * LAMPORTS_PER_SOL);
+      const disputeType: DisputeType = { [form.type]: {} } as DisputeType;
+      const bond = new BN(parseFloat(form.bondAmount) * LAMPORTS_PER_SOL);
 
       if (subject.account.freeCase) {
         await submitFreeDispute(
@@ -621,56 +789,65 @@ export default function RegistryPage() {
 
       setSuccess("Dispute submitted");
       setShowCreateDispute(null);
-      setDisputeForm({ type: "other", title: "", reason: "", requestedOutcome: "", bondAmount: "0.05" });
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to submit dispute");
     }
     setActionLoading(false);
-  };
+  }, [publicKey, showCreateDispute, subjects, uploadDispute, submitFreeDispute, submitDispute, loadData]);
 
-  const handleVote = async (disputeKey: string) => {
+  const handleVote = useCallback(async (disputeKey: string, stakeAmount: string, choice: "forChallenger" | "forDefender", rationale: string) => {
     if (!publicKey || !jurorAccount) return;
     setActionLoading(true);
     setError(null);
     try {
       const dispute = new PublicKey(disputeKey);
-      const stake = new BN(parseFloat(voteStake) * LAMPORTS_PER_SOL);
+      const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
       const hasExistingVote = existingVotes[disputeKey];
 
       if (hasExistingVote) {
         await addToVote(dispute, stake);
-        setSuccess(`Added ${voteStake} SOL to vote`);
+        setSuccess(`Added ${stakeAmount} SOL to vote`);
       } else {
-        const choice: VoteChoice = { [voteChoice]: {} } as VoteChoice;
-        await voteOnDispute(dispute, choice, stake, voteRationale);
+        const voteChoice: VoteChoice = { [choice]: {} } as VoteChoice;
+        await voteOnDispute(dispute, voteChoice, stake, rationale);
         setSuccess("Vote cast");
-        setVoteRationale("");
       }
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  };
+  }, [publicKey, jurorAccount, existingVotes, addToVote, voteOnDispute, loadData]);
 
-  const handleAddStake = async (subjectKey: string) => {
+  const handleAddStake = useCallback(async (subjectKey: string, amount: string) => {
     if (!publicKey) return;
     setActionLoading(true);
     setError(null);
     try {
-      const stake = new BN(parseFloat(addStakeAmount) * LAMPORTS_PER_SOL);
-      await addToStake(new PublicKey(subjectKey), stake);
-      setSuccess(`Added ${addStakeAmount} SOL stake`);
-      setAddStakeAmount("0.1");
+      const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
+      const subject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
+
+      // Check if subject has active dispute - if so, pass dispute and escrow
+      let disputePda: PublicKey | undefined;
+      let escrowPda: PublicKey | undefined;
+
+      if (subject && subject.account.dispute.toBase58() !== PublicKey.default.toBase58()) {
+        const activeDispute = subject.account.dispute;
+        disputePda = activeDispute;
+        [escrowPda] = getEscrowPDA(activeDispute);
+      }
+
+      await addToStake(new PublicKey(subjectKey), stake, disputePda, escrowPda);
+      setSuccess(`Added ${amount} SOL stake`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to add stake");
     }
     setActionLoading(false);
-  };
+  }, [publicKey, subjects, getEscrowPDA, addToStake, loadData]);
 
-  const handleJoinChallengers = async (subjectKey: string) => {
+  const handleJoinChallengers = useCallback(async (subjectKey: string, amount: string) => {
     if (!publicKey) return;
     setActionLoading(true);
     setError(null);
@@ -678,19 +855,18 @@ export default function RegistryPage() {
       const subject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
       if (!subject) throw new Error("Subject not found");
 
-      const bond = new BN(parseFloat(addBondAmount) * LAMPORTS_PER_SOL);
+      const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
       const [disputePda] = getDisputePDA(subject.publicKey, subject.account.disputeCount - 1);
       const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
 
       await addToDispute(subject.publicKey, disputePda, defenderPool, "", bond);
-      setSuccess(`Added ${addBondAmount} SOL bond`);
-      setAddBondAmount("0.05");
+      setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  };
+  }, [publicKey, subjects, getDisputePDA, addToDispute, loadData]);
 
   const handleResolve = async (disputeKey: string) => {
     if (!publicKey) return;
@@ -715,13 +891,44 @@ export default function RegistryPage() {
     setError(null);
     try {
       const [voteRecordPda] = getVoteRecordPDA(new PublicKey(disputeKey), publicKey);
-      // Program now handles reputation processing automatically during claim
       await claimJurorReward(new PublicKey(disputeKey), new PublicKey(subjectKey), voteRecordPda);
       setSuccess("Juror reward claimed!");
       setSelectedItem(null);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to claim juror reward");
+    }
+    setActionLoading(false);
+  };
+
+  const handleClaimChallengerReward = async (disputeKey: string, subjectKey: string) => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const [challengerRecordPda] = getChallengerRecordPDA(new PublicKey(disputeKey), publicKey);
+      await claimChallengerReward(new PublicKey(disputeKey), new PublicKey(subjectKey), challengerRecordPda);
+      setSuccess("Challenger reward claimed!");
+      setSelectedItem(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to claim challenger reward");
+    }
+    setActionLoading(false);
+  };
+
+  const handleClaimDefenderReward = async (disputeKey: string, subjectKey: string) => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const [defenderRecordPda] = getDefenderRecordPDA(new PublicKey(subjectKey), publicKey);
+      await claimDefenderReward(new PublicKey(disputeKey), new PublicKey(subjectKey), defenderRecordPda);
+      setSuccess("Defender reward claimed!");
+      setSelectedItem(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to claim defender reward");
     }
     setActionLoading(false);
   };
@@ -902,7 +1109,7 @@ export default function RegistryPage() {
 
     return (
       <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
-        <div className="bg-slate border border-slate-light max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div ref={modalScrollRef} className="bg-slate border border-slate-light max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
           {/* Header */}
           <div className="p-4 border-b border-slate-light flex items-center justify-between">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -947,18 +1154,11 @@ export default function RegistryPage() {
                 {/* Subject Actions */}
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
                   {!subject.account.freeCase && !dispute?.account.status.resolved && (
-                    <>
-                      <button onClick={() => handleAddStake(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400">
-                        <span className="text-sky-400">Join Defenders</span>
-                      </button>
-                      <input
-                        type="text"
-                        value={addStakeAmount}
-                        onChange={(e) => setAddStakeAmount(e.target.value)}
-                        className="input flex-1 text-sm py-1.5"
-                        placeholder="Amount"
-                      />
-                    </>
+                    <JoinForm
+                      type="defender"
+                      onJoin={(amount) => handleAddStake(subjectKey, amount)}
+                      isLoading={actionLoading}
+                    />
                   )}
                   {subject.account.status.active && !dispute?.account.status.resolved && (
                     <button onClick={() => { setSelectedItem(null); setShowCreateDispute(subjectKey); }} className="btn btn-secondary py-1.5 px-3 text-sm">
@@ -1064,18 +1264,11 @@ export default function RegistryPage() {
                         </button>
                       )}
                       {!subject.account.freeCase && !canResolve && (
-                        <>
-                          <input
-                            type="text"
-                            value={addBondAmount}
-                            onChange={(e) => setAddBondAmount(e.target.value)}
-                            className="input flex-1 text-sm py-1.5"
-                            placeholder="Bond"
-                          />
-                          <button onClick={() => handleJoinChallengers(subjectKey)} disabled={actionLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-crimson/50 hover:border-crimson">
-                            <span className="text-crimson">Join Challengers</span>
-                          </button>
-                        </>
+                        <JoinForm
+                          type="challenger"
+                          onJoin={(amount) => handleJoinChallengers(subjectKey, amount)}
+                          isLoading={actionLoading}
+                        />
                       )}
                     </div>
                   )}
@@ -1095,93 +1288,96 @@ export default function RegistryPage() {
                   ) : !publicKey ? (
                     <p className="text-steel text-sm text-center">Connect wallet to vote</p>
                   ) : (
-                    <>
-                      {existingVote && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-steel">Your Vote:</span>
-                          <span className={`font-medium ${existingVote.choice.forChallenger ? "text-crimson" : "text-sky-400"}`}>
-                            {existingVote.choice.forChallenger ? "FOR CHALLENGER" : existingVote.choice.forDefender ? "FOR DEFENDER" : "ABSTAIN"} - {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
-                          </span>
-                        </div>
-                      )}
-                      {existingVote ? (
-                        <p className="text-xs text-steel">Add more stake to your vote:</p>
-                      ) : (
-                        <>
-                          <div className="flex gap-2">
-                            {(["forDefender", "forChallenger"] as const).map((choice) => (
-                              <button
-                                key={choice}
-                                onClick={() => setVoteChoice(choice)}
-                                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
-                                  voteChoice === choice
-                                    ? choice === "forDefender" ? "bg-sky-500 text-obsidian"
-                                    : "bg-crimson text-ivory"
-                                    : "bg-slate-light hover:bg-slate text-parchment"
-                                }`}
-                              >
-                                {choice === "forDefender" ? "For Defender" : "For Challenger"}
-                              </button>
-                            ))}
-                          </div>
-                          <textarea
-                            value={voteRationale}
-                            onChange={(e) => setVoteRationale(e.target.value)}
-                            placeholder="Rationale for your vote (optional)"
-                            className="input w-full text-sm py-2 h-16 resize-none"
-                          />
-                        </>
-                      )}
-                      <div className="flex gap-2 items-center">
-                        <input
-                          type="text"
-                          value={voteStake}
-                          onChange={(e) => setVoteStake(e.target.value)}
-                          className="input flex-1 text-sm py-2"
-                          placeholder="Stake amount"
-                        />
-                        <span className="text-steel text-sm">SOL</span>
-                        <button
-                          onClick={() => handleVote(disputeKey!)}
-                          disabled={actionLoading}
-                          className="btn btn-primary py-2 px-4"
-                        >
-                          {actionLoading ? "..." : existingVote ? "Add" : "Vote"}
-                        </button>
-                      </div>
-                    </>
+                    <VoteForm
+                      existingVote={existingVote}
+                      onVote={(stake, choice, rationale) => handleVote(disputeKey!, stake, choice, rationale)}
+                      isLoading={actionLoading}
+                    />
                   )}
                 </div>
               </div>
             )}
 
             {/* ========== CLAIM SECTION (for resolved disputes) ========== */}
-            {dispute && isResolvedDispute && existingVote && !existingVote.rewardClaimed && publicKey && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold text-gold uppercase tracking-wider">Claim Reward</h4>
-                <div className="p-4 bg-obsidian border border-gold/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-parchment">Juror Reward</p>
-                      <p className="text-xs text-steel">
-                        You voted {existingVote.choice.forChallenger ? "for Challenger" : "for Defender"} •
-                        Stake: {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
-                      </p>
-                      <p className="text-xs text-steel mt-1">
-                        Outcome: <span className={outcome?.class}>{outcome?.label}</span>
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleClaimJurorReward(disputeKey!, subjectKey)}
-                      disabled={actionLoading}
-                      className="btn btn-primary py-2 px-4"
-                    >
-                      {actionLoading ? "Claiming..." : "Claim"}
-                    </button>
+            {dispute && isResolvedDispute && publicKey && (() => {
+              const challengerRecord = disputeKey ? challengerRecords[disputeKey] : null;
+              const defenderRecord = defenderRecords[subjectKey];
+              const hasJurorClaim = existingVote && !existingVote.rewardClaimed;
+              const hasChallengerClaim = challengerRecord && !challengerRecord.rewardClaimed;
+              const hasDefenderClaim = defenderRecord && !defenderRecord.rewardClaimed;
+              const hasAnyClaim = hasJurorClaim || hasChallengerClaim || hasDefenderClaim;
+
+              if (!hasAnyClaim) return null;
+
+              return (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-gold uppercase tracking-wider">Claim Rewards</h4>
+                  <div className="p-4 bg-obsidian border border-gold/30 space-y-3">
+                    <p className="text-xs text-steel mb-2">
+                      Outcome: <span className={outcome?.class}>{outcome?.label}</span>
+                    </p>
+
+                    {/* Juror Claim */}
+                    {hasJurorClaim && (
+                      <div className="flex items-center justify-between py-2 border-t border-slate-light/30">
+                        <div>
+                          <p className="text-sm text-parchment">Juror Reward</p>
+                          <p className="text-xs text-steel">
+                            Voted {existingVote.choice.forChallenger ? "for Challenger" : "for Defender"} •
+                            {(existingVote.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleClaimJurorReward(disputeKey!, subjectKey)}
+                          disabled={actionLoading}
+                          className="btn btn-primary py-1.5 px-3 text-sm"
+                        >
+                          {actionLoading ? "..." : "Claim"}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Challenger Claim */}
+                    {hasChallengerClaim && (
+                      <div className="flex items-center justify-between py-2 border-t border-slate-light/30">
+                        <div>
+                          <p className="text-sm text-crimson">Challenger Reward</p>
+                          <p className="text-xs text-steel">
+                            Bond: {(challengerRecord.bond.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleClaimChallengerReward(disputeKey!, subjectKey)}
+                          disabled={actionLoading}
+                          className="btn btn-secondary py-1.5 px-3 text-sm border-crimson/50 hover:border-crimson"
+                        >
+                          <span className="text-crimson">{actionLoading ? "..." : "Claim"}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Defender Claim */}
+                    {hasDefenderClaim && (
+                      <div className="flex items-center justify-between py-2 border-t border-slate-light/30">
+                        <div>
+                          <p className="text-sm text-sky-400">Defender Reward</p>
+                          <p className="text-xs text-steel">
+                            Stake: {(defenderRecord.stake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleClaimDefenderReward(disputeKey!, subjectKey)}
+                          disabled={actionLoading}
+                          className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400"
+                        >
+                          <span className="text-sky-400">{actionLoading ? "..." : "Claim"}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ========== ALL JUROR REMARKS SECTION ========== */}
             {dispute && disputeVotes.length > 0 && (
@@ -1343,126 +1539,9 @@ export default function RegistryPage() {
     );
   };
 
-  // Create Subject Modal
-  const createSubjectModalContent = (
-    <div className={`fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4 transition-opacity ${showCreateSubject ? "opacity-100" : "opacity-0 pointer-events-none"}`} onClick={() => setShowCreateSubject(false)}>
-      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ivory">Create Subject</h3>
-          <button onClick={() => setShowCreateSubject(false)} className="text-steel hover:text-parchment"><XIcon /></button>
-        </div>
-        <div className="p-4 space-y-4">
-          {/* Type Selection */}
-          <div className="flex gap-1">
-            {(["standalone", "linked", "free"] as const).map(t => (
-              <button key={t} onClick={() => setSubjectType(t)} className={`flex-1 py-2 text-xs uppercase tracking-wide ${subjectType === t ? "bg-gold text-obsidian font-semibold" : "bg-slate-light/50 text-steel hover:text-parchment"}`}>
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {/* Basic Info */}
-          <div className="space-y-3">
-            <input value={subjectForm.title} onChange={e => setSubjectForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" />
-            <textarea value={subjectForm.description} onChange={e => setSubjectForm(f => ({ ...f, description: e.target.value }))} placeholder="Description" className="input w-full h-20" />
-            <div className="grid grid-cols-2 gap-3">
-              <textarea value={subjectForm.termsText} onChange={e => setSubjectForm(f => ({ ...f, termsText: e.target.value }))} placeholder="Terms" className="input w-full h-16" />
-              <select value={subjectForm.category} onChange={e => setSubjectForm(f => ({ ...f, category: e.target.value as any }))} className="input w-full h-16">
-                {SUBJECT_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Settings */}
-          <div className="border-t border-slate-light pt-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-steel mb-1 block">Voting Period (hours)</label>
-                <input value={subjectForm.votingPeriod} onChange={e => setSubjectForm(f => ({ ...f, votingPeriod: e.target.value }))} className="input w-full" />
-              </div>
-              {subjectType !== "free" && (
-                <div>
-                  <label className="text-xs text-steel mb-1 block">Protocol Fee</label>
-                  <div className="input w-full bg-slate-light/50 text-steel cursor-not-allowed">20% (19% jurors, 1% platform)</div>
-                </div>
-              )}
-            </div>
-            {subjectType === "standalone" && (
-              <div>
-                <label className="text-xs text-steel mb-1 block">Initial Stake (SOL)</label>
-                <input value={subjectForm.initialStake} onChange={e => setSubjectForm(f => ({ ...f, initialStake: e.target.value }))} className="input w-full" />
-              </div>
-            )}
-            {subjectType !== "free" && (
-              <label className="flex items-center gap-2 text-sm text-parchment cursor-pointer py-1">
-                <input type="checkbox" checked={subjectForm.matchMode} onChange={e => setSubjectForm(f => ({ ...f, matchMode: e.target.checked }))} className="w-4 h-4 accent-gold" />
-                Match Mode (stakers match each other)
-              </label>
-            )}
-            {subjectType === "linked" && subjectForm.matchMode && (
-              <div>
-                <label className="text-xs text-steel mb-1 block">Max Stake (SOL)</label>
-                <input value={subjectForm.maxStake} onChange={e => setSubjectForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" />
-              </div>
-            )}
-          </div>
-
-          {/* Submit */}
-          <button onClick={handleCreateSubject} disabled={actionLoading || isUploading} className="btn btn-primary w-full mt-2">
-            {actionLoading || isUploading ? "Creating..." : "Create Subject"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Create Dispute Modal (for filing new disputes only)
+  // Get dispute subject data for modal
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
-
-  const createDisputeModalContent = (
-    <div className={`fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4 transition-opacity ${showCreateDispute ? "opacity-100" : "opacity-0 pointer-events-none"}`} onClick={() => setShowCreateDispute(null)}>
-      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ivory">File Dispute</h3>
-          <button onClick={() => setShowCreateDispute(null)} className="text-steel hover:text-parchment"><XIcon /></button>
-        </div>
-        <div className="p-4 space-y-4">
-          {disputeSubjectContent && (
-            <div className="p-3 bg-obsidian border border-slate-light">
-              <p className="text-xs text-steel">Against Subject</p>
-              <p className="text-sm text-parchment font-medium">{disputeSubjectContent.title}</p>
-            </div>
-          )}
-          <select value={disputeForm.type} onChange={e => setDisputeForm(f => ({ ...f, type: e.target.value as any }))} className="input w-full">
-            {DISPUTE_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
-          <input value={disputeForm.title} onChange={e => setDisputeForm(f => ({ ...f, title: e.target.value }))} placeholder="Title" className="input w-full" />
-          <textarea value={disputeForm.reason} onChange={e => setDisputeForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason" className="input w-full h-20" />
-          <textarea value={disputeForm.requestedOutcome} onChange={e => setDisputeForm(f => ({ ...f, requestedOutcome: e.target.value }))} placeholder="Requested Outcome" className="input w-full h-16" />
-          {!disputeSubject?.account.freeCase && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-steel">Bond Amount (SOL)</label>
-                {disputeSubject?.account.matchMode && (
-                  <span className="text-xs text-gold">
-                    Max: {(disputeSubject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
-                  </span>
-                )}
-              </div>
-              <input value={disputeForm.bondAmount} onChange={e => setDisputeForm(f => ({ ...f, bondAmount: e.target.value }))} className="input w-full" />
-              {disputeSubject?.account.matchMode && (
-                <p className="text-[10px] text-steel mt-1">Match mode: bond cannot exceed defender stake</p>
-              )}
-            </div>
-          )}
-          <button onClick={() => handleCreateDispute(showCreateDispute!)} disabled={actionLoading || isUploading || !showCreateDispute} className="btn btn-primary w-full">
-            {actionLoading || isUploading ? "Submitting..." : "Submit Dispute"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-obsidian">
@@ -1544,8 +1623,22 @@ export default function RegistryPage() {
       </main>
 
       <DetailModal />
-      {createSubjectModalContent}
-      {createDisputeModalContent}
+      <CreateSubjectModal
+        isOpen={showCreateSubject}
+        onClose={() => setShowCreateSubject(false)}
+        onSubmit={handleCreateSubject}
+        isLoading={actionLoading || isUploading}
+      />
+      <CreateDisputeModal
+        isOpen={!!showCreateDispute}
+        onClose={() => setShowCreateDispute(null)}
+        onSubmit={handleCreateDispute}
+        subjectContent={disputeSubjectContent}
+        matchMode={disputeSubject?.account.matchMode ?? false}
+        maxStake={disputeSubject?.account.maxStake?.toNumber() ?? 0}
+        freeCase={disputeSubject?.account.freeCase ?? false}
+        isLoading={actionLoading || isUploading}
+      />
     </div>
   );
 }

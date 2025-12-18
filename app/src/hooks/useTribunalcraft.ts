@@ -170,9 +170,14 @@ export const useTribunalcraft = () => {
     return client.createFreeSubject({ subjectId, detailsCid, votingPeriod });
   }, [client]);
 
-  const addToStake = useCallback(async (subject: PublicKey, stake: BN) => {
+  const addToStake = useCallback(async (
+    subject: PublicKey,
+    stake: BN,
+    dispute?: PublicKey,
+    escrow?: PublicKey
+  ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addToStake(subject, stake);
+    return client.addToStake(subject, stake, dispute, escrow);
   }, [client]);
 
   // Juror Management

@@ -38,6 +38,7 @@ const CopyIcon = () => (
 export default function AccountPage() {
   const { publicKey } = useWallet();
   const {
+    client,
     createPool,
     stakePool,
     withdrawPool,
@@ -100,8 +101,10 @@ export default function AccountPage() {
   };
 
   useEffect(() => {
-    if (publicKey) loadData();
-  }, [publicKey]);
+    if (client && publicKey) {
+      loadData();
+    }
+  }, [publicKey, client]);
 
   const handleCreatePool = async () => {
     if (!publicKey) return;

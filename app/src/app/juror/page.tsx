@@ -59,6 +59,7 @@ const ClockIcon = () => (
 export default function JurorPage() {
   const { publicKey } = useWallet();
   const {
+    client,
     registerJuror,
     addJurorStake,
     withdrawJurorStake,
@@ -133,8 +134,10 @@ export default function JurorPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [publicKey]);
+    if (client) {
+      loadData();
+    }
+  }, [publicKey, client]);
 
   const handleRegister = async () => {
     if (!publicKey) return;
