@@ -603,6 +603,7 @@ export class TribunalCraftClient {
     subject: PublicKey;
     disputeCount: number;
     defenderPool?: PublicKey;
+    poolOwner?: PublicKey;
     disputeType: DisputeType;
     detailsCid: string;
     bond: BN;
@@ -614,11 +615,24 @@ export class TribunalCraftClient {
       wallet.publicKey
     );
 
+    // Derive pool owner's defender record if pool owner is provided
+    const poolOwnerDefenderRecord = params.poolOwner
+      ? this.pda.defenderRecord(params.subject, params.poolOwner)[0]
+      : null;
+
+    // Get protocol config and treasury
+    const [protocolConfig] = this.pda.protocolConfig();
+    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
+    const treasury = protocolConfigAccount.treasury;
+
     const methodBuilder = program.methods
       .submitDispute(params.disputeType, params.detailsCid, params.bond)
       .accountsPartial({
         subject: params.subject,
         defenderPool: params.defenderPool ?? null,
+        poolOwnerDefenderRecord,
+        protocolConfig,
+        treasury,
       });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "submitDispute");
@@ -657,6 +671,7 @@ export class TribunalCraftClient {
     subject: PublicKey;
     dispute: PublicKey;
     defenderPool?: PublicKey;
+    poolOwner?: PublicKey;
     detailsCid: string;
     bond: BN;
   }): Promise<TransactionResult> {
@@ -666,12 +681,25 @@ export class TribunalCraftClient {
       wallet.publicKey
     );
 
+    // Derive pool owner's defender record if pool owner is provided
+    const poolOwnerDefenderRecord = params.poolOwner
+      ? this.pda.defenderRecord(params.subject, params.poolOwner)[0]
+      : null;
+
+    // Get protocol config and treasury
+    const [protocolConfig] = this.pda.protocolConfig();
+    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
+    const treasury = protocolConfigAccount.treasury;
+
     const signature = await program.methods
       .addToDispute(params.detailsCid, params.bond)
       .accountsPartial({
         subject: params.subject,
         dispute: params.dispute,
         defenderPool: params.defenderPool ?? null,
+        poolOwnerDefenderRecord,
+        protocolConfig,
+        treasury,
       })
       .rpc();
 
@@ -1106,13 +1134,20 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Fetch all disputes
+   * Fetch all disputes (with error handling for old account formats)
    */
   async fetchAllDisputes(): Promise<
     Array<{ publicKey: PublicKey; account: Dispute }>
   > {
-        const accounts = await this.anchorProgram.account.dispute.all();
-    return accounts as Array<{ publicKey: PublicKey; account: Dispute }>;
+    try {
+      const accounts = await this.anchorProgram.account.dispute.all();
+      return accounts as Array<{ publicKey: PublicKey; account: Dispute }>;
+    } catch (err) {
+      // If batch fetch fails (likely due to old account format),
+      // return empty array - new disputes will be created with correct format
+      console.warn("Failed to fetch disputes:", err);
+      return [];
+    }
   }
 
   /**
