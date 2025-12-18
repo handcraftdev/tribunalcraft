@@ -730,6 +730,38 @@ type Tribunalcraft = {
             "args": [];
         },
         {
+            "name": "claimRestorerRefund";
+            "docs": [
+                "Claim restorer refund for failed restoration request"
+            ];
+            "discriminator": [
+                100,
+                102,
+                249,
+                204,
+                60,
+                72,
+                242,
+                87
+            ];
+            "accounts": [
+                {
+                    "name": "restorer";
+                    "writable": true;
+                    "signer": true;
+                },
+                {
+                    "name": "dispute";
+                    "writable": true;
+                },
+                {
+                    "name": "systemProgram";
+                    "address": "11111111111111111111111111111111";
+                }
+            ];
+            "args": [];
+        },
+        {
             "name": "createFreeSubject";
             "docs": [
                 "Create a free subject (no stake required, just Subject account)"
@@ -1301,86 +1333,6 @@ type Tribunalcraft = {
             ];
         },
         {
-            "name": "submitAppeal";
-            "docs": [
-                "Submit an appeal against an invalidated subject",
-                "Appeals allow community to reverse previous invalidation decisions",
-                "Appellant stakes (no bond required), voting period is 2x previous"
-            ];
-            "discriminator": [
-                119,
-                88,
-                95,
-                156,
-                252,
-                220,
-                32,
-                91
-            ];
-            "accounts": [
-                {
-                    "name": "appellant";
-                    "writable": true;
-                    "signer": true;
-                },
-                {
-                    "name": "subject";
-                    "writable": true;
-                },
-                {
-                    "name": "dispute";
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    100,
-                                    105,
-                                    115,
-                                    112,
-                                    117,
-                                    116,
-                                    101
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "subject";
-                            },
-                            {
-                                "kind": "account";
-                                "path": "subject.dispute_count";
-                                "account": "subject";
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "systemProgram";
-                    "address": "11111111111111111111111111111111";
-                }
-            ];
-            "args": [
-                {
-                    "name": "disputeType";
-                    "type": {
-                        "defined": {
-                            "name": "disputeType";
-                        };
-                    };
-                },
-                {
-                    "name": "detailsCid";
-                    "type": "string";
-                },
-                {
-                    "name": "stakeAmount";
-                    "type": "u64";
-                }
-            ];
-        },
-        {
             "name": "submitDispute";
             "docs": [
                 "Submit a new dispute against a subject (first challenger)"
@@ -1651,6 +1603,123 @@ type Tribunalcraft = {
             ];
         },
         {
+            "name": "submitRestore";
+            "docs": [
+                "Submit a restoration request against an invalidated subject",
+                "Restorations allow community to reverse previous invalidation decisions",
+                "Restorer stakes (no bond required), voting period is 2x previous"
+            ];
+            "discriminator": [
+                32,
+                59,
+                202,
+                78,
+                224,
+                183,
+                80,
+                191
+            ];
+            "accounts": [
+                {
+                    "name": "restorer";
+                    "writable": true;
+                    "signer": true;
+                },
+                {
+                    "name": "subject";
+                    "writable": true;
+                },
+                {
+                    "name": "dispute";
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    105,
+                                    115,
+                                    112,
+                                    117,
+                                    116,
+                                    101
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject";
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject.dispute_count";
+                                "account": "subject";
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "protocolConfig";
+                    "docs": [
+                        "Protocol config for treasury address"
+                    ];
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    112,
+                                    114,
+                                    111,
+                                    116,
+                                    111,
+                                    99,
+                                    111,
+                                    108,
+                                    95,
+                                    99,
+                                    111,
+                                    110,
+                                    102,
+                                    105,
+                                    103
+                                ];
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "treasury";
+                    "docs": [
+                        "Treasury receives platform fee"
+                    ];
+                    "writable": true;
+                },
+                {
+                    "name": "systemProgram";
+                    "address": "11111111111111111111111111111111";
+                }
+            ];
+            "args": [
+                {
+                    "name": "disputeType";
+                    "type": {
+                        "defined": {
+                            "name": "disputeType";
+                        };
+                    };
+                },
+                {
+                    "name": "detailsCid";
+                    "type": "string";
+                },
+                {
+                    "name": "stakeAmount";
+                    "type": "u64";
+                }
+            ];
+        },
+        {
             "name": "unlockJurorStake";
             "docs": [
                 "Unlock juror stake after 7-day buffer"
@@ -1824,113 +1893,6 @@ type Tribunalcraft = {
             ];
         },
         {
-            "name": "voteOnAppeal";
-            "docs": [
-                "Vote on an appeal with stake allocation",
-                "ForRestoration = vote to restore subject to Active",
-                "AgainstRestoration = vote to keep subject Invalidated"
-            ];
-            "discriminator": [
-                50,
-                167,
-                54,
-                13,
-                106,
-                100,
-                219,
-                200
-            ];
-            "accounts": [
-                {
-                    "name": "juror";
-                    "writable": true;
-                    "signer": true;
-                    "relations": [
-                        "jurorAccount"
-                    ];
-                },
-                {
-                    "name": "jurorAccount";
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    106,
-                                    117,
-                                    114,
-                                    111,
-                                    114
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "juror";
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "subject";
-                    "relations": [
-                        "dispute"
-                    ];
-                },
-                {
-                    "name": "dispute";
-                    "writable": true;
-                },
-                {
-                    "name": "voteRecord";
-                    "writable": true;
-                    "pda": {
-                        "seeds": [
-                            {
-                                "kind": "const";
-                                "value": [
-                                    118,
-                                    111,
-                                    116,
-                                    101
-                                ];
-                            },
-                            {
-                                "kind": "account";
-                                "path": "dispute";
-                            },
-                            {
-                                "kind": "account";
-                                "path": "juror";
-                            }
-                        ];
-                    };
-                },
-                {
-                    "name": "systemProgram";
-                    "address": "11111111111111111111111111111111";
-                }
-            ];
-            "args": [
-                {
-                    "name": "choice";
-                    "type": {
-                        "defined": {
-                            "name": "appealVoteChoice";
-                        };
-                    };
-                },
-                {
-                    "name": "stakeAllocation";
-                    "type": "u64";
-                },
-                {
-                    "name": "rationaleCid";
-                    "type": "string";
-                }
-            ];
-        },
-        {
             "name": "voteOnDispute";
             "docs": [
                 "Vote on a dispute with stake allocation"
@@ -2022,6 +1984,113 @@ type Tribunalcraft = {
                     "type": {
                         "defined": {
                             "name": "voteChoice";
+                        };
+                    };
+                },
+                {
+                    "name": "stakeAllocation";
+                    "type": "u64";
+                },
+                {
+                    "name": "rationaleCid";
+                    "type": "string";
+                }
+            ];
+        },
+        {
+            "name": "voteOnRestore";
+            "docs": [
+                "Vote on a restoration with stake allocation",
+                "ForRestoration = vote to restore subject to Valid",
+                "AgainstRestoration = vote to keep subject Invalidated"
+            ];
+            "discriminator": [
+                122,
+                123,
+                92,
+                240,
+                251,
+                205,
+                189,
+                32
+            ];
+            "accounts": [
+                {
+                    "name": "juror";
+                    "writable": true;
+                    "signer": true;
+                    "relations": [
+                        "jurorAccount"
+                    ];
+                },
+                {
+                    "name": "jurorAccount";
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    106,
+                                    117,
+                                    114,
+                                    111,
+                                    114
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "juror";
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "subject";
+                    "relations": [
+                        "dispute"
+                    ];
+                },
+                {
+                    "name": "dispute";
+                    "writable": true;
+                },
+                {
+                    "name": "voteRecord";
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    118,
+                                    111,
+                                    116,
+                                    101
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "dispute";
+                            },
+                            {
+                                "kind": "account";
+                                "path": "juror";
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "systemProgram";
+                    "address": "11111111111111111111111111111111";
+                }
+            ];
+            "args": [
+                {
+                    "name": "choice";
+                    "type": {
+                        "defined": {
+                            "name": "restoreVoteChoice";
                         };
                     };
                 },
@@ -2337,128 +2406,116 @@ type Tribunalcraft = {
         },
         {
             "code": 6011;
-            "name": "subjectCannotBeAppealed";
-            "msg": "Subject cannot be appealed";
+            "name": "subjectCannotBeRestored";
+            "msg": "Subject cannot be restored";
         },
         {
             "code": 6012;
-            "name": "appealStakeBelowMinimum";
-            "msg": "Appeal stake below minimum (must match previous dispute total)";
+            "name": "restoreStakeBelowMinimum";
+            "msg": "Restore stake below minimum (must match previous dispute total)";
         },
         {
             "code": 6013;
+            "name": "notARestore";
+            "msg": "This dispute is not a restoration request";
+        },
+        {
+            "code": 6014;
             "name": "cannotSelfDispute";
             "msg": "Cannot dispute own subject";
         },
         {
-            "code": 6014;
+            "code": 6015;
             "name": "disputeAlreadyExists";
             "msg": "Dispute already exists for this subject";
         },
         {
-            "code": 6015;
+            "code": 6016;
             "name": "disputeNotFound";
             "msg": "Dispute not found";
         },
         {
-            "code": 6016;
+            "code": 6017;
             "name": "disputeAlreadyResolved";
             "msg": "Dispute already resolved";
         },
         {
-            "code": 6017;
+            "code": 6018;
             "name": "votingNotEnded";
             "msg": "Voting period not ended";
         },
         {
-            "code": 6018;
+            "code": 6019;
             "name": "votingEnded";
             "msg": "Voting period has ended";
         },
         {
-            "code": 6019;
+            "code": 6020;
             "name": "cannotVoteOnOwnDispute";
             "msg": "Cannot vote on own dispute";
         },
         {
-            "code": 6020;
+            "code": 6021;
             "name": "alreadyVoted";
             "msg": "Already voted on this dispute";
         },
         {
-            "code": 6021;
+            "code": 6022;
             "name": "voteAllocationBelowMinimum";
             "msg": "Vote allocation below minimum";
         },
         {
-            "code": 6022;
+            "code": 6023;
             "name": "invalidVoteChoice";
             "msg": "Invalid vote choice";
         },
         {
-            "code": 6023;
+            "code": 6024;
             "name": "jurorNotActive";
             "msg": "Juror not active";
         },
         {
-            "code": 6024;
+            "code": 6025;
             "name": "jurorAlreadyRegistered";
             "msg": "Juror already registered";
         },
         {
-            "code": 6025;
+            "code": 6026;
             "name": "challengerNotFound";
             "msg": "Challenger not found";
         },
         {
-            "code": 6026;
+            "code": 6027;
             "name": "rewardAlreadyClaimed";
             "msg": "Reward already claimed";
         },
         {
-            "code": 6027;
+            "code": 6028;
             "name": "notEligibleForReward";
             "msg": "Not eligible for reward";
         },
         {
-            "code": 6028;
+            "code": 6029;
             "name": "reputationAlreadyProcessed";
             "msg": "Reputation already processed";
         },
         {
-            "code": 6029;
+            "code": 6030;
             "name": "arithmeticOverflow";
             "msg": "Arithmetic overflow";
         },
         {
-            "code": 6030;
+            "code": 6031;
             "name": "divisionByZero";
             "msg": "Division by zero";
         },
         {
-            "code": 6031;
+            "code": 6032;
             "name": "claimsNotComplete";
             "msg": "Not all claims have been processed";
         }
     ];
     "types": [
-        {
-            "name": "appealVoteChoice";
-            "docs": [
-                "Vote choice for appeals (separate enum for clearer semantics)"
-            ];
-            "type": {
-                "kind": "enum";
-                "variants": [
-                    {
-                        "name": "forRestoration";
-                    },
-                    {
-                        "name": "againstRestoration";
-                    }
-                ];
-            };
-        },
         {
             "name": "challengerAccount";
             "docs": [
@@ -2905,18 +2962,25 @@ type Tribunalcraft = {
                         "type": "u16";
                     },
                     {
-                        "name": "isAppeal";
+                        "name": "isRestore";
                         "docs": [
-                            "True if this dispute is an appeal (reverses the meaning of outcomes)"
+                            "True if this dispute is a restoration request (reverses the meaning of outcomes)"
                         ];
                         "type": "bool";
                     },
                     {
-                        "name": "appealStake";
+                        "name": "restoreStake";
                         "docs": [
-                            "Stake posted by appellant (for appeals only)"
+                            "Stake posted by restorer (for restorations only)"
                         ];
                         "type": "u64";
+                    },
+                    {
+                        "name": "restorer";
+                        "docs": [
+                            "Restorer's pubkey (for restorations only, used for refunds)"
+                        ];
+                        "type": "pubkey";
                     }
                 ];
             };
@@ -3118,6 +3182,23 @@ type Tribunalcraft = {
             };
         },
         {
+            "name": "restoreVoteChoice";
+            "docs": [
+                "Vote choice for restorations (separate enum for clearer semantics)"
+            ];
+            "type": {
+                "kind": "enum";
+                "variants": [
+                    {
+                        "name": "forRestoration";
+                    },
+                    {
+                        "name": "againstRestoration";
+                    }
+                ];
+            };
+        },
+        {
             "name": "subject";
             "docs": [
                 "Subject that defenders back - global (identified by subject_id)"
@@ -3238,14 +3319,14 @@ type Tribunalcraft = {
                     {
                         "name": "lastDisputeTotal";
                         "docs": [
-                            "Previous dispute's (stake + bond) - minimum stake required for appeal"
+                            "Previous dispute's (stake + bond) - minimum stake required for restoration"
                         ];
                         "type": "u64";
                     },
                     {
                         "name": "lastVotingPeriod";
                         "docs": [
-                            "Previous dispute's voting period - appeals use 2x this value"
+                            "Previous dispute's voting period - restorations use 2x this value"
                         ];
                         "type": "i64";
                     }
@@ -3268,6 +3349,12 @@ type Tribunalcraft = {
                     },
                     {
                         "name": "invalid";
+                    },
+                    {
+                        "name": "dormant";
+                    },
+                    {
+                        "name": "restoring";
                     }
                 ];
             };
@@ -3330,20 +3417,20 @@ type Tribunalcraft = {
                         };
                     },
                     {
-                        "name": "appealChoice";
+                        "name": "restoreChoice";
                         "docs": [
-                            "Vote choice for appeals (only used when is_appeal_vote is true)"
+                            "Vote choice for restorations (only used when is_restore_vote is true)"
                         ];
                         "type": {
                             "defined": {
-                                "name": "appealVoteChoice";
+                                "name": "restoreVoteChoice";
                             };
                         };
                     },
                     {
-                        "name": "isAppealVote";
+                        "name": "isRestoreVote";
                         "docs": [
-                            "Whether this is an appeal vote"
+                            "Whether this is a restoration vote"
                         ];
                         "type": "bool";
                     },
@@ -3474,8 +3561,9 @@ interface Dispute {
     snapshotDefenderCount: number;
     challengersClaimed: number;
     defendersClaimed: number;
-    isAppeal: boolean;
-    appealStake: BN;
+    isRestore: boolean;
+    restoreStake: BN;
+    restorer: PublicKey;
 }
 interface JurorAccount {
     juror: PublicKey;
@@ -3494,8 +3582,8 @@ interface VoteRecord {
     juror: PublicKey;
     jurorAccount: PublicKey;
     choice: VoteChoice;
-    appealChoice: AppealVoteChoice;
-    isAppealVote: boolean;
+    restoreChoice: RestoreVoteChoice;
+    isRestoreVote: boolean;
     stakeAllocated: BN;
     votingPower: BN;
     unlockAt: BN;
@@ -3540,6 +3628,10 @@ type SubjectStatus = {
     disputed: Record<string, never>;
 } | {
     invalid: Record<string, never>;
+} | {
+    dormant: Record<string, never>;
+} | {
+    restoring: Record<string, never>;
 };
 type DisputeStatus = {
     pending: Record<string, never>;
@@ -3577,7 +3669,7 @@ type VoteChoice = {
 } | {
     forDefender: Record<string, never>;
 };
-type AppealVoteChoice = {
+type RestoreVoteChoice = {
     forRestoration: Record<string, never>;
 } | {
     againstRestoration: Record<string, never>;
@@ -3586,6 +3678,8 @@ declare const SubjectStatusEnum: {
     Valid: SubjectStatus;
     Disputed: SubjectStatus;
     Invalid: SubjectStatus;
+    Dormant: SubjectStatus;
+    Restoring: SubjectStatus;
 };
 declare const DisputeStatusEnum: {
     Pending: DisputeStatus;
@@ -3611,13 +3705,15 @@ declare const VoteChoiceEnum: {
     ForChallenger: VoteChoice;
     ForDefender: VoteChoice;
 };
-declare const AppealVoteChoiceEnum: {
-    ForRestoration: AppealVoteChoice;
-    AgainstRestoration: AppealVoteChoice;
+declare const RestoreVoteChoiceEnum: {
+    ForRestoration: RestoreVoteChoice;
+    AgainstRestoration: RestoreVoteChoice;
 };
 declare function isSubjectValid(status: SubjectStatus): boolean;
 declare function isSubjectDisputed(status: SubjectStatus): boolean;
 declare function isSubjectInvalid(status: SubjectStatus): boolean;
+declare function isSubjectDormant(status: SubjectStatus): boolean;
+declare function isSubjectRestoring(status: SubjectStatus): boolean;
 declare function isDisputePending(status: DisputeStatus): boolean;
 declare function isDisputeResolved(status: DisputeStatus): boolean;
 declare function isChallengerWins(outcome: ResolutionOutcome): boolean;
@@ -3787,9 +3883,10 @@ declare class TribunalCraftClient {
         bond: BN;
     }): Promise<TransactionResult>;
     /**
-     * Submit an appeal against an invalidated subject
+     * Submit a restoration request against an invalidated subject
+     * Platform fee (1%) is collected upfront to treasury
      */
-    submitAppeal(params: {
+    submitRestore(params: {
         subject: PublicKey;
         disputeCount: number;
         disputeType: DisputeType;
@@ -3806,11 +3903,11 @@ declare class TribunalCraftClient {
         rationaleCid?: string;
     }): Promise<TransactionResult>;
     /**
-     * Vote on an appeal
+     * Vote on a restoration request
      */
-    voteOnAppeal(params: {
+    voteOnRestore(params: {
         dispute: PublicKey;
-        choice: AppealVoteChoice;
+        choice: RestoreVoteChoice;
         stakeAllocation: BN;
         rationaleCid?: string;
     }): Promise<TransactionResult>;
@@ -3859,6 +3956,12 @@ declare class TribunalCraftClient {
         dispute: PublicKey;
         subject: PublicKey;
         defenderRecord: PublicKey;
+    }): Promise<TransactionResult>;
+    /**
+     * Claim restorer refund for failed restoration request
+     */
+    claimRestorerRefund(params: {
+        dispute: PublicKey;
     }): Promise<TransactionResult>;
     /**
      * Fetch protocol config
@@ -4667,6 +4770,39 @@ var instructions = [
 		]
 	},
 	{
+		name: "claim_restorer_refund",
+		docs: [
+			"Claim restorer refund for failed restoration request"
+		],
+		discriminator: [
+			100,
+			102,
+			249,
+			204,
+			60,
+			72,
+			242,
+			87
+		],
+		accounts: [
+			{
+				name: "restorer",
+				writable: true,
+				signer: true
+			},
+			{
+				name: "dispute",
+				writable: true
+			},
+			{
+				name: "system_program",
+				address: "11111111111111111111111111111111"
+			}
+		],
+		args: [
+		]
+	},
+	{
 		name: "create_free_subject",
 		docs: [
 			"Create a free subject (no stake required, just Subject account)"
@@ -5240,86 +5376,6 @@ var instructions = [
 		]
 	},
 	{
-		name: "submit_appeal",
-		docs: [
-			"Submit an appeal against an invalidated subject",
-			"Appeals allow community to reverse previous invalidation decisions",
-			"Appellant stakes (no bond required), voting period is 2x previous"
-		],
-		discriminator: [
-			119,
-			88,
-			95,
-			156,
-			252,
-			220,
-			32,
-			91
-		],
-		accounts: [
-			{
-				name: "appellant",
-				writable: true,
-				signer: true
-			},
-			{
-				name: "subject",
-				writable: true
-			},
-			{
-				name: "dispute",
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								100,
-								105,
-								115,
-								112,
-								117,
-								116,
-								101
-							]
-						},
-						{
-							kind: "account",
-							path: "subject"
-						},
-						{
-							kind: "account",
-							path: "subject.dispute_count",
-							account: "Subject"
-						}
-					]
-				}
-			},
-			{
-				name: "system_program",
-				address: "11111111111111111111111111111111"
-			}
-		],
-		args: [
-			{
-				name: "dispute_type",
-				type: {
-					defined: {
-						name: "DisputeType"
-					}
-				}
-			},
-			{
-				name: "details_cid",
-				type: "string"
-			},
-			{
-				name: "stake_amount",
-				type: "u64"
-			}
-		]
-	},
-	{
 		name: "submit_dispute",
 		docs: [
 			"Submit a new dispute against a subject (first challenger)"
@@ -5590,6 +5646,86 @@ var instructions = [
 		]
 	},
 	{
+		name: "submit_restore",
+		docs: [
+			"Submit a restoration request against an invalidated subject",
+			"Restorations allow community to reverse previous invalidation decisions",
+			"Restorer stakes (no bond required), voting period is 2x previous"
+		],
+		discriminator: [
+			32,
+			59,
+			202,
+			78,
+			224,
+			183,
+			80,
+			191
+		],
+		accounts: [
+			{
+				name: "restorer",
+				writable: true,
+				signer: true
+			},
+			{
+				name: "subject",
+				writable: true
+			},
+			{
+				name: "dispute",
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								105,
+								115,
+								112,
+								117,
+								116,
+								101
+							]
+						},
+						{
+							kind: "account",
+							path: "subject"
+						},
+						{
+							kind: "account",
+							path: "subject.dispute_count",
+							account: "Subject"
+						}
+					]
+				}
+			},
+			{
+				name: "system_program",
+				address: "11111111111111111111111111111111"
+			}
+		],
+		args: [
+			{
+				name: "dispute_type",
+				type: {
+					defined: {
+						name: "DisputeType"
+					}
+				}
+			},
+			{
+				name: "details_cid",
+				type: "string"
+			},
+			{
+				name: "stake_amount",
+				type: "u64"
+			}
+		]
+	},
+	{
 		name: "unlock_juror_stake",
 		docs: [
 			"Unlock juror stake after 7-day buffer"
@@ -5765,113 +5901,6 @@ var instructions = [
 		]
 	},
 	{
-		name: "vote_on_appeal",
-		docs: [
-			"Vote on an appeal with stake allocation",
-			"ForRestoration = vote to restore subject to Active",
-			"AgainstRestoration = vote to keep subject Invalidated"
-		],
-		discriminator: [
-			50,
-			167,
-			54,
-			13,
-			106,
-			100,
-			219,
-			200
-		],
-		accounts: [
-			{
-				name: "juror",
-				writable: true,
-				signer: true,
-				relations: [
-					"juror_account"
-				]
-			},
-			{
-				name: "juror_account",
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								106,
-								117,
-								114,
-								111,
-								114
-							]
-						},
-						{
-							kind: "account",
-							path: "juror"
-						}
-					]
-				}
-			},
-			{
-				name: "subject",
-				relations: [
-					"dispute"
-				]
-			},
-			{
-				name: "dispute",
-				writable: true
-			},
-			{
-				name: "vote_record",
-				writable: true,
-				pda: {
-					seeds: [
-						{
-							kind: "const",
-							value: [
-								118,
-								111,
-								116,
-								101
-							]
-						},
-						{
-							kind: "account",
-							path: "dispute"
-						},
-						{
-							kind: "account",
-							path: "juror"
-						}
-					]
-				}
-			},
-			{
-				name: "system_program",
-				address: "11111111111111111111111111111111"
-			}
-		],
-		args: [
-			{
-				name: "choice",
-				type: {
-					defined: {
-						name: "AppealVoteChoice"
-					}
-				}
-			},
-			{
-				name: "stake_allocation",
-				type: "u64"
-			},
-			{
-				name: "rationale_cid",
-				type: "string"
-			}
-		]
-	},
-	{
 		name: "vote_on_dispute",
 		docs: [
 			"Vote on a dispute with stake allocation"
@@ -5963,6 +5992,113 @@ var instructions = [
 				type: {
 					defined: {
 						name: "VoteChoice"
+					}
+				}
+			},
+			{
+				name: "stake_allocation",
+				type: "u64"
+			},
+			{
+				name: "rationale_cid",
+				type: "string"
+			}
+		]
+	},
+	{
+		name: "vote_on_restore",
+		docs: [
+			"Vote on a restoration with stake allocation",
+			"ForRestoration = vote to restore subject to Valid",
+			"AgainstRestoration = vote to keep subject Invalidated"
+		],
+		discriminator: [
+			122,
+			123,
+			92,
+			240,
+			251,
+			205,
+			189,
+			32
+		],
+		accounts: [
+			{
+				name: "juror",
+				writable: true,
+				signer: true,
+				relations: [
+					"juror_account"
+				]
+			},
+			{
+				name: "juror_account",
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								106,
+								117,
+								114,
+								111,
+								114
+							]
+						},
+						{
+							kind: "account",
+							path: "juror"
+						}
+					]
+				}
+			},
+			{
+				name: "subject",
+				relations: [
+					"dispute"
+				]
+			},
+			{
+				name: "dispute",
+				writable: true
+			},
+			{
+				name: "vote_record",
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								118,
+								111,
+								116,
+								101
+							]
+						},
+						{
+							kind: "account",
+							path: "dispute"
+						},
+						{
+							kind: "account",
+							path: "juror"
+						}
+					]
+				}
+			},
+			{
+				name: "system_program",
+				address: "11111111111111111111111111111111"
+			}
+		],
+		args: [
+			{
+				name: "choice",
+				type: {
+					defined: {
+						name: "RestoreVoteChoice"
 					}
 				}
 			},
@@ -6278,128 +6414,116 @@ var errors = [
 	},
 	{
 		code: 6011,
-		name: "SubjectCannotBeAppealed",
-		msg: "Subject cannot be appealed"
+		name: "SubjectCannotBeRestored",
+		msg: "Subject cannot be restored"
 	},
 	{
 		code: 6012,
-		name: "AppealStakeBelowMinimum",
-		msg: "Appeal stake below minimum (must match previous dispute total)"
+		name: "RestoreStakeBelowMinimum",
+		msg: "Restore stake below minimum (must match previous dispute total)"
 	},
 	{
 		code: 6013,
+		name: "NotARestore",
+		msg: "This dispute is not a restoration request"
+	},
+	{
+		code: 6014,
 		name: "CannotSelfDispute",
 		msg: "Cannot dispute own subject"
 	},
 	{
-		code: 6014,
+		code: 6015,
 		name: "DisputeAlreadyExists",
 		msg: "Dispute already exists for this subject"
 	},
 	{
-		code: 6015,
+		code: 6016,
 		name: "DisputeNotFound",
 		msg: "Dispute not found"
 	},
 	{
-		code: 6016,
+		code: 6017,
 		name: "DisputeAlreadyResolved",
 		msg: "Dispute already resolved"
 	},
 	{
-		code: 6017,
+		code: 6018,
 		name: "VotingNotEnded",
 		msg: "Voting period not ended"
 	},
 	{
-		code: 6018,
+		code: 6019,
 		name: "VotingEnded",
 		msg: "Voting period has ended"
 	},
 	{
-		code: 6019,
+		code: 6020,
 		name: "CannotVoteOnOwnDispute",
 		msg: "Cannot vote on own dispute"
 	},
 	{
-		code: 6020,
+		code: 6021,
 		name: "AlreadyVoted",
 		msg: "Already voted on this dispute"
 	},
 	{
-		code: 6021,
+		code: 6022,
 		name: "VoteAllocationBelowMinimum",
 		msg: "Vote allocation below minimum"
 	},
 	{
-		code: 6022,
+		code: 6023,
 		name: "InvalidVoteChoice",
 		msg: "Invalid vote choice"
 	},
 	{
-		code: 6023,
+		code: 6024,
 		name: "JurorNotActive",
 		msg: "Juror not active"
 	},
 	{
-		code: 6024,
+		code: 6025,
 		name: "JurorAlreadyRegistered",
 		msg: "Juror already registered"
 	},
 	{
-		code: 6025,
+		code: 6026,
 		name: "ChallengerNotFound",
 		msg: "Challenger not found"
 	},
 	{
-		code: 6026,
+		code: 6027,
 		name: "RewardAlreadyClaimed",
 		msg: "Reward already claimed"
 	},
 	{
-		code: 6027,
+		code: 6028,
 		name: "NotEligibleForReward",
 		msg: "Not eligible for reward"
 	},
 	{
-		code: 6028,
+		code: 6029,
 		name: "ReputationAlreadyProcessed",
 		msg: "Reputation already processed"
 	},
 	{
-		code: 6029,
+		code: 6030,
 		name: "ArithmeticOverflow",
 		msg: "Arithmetic overflow"
 	},
 	{
-		code: 6030,
+		code: 6031,
 		name: "DivisionByZero",
 		msg: "Division by zero"
 	},
 	{
-		code: 6031,
+		code: 6032,
 		name: "ClaimsNotComplete",
 		msg: "Not all claims have been processed"
 	}
 ];
 var types = [
-	{
-		name: "AppealVoteChoice",
-		docs: [
-			"Vote choice for appeals (separate enum for clearer semantics)"
-		],
-		type: {
-			kind: "enum",
-			variants: [
-				{
-					name: "ForRestoration"
-				},
-				{
-					name: "AgainstRestoration"
-				}
-			]
-		}
-	},
 	{
 		name: "ChallengerAccount",
 		docs: [
@@ -6846,18 +6970,25 @@ var types = [
 					type: "u16"
 				},
 				{
-					name: "is_appeal",
+					name: "is_restore",
 					docs: [
-						"True if this dispute is an appeal (reverses the meaning of outcomes)"
+						"True if this dispute is a restoration request (reverses the meaning of outcomes)"
 					],
 					type: "bool"
 				},
 				{
-					name: "appeal_stake",
+					name: "restore_stake",
 					docs: [
-						"Stake posted by appellant (for appeals only)"
+						"Stake posted by restorer (for restorations only)"
 					],
 					type: "u64"
+				},
+				{
+					name: "restorer",
+					docs: [
+						"Restorer's pubkey (for restorations only, used for refunds)"
+					],
+					type: "pubkey"
 				}
 			]
 		}
@@ -7059,6 +7190,23 @@ var types = [
 		}
 	},
 	{
+		name: "RestoreVoteChoice",
+		docs: [
+			"Vote choice for restorations (separate enum for clearer semantics)"
+		],
+		type: {
+			kind: "enum",
+			variants: [
+				{
+					name: "ForRestoration"
+				},
+				{
+					name: "AgainstRestoration"
+				}
+			]
+		}
+	},
+	{
 		name: "Subject",
 		docs: [
 			"Subject that defenders back - global (identified by subject_id)"
@@ -7179,14 +7327,14 @@ var types = [
 				{
 					name: "last_dispute_total",
 					docs: [
-						"Previous dispute's (stake + bond) - minimum stake required for appeal"
+						"Previous dispute's (stake + bond) - minimum stake required for restoration"
 					],
 					type: "u64"
 				},
 				{
 					name: "last_voting_period",
 					docs: [
-						"Previous dispute's voting period - appeals use 2x this value"
+						"Previous dispute's voting period - restorations use 2x this value"
 					],
 					type: "i64"
 				}
@@ -7209,6 +7357,9 @@ var types = [
 				},
 				{
 					name: "Invalid"
+				},
+				{
+					name: "Dormant"
 				}
 			]
 		}
@@ -7271,20 +7422,20 @@ var types = [
 					}
 				},
 				{
-					name: "appeal_choice",
+					name: "restore_choice",
 					docs: [
-						"Vote choice for appeals (only used when is_appeal_vote is true)"
+						"Vote choice for restorations (only used when is_restore_vote is true)"
 					],
 					type: {
 						defined: {
-							name: "AppealVoteChoice"
+							name: "RestoreVoteChoice"
 						}
 					}
 				},
 				{
-					name: "is_appeal_vote",
+					name: "is_restore_vote",
 					docs: [
-						"Whether this is an appeal vote"
+						"Whether this is a restoration vote"
 					],
 					type: "bool"
 				},
@@ -7364,4 +7515,4 @@ var idl = {
 	types: types
 };
 
-export { type AppealVoteChoice, AppealVoteChoiceEnum, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectInvalid, isSubjectValid, pda };
+export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, getDisputeTypeName, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };

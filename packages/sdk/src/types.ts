@@ -66,8 +66,9 @@ export interface Dispute {
   snapshotDefenderCount: number;
   challengersClaimed: number;
   defendersClaimed: number;
-  isAppeal: boolean;
-  appealStake: BN;
+  isRestore: boolean;
+  restoreStake: BN;
+  restorer: PublicKey;
 }
 
 // NOTE: DisputeEscrow removed - no escrow in simplified model
@@ -90,8 +91,8 @@ export interface VoteRecord {
   juror: PublicKey;
   jurorAccount: PublicKey;
   choice: VoteChoice;
-  appealChoice: AppealVoteChoice;
-  isAppealVote: boolean;
+  restoreChoice: RestoreVoteChoice;
+  isRestoreVote: boolean;
   stakeAllocated: BN;
   votingPower: BN;
   unlockAt: BN;
@@ -141,7 +142,9 @@ export interface DefenderRecord {
 export type SubjectStatus =
   | { valid: Record<string, never> }
   | { disputed: Record<string, never> }
-  | { invalid: Record<string, never> };
+  | { invalid: Record<string, never> }
+  | { dormant: Record<string, never> }
+  | { restoring: Record<string, never> };
 
 export type DisputeStatus =
   | { pending: Record<string, never> }
@@ -167,7 +170,7 @@ export type VoteChoice =
   | { forChallenger: Record<string, never> }
   | { forDefender: Record<string, never> };
 
-export type AppealVoteChoice =
+export type RestoreVoteChoice =
   | { forRestoration: Record<string, never> }
   | { againstRestoration: Record<string, never> };
 
@@ -179,6 +182,8 @@ export const SubjectStatusEnum = {
   Valid: { valid: {} } as SubjectStatus,
   Disputed: { disputed: {} } as SubjectStatus,
   Invalid: { invalid: {} } as SubjectStatus,
+  Dormant: { dormant: {} } as SubjectStatus,
+  Restoring: { restoring: {} } as SubjectStatus,
 };
 
 export const DisputeStatusEnum = {
@@ -209,9 +214,9 @@ export const VoteChoiceEnum = {
   ForDefender: { forDefender: {} } as VoteChoice,
 };
 
-export const AppealVoteChoiceEnum = {
-  ForRestoration: { forRestoration: {} } as AppealVoteChoice,
-  AgainstRestoration: { againstRestoration: {} } as AppealVoteChoice,
+export const RestoreVoteChoiceEnum = {
+  ForRestoration: { forRestoration: {} } as RestoreVoteChoice,
+  AgainstRestoration: { againstRestoration: {} } as RestoreVoteChoice,
 };
 
 // =============================================================================
@@ -228,6 +233,14 @@ export function isSubjectDisputed(status: SubjectStatus): boolean {
 
 export function isSubjectInvalid(status: SubjectStatus): boolean {
   return "invalid" in status;
+}
+
+export function isSubjectDormant(status: SubjectStatus): boolean {
+  return "dormant" in status;
+}
+
+export function isSubjectRestoring(status: SubjectStatus): boolean {
+  return "restoring" in status;
 }
 
 export function isDisputePending(status: DisputeStatus): boolean {

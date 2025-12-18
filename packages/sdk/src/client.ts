@@ -23,7 +23,7 @@ import type {
   DefenderRecord,
   DisputeType,
   VoteChoice,
-  AppealVoteChoice,
+  RestoreVoteChoice,
 } from "./types";
 import idl from "./idl.json";
 
@@ -465,9 +465,10 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Submit an appeal against an invalidated subject
+   * Submit a restoration request against an invalidated subject
+   * Platform fee (1%) is collected upfront to treasury
    */
-  async submitAppeal(params: {
+  async submitRestore(params: {
     subject: PublicKey;
     disputeCount: number;
     disputeType: DisputeType;
@@ -476,10 +477,21 @@ export class TribunalCraftClient {
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
+    const [protocolConfig] = this.pda.protocolConfig();
+
+    // Fetch protocol config to get treasury address
+    const config = await this.fetchProtocolConfig();
+    if (!config) {
+      throw new Error("Protocol config not initialized");
+    }
 
     const signature = await program.methods
-      .submitAppeal(params.disputeType, params.detailsCid, params.stakeAmount)
-      .accountsPartial({ subject: params.subject })
+      .submitRestore(params.disputeType, params.detailsCid, params.stakeAmount)
+      .accountsPartial({
+        subject: params.subject,
+        protocolConfig,
+        treasury: config.treasury,
+      })
       .rpc();
 
     return { signature, accounts: { dispute } };
@@ -514,11 +526,11 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Vote on an appeal
+   * Vote on a restoration request
    */
-  async voteOnAppeal(params: {
+  async voteOnRestore(params: {
     dispute: PublicKey;
-    choice: AppealVoteChoice;
+    choice: RestoreVoteChoice;
     stakeAllocation: BN;
     rationaleCid?: string;
   }): Promise<TransactionResult> {
@@ -526,7 +538,7 @@ export class TribunalCraftClient {
     const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
 
     const signature = await program.methods
-      .voteOnAppeal(
+      .voteOnRestore(
         params.choice,
         params.stakeAllocation,
         params.rationaleCid ?? ""
@@ -662,6 +674,24 @@ export class TribunalCraftClient {
         dispute: params.dispute,
         subject: params.subject,
         defenderRecord: params.defenderRecord,
+      })
+      .rpc();
+
+    return { signature };
+  }
+
+  /**
+   * Claim restorer refund for failed restoration request
+   */
+  async claimRestorerRefund(params: {
+    dispute: PublicKey;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+
+    const signature = await program.methods
+      .claimRestorerRefund()
+      .accountsPartial({
+        dispute: params.dispute,
       })
       .rpc();
 

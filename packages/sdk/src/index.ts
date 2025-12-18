@@ -22,7 +22,7 @@ export type {
   ResolutionOutcome,
   DisputeType,
   VoteChoice,
-  AppealVoteChoice,
+  RestoreVoteChoice,
 } from "./types";
 
 // Enum Helpers
@@ -32,11 +32,13 @@ export {
   ResolutionOutcomeEnum,
   DisputeTypeEnum,
   VoteChoiceEnum,
-  AppealVoteChoiceEnum,
+  RestoreVoteChoiceEnum,
   // Type Guards
   isSubjectValid,
   isSubjectDisputed,
   isSubjectInvalid,
+  isSubjectDormant,
+  isSubjectRestoring,
   isDisputePending,
   isDisputeResolved,
   isChallengerWins,

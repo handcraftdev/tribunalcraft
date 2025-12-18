@@ -20,7 +20,6 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
-  AppealVoteChoiceEnum: () => AppealVoteChoiceEnum,
   CHALLENGER_RECORD_SEED: () => CHALLENGER_RECORD_SEED,
   CHALLENGER_SEED: () => CHALLENGER_SEED,
   DEFENDER_POOL_SEED: () => DEFENDER_POOL_SEED,
@@ -44,6 +43,7 @@ __export(index_exports, {
   REPUTATION_GAIN_RATE: () => REPUTATION_GAIN_RATE,
   REPUTATION_LOSS_RATE: () => REPUTATION_LOSS_RATE,
   ResolutionOutcomeEnum: () => ResolutionOutcomeEnum,
+  RestoreVoteChoiceEnum: () => RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER: () => STAKE_UNLOCK_BUFFER,
   SUBJECT_SEED: () => SUBJECT_SEED,
   SubjectStatusEnum: () => SubjectStatusEnum,
@@ -60,7 +60,9 @@ __export(index_exports, {
   isDisputeResolved: () => isDisputeResolved,
   isNoParticipation: () => isNoParticipation,
   isSubjectDisputed: () => isSubjectDisputed,
+  isSubjectDormant: () => isSubjectDormant,
   isSubjectInvalid: () => isSubjectInvalid,
+  isSubjectRestoring: () => isSubjectRestoring,
   isSubjectValid: () => isSubjectValid,
   pda: () => pda
 });
@@ -871,6 +873,38 @@ var idl_default = {
       args: []
     },
     {
+      name: "claim_restorer_refund",
+      docs: [
+        "Claim restorer refund for failed restoration request"
+      ],
+      discriminator: [
+        100,
+        102,
+        249,
+        204,
+        60,
+        72,
+        242,
+        87
+      ],
+      accounts: [
+        {
+          name: "restorer",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "dispute",
+          writable: true
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: []
+    },
+    {
       name: "create_free_subject",
       docs: [
         "Create a free subject (no stake required, just Subject account)"
@@ -1442,86 +1476,6 @@ var idl_default = {
       ]
     },
     {
-      name: "submit_appeal",
-      docs: [
-        "Submit an appeal against an invalidated subject",
-        "Appeals allow community to reverse previous invalidation decisions",
-        "Appellant stakes (no bond required), voting period is 2x previous"
-      ],
-      discriminator: [
-        119,
-        88,
-        95,
-        156,
-        252,
-        220,
-        32,
-        91
-      ],
-      accounts: [
-        {
-          name: "appellant",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true
-        },
-        {
-          name: "dispute",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
-              },
-              {
-                kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "subject.dispute_count",
-                account: "Subject"
-              }
-            ]
-          }
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "dispute_type",
-          type: {
-            defined: {
-              name: "DisputeType"
-            }
-          }
-        },
-        {
-          name: "details_cid",
-          type: "string"
-        },
-        {
-          name: "stake_amount",
-          type: "u64"
-        }
-      ]
-    },
-    {
       name: "submit_dispute",
       docs: [
         "Submit a new dispute against a subject (first challenger)"
@@ -1792,6 +1746,86 @@ var idl_default = {
       ]
     },
     {
+      name: "submit_restore",
+      docs: [
+        "Submit a restoration request against an invalidated subject",
+        "Restorations allow community to reverse previous invalidation decisions",
+        "Restorer stakes (no bond required), voting period is 2x previous"
+      ],
+      discriminator: [
+        32,
+        59,
+        202,
+        78,
+        224,
+        183,
+        80,
+        191
+      ],
+      accounts: [
+        {
+          name: "restorer",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true
+        },
+        {
+          name: "dispute",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject"
+              },
+              {
+                kind: "account",
+                path: "subject.dispute_count",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "dispute_type",
+          type: {
+            defined: {
+              name: "DisputeType"
+            }
+          }
+        },
+        {
+          name: "details_cid",
+          type: "string"
+        },
+        {
+          name: "stake_amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
       name: "unlock_juror_stake",
       docs: [
         "Unlock juror stake after 7-day buffer"
@@ -1965,113 +1999,6 @@ var idl_default = {
       ]
     },
     {
-      name: "vote_on_appeal",
-      docs: [
-        "Vote on an appeal with stake allocation",
-        "ForRestoration = vote to restore subject to Active",
-        "AgainstRestoration = vote to keep subject Invalidated"
-      ],
-      discriminator: [
-        50,
-        167,
-        54,
-        13,
-        106,
-        100,
-        219,
-        200
-      ],
-      accounts: [
-        {
-          name: "juror",
-          writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
-        },
-        {
-          name: "juror_account",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  106,
-                  117,
-                  114,
-                  111,
-                  114
-                ]
-              },
-              {
-                kind: "account",
-                path: "juror"
-              }
-            ]
-          }
-        },
-        {
-          name: "subject",
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "dispute",
-          writable: true
-        },
-        {
-          name: "vote_record",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  118,
-                  111,
-                  116,
-                  101
-                ]
-              },
-              {
-                kind: "account",
-                path: "dispute"
-              },
-              {
-                kind: "account",
-                path: "juror"
-              }
-            ]
-          }
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "choice",
-          type: {
-            defined: {
-              name: "AppealVoteChoice"
-            }
-          }
-        },
-        {
-          name: "stake_allocation",
-          type: "u64"
-        },
-        {
-          name: "rationale_cid",
-          type: "string"
-        }
-      ]
-    },
-    {
       name: "vote_on_dispute",
       docs: [
         "Vote on a dispute with stake allocation"
@@ -2163,6 +2090,113 @@ var idl_default = {
           type: {
             defined: {
               name: "VoteChoice"
+            }
+          }
+        },
+        {
+          name: "stake_allocation",
+          type: "u64"
+        },
+        {
+          name: "rationale_cid",
+          type: "string"
+        }
+      ]
+    },
+    {
+      name: "vote_on_restore",
+      docs: [
+        "Vote on a restoration with stake allocation",
+        "ForRestoration = vote to restore subject to Valid",
+        "AgainstRestoration = vote to keep subject Invalidated"
+      ],
+      discriminator: [
+        122,
+        123,
+        92,
+        240,
+        251,
+        205,
+        189,
+        32
+      ],
+      accounts: [
+        {
+          name: "juror",
+          writable: true,
+          signer: true,
+          relations: [
+            "juror_account"
+          ]
+        },
+        {
+          name: "juror_account",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114
+                ]
+              },
+              {
+                kind: "account",
+                path: "juror"
+              }
+            ]
+          }
+        },
+        {
+          name: "subject",
+          relations: [
+            "dispute"
+          ]
+        },
+        {
+          name: "dispute",
+          writable: true
+        },
+        {
+          name: "vote_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "dispute"
+              },
+              {
+                kind: "account",
+                path: "juror"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "choice",
+          type: {
+            defined: {
+              name: "RestoreVoteChoice"
             }
           }
         },
@@ -2478,128 +2512,116 @@ var idl_default = {
     },
     {
       code: 6011,
-      name: "SubjectCannotBeAppealed",
-      msg: "Subject cannot be appealed"
+      name: "SubjectCannotBeRestored",
+      msg: "Subject cannot be restored"
     },
     {
       code: 6012,
-      name: "AppealStakeBelowMinimum",
-      msg: "Appeal stake below minimum (must match previous dispute total)"
+      name: "RestoreStakeBelowMinimum",
+      msg: "Restore stake below minimum (must match previous dispute total)"
     },
     {
       code: 6013,
+      name: "NotARestore",
+      msg: "This dispute is not a restoration request"
+    },
+    {
+      code: 6014,
       name: "CannotSelfDispute",
       msg: "Cannot dispute own subject"
     },
     {
-      code: 6014,
+      code: 6015,
       name: "DisputeAlreadyExists",
       msg: "Dispute already exists for this subject"
     },
     {
-      code: 6015,
+      code: 6016,
       name: "DisputeNotFound",
       msg: "Dispute not found"
     },
     {
-      code: 6016,
+      code: 6017,
       name: "DisputeAlreadyResolved",
       msg: "Dispute already resolved"
     },
     {
-      code: 6017,
+      code: 6018,
       name: "VotingNotEnded",
       msg: "Voting period not ended"
     },
     {
-      code: 6018,
+      code: 6019,
       name: "VotingEnded",
       msg: "Voting period has ended"
     },
     {
-      code: 6019,
+      code: 6020,
       name: "CannotVoteOnOwnDispute",
       msg: "Cannot vote on own dispute"
     },
     {
-      code: 6020,
+      code: 6021,
       name: "AlreadyVoted",
       msg: "Already voted on this dispute"
     },
     {
-      code: 6021,
+      code: 6022,
       name: "VoteAllocationBelowMinimum",
       msg: "Vote allocation below minimum"
     },
     {
-      code: 6022,
+      code: 6023,
       name: "InvalidVoteChoice",
       msg: "Invalid vote choice"
     },
     {
-      code: 6023,
+      code: 6024,
       name: "JurorNotActive",
       msg: "Juror not active"
     },
     {
-      code: 6024,
+      code: 6025,
       name: "JurorAlreadyRegistered",
       msg: "Juror already registered"
     },
     {
-      code: 6025,
+      code: 6026,
       name: "ChallengerNotFound",
       msg: "Challenger not found"
     },
     {
-      code: 6026,
+      code: 6027,
       name: "RewardAlreadyClaimed",
       msg: "Reward already claimed"
     },
     {
-      code: 6027,
+      code: 6028,
       name: "NotEligibleForReward",
       msg: "Not eligible for reward"
     },
     {
-      code: 6028,
+      code: 6029,
       name: "ReputationAlreadyProcessed",
       msg: "Reputation already processed"
     },
     {
-      code: 6029,
+      code: 6030,
       name: "ArithmeticOverflow",
       msg: "Arithmetic overflow"
     },
     {
-      code: 6030,
+      code: 6031,
       name: "DivisionByZero",
       msg: "Division by zero"
     },
     {
-      code: 6031,
+      code: 6032,
       name: "ClaimsNotComplete",
       msg: "Not all claims have been processed"
     }
   ],
   types: [
-    {
-      name: "AppealVoteChoice",
-      docs: [
-        "Vote choice for appeals (separate enum for clearer semantics)"
-      ],
-      type: {
-        kind: "enum",
-        variants: [
-          {
-            name: "ForRestoration"
-          },
-          {
-            name: "AgainstRestoration"
-          }
-        ]
-      }
-    },
     {
       name: "ChallengerAccount",
       docs: [
@@ -3046,18 +3068,25 @@ var idl_default = {
             type: "u16"
           },
           {
-            name: "is_appeal",
+            name: "is_restore",
             docs: [
-              "True if this dispute is an appeal (reverses the meaning of outcomes)"
+              "True if this dispute is a restoration request (reverses the meaning of outcomes)"
             ],
             type: "bool"
           },
           {
-            name: "appeal_stake",
+            name: "restore_stake",
             docs: [
-              "Stake posted by appellant (for appeals only)"
+              "Stake posted by restorer (for restorations only)"
             ],
             type: "u64"
+          },
+          {
+            name: "restorer",
+            docs: [
+              "Restorer's pubkey (for restorations only, used for refunds)"
+            ],
+            type: "pubkey"
           }
         ]
       }
@@ -3259,6 +3288,23 @@ var idl_default = {
       }
     },
     {
+      name: "RestoreVoteChoice",
+      docs: [
+        "Vote choice for restorations (separate enum for clearer semantics)"
+      ],
+      type: {
+        kind: "enum",
+        variants: [
+          {
+            name: "ForRestoration"
+          },
+          {
+            name: "AgainstRestoration"
+          }
+        ]
+      }
+    },
+    {
       name: "Subject",
       docs: [
         "Subject that defenders back - global (identified by subject_id)"
@@ -3379,14 +3425,14 @@ var idl_default = {
           {
             name: "last_dispute_total",
             docs: [
-              "Previous dispute's (stake + bond) - minimum stake required for appeal"
+              "Previous dispute's (stake + bond) - minimum stake required for restoration"
             ],
             type: "u64"
           },
           {
             name: "last_voting_period",
             docs: [
-              "Previous dispute's voting period - appeals use 2x this value"
+              "Previous dispute's voting period - restorations use 2x this value"
             ],
             type: "i64"
           }
@@ -3409,6 +3455,9 @@ var idl_default = {
           },
           {
             name: "Invalid"
+          },
+          {
+            name: "Dormant"
           }
         ]
       }
@@ -3471,20 +3520,20 @@ var idl_default = {
             }
           },
           {
-            name: "appeal_choice",
+            name: "restore_choice",
             docs: [
-              "Vote choice for appeals (only used when is_appeal_vote is true)"
+              "Vote choice for restorations (only used when is_restore_vote is true)"
             ],
             type: {
               defined: {
-                name: "AppealVoteChoice"
+                name: "RestoreVoteChoice"
               }
             }
           },
           {
-            name: "is_appeal_vote",
+            name: "is_restore_vote",
             docs: [
-              "Whether this is an appeal vote"
+              "Whether this is a restoration vote"
             ],
             type: "bool"
           },
@@ -3816,12 +3865,22 @@ var TribunalCraftClient = class {
     return { signature, accounts: { challengerRecord } };
   }
   /**
-   * Submit an appeal against an invalidated subject
+   * Submit a restoration request against an invalidated subject
+   * Platform fee (1%) is collected upfront to treasury
    */
-  async submitAppeal(params) {
+  async submitRestore(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
-    const signature = await program.methods.submitAppeal(params.disputeType, params.detailsCid, params.stakeAmount).accountsPartial({ subject: params.subject }).rpc();
+    const [protocolConfig] = this.pda.protocolConfig();
+    const config = await this.fetchProtocolConfig();
+    if (!config) {
+      throw new Error("Protocol config not initialized");
+    }
+    const signature = await program.methods.submitRestore(params.disputeType, params.detailsCid, params.stakeAmount).accountsPartial({
+      subject: params.subject,
+      protocolConfig,
+      treasury: config.treasury
+    }).rpc();
     return { signature, accounts: { dispute } };
   }
   // ===========================================================================
@@ -3841,12 +3900,12 @@ var TribunalCraftClient = class {
     return { signature, accounts: { voteRecord } };
   }
   /**
-   * Vote on an appeal
+   * Vote on a restoration request
    */
-  async voteOnAppeal(params) {
+  async voteOnRestore(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
-    const signature = await program.methods.voteOnAppeal(
+    const signature = await program.methods.voteOnRestore(
       params.choice,
       params.stakeAllocation,
       params.rationaleCid ?? ""
@@ -3922,6 +3981,16 @@ var TribunalCraftClient = class {
       dispute: params.dispute,
       subject: params.subject,
       defenderRecord: params.defenderRecord
+    }).rpc();
+    return { signature };
+  }
+  /**
+   * Claim restorer refund for failed restoration request
+   */
+  async claimRestorerRefund(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const signature = await program.methods.claimRestorerRefund().accountsPartial({
+      dispute: params.dispute
     }).rpc();
     return { signature };
   }
@@ -4131,7 +4200,9 @@ var TribunalCraftClient = class {
 var SubjectStatusEnum = {
   Valid: { valid: {} },
   Disputed: { disputed: {} },
-  Invalid: { invalid: {} }
+  Invalid: { invalid: {} },
+  Dormant: { dormant: {} },
+  Restoring: { restoring: {} }
 };
 var DisputeStatusEnum = {
   Pending: { pending: {} },
@@ -4157,7 +4228,7 @@ var VoteChoiceEnum = {
   ForChallenger: { forChallenger: {} },
   ForDefender: { forDefender: {} }
 };
-var AppealVoteChoiceEnum = {
+var RestoreVoteChoiceEnum = {
   ForRestoration: { forRestoration: {} },
   AgainstRestoration: { againstRestoration: {} }
 };
@@ -4169,6 +4240,12 @@ function isSubjectDisputed(status) {
 }
 function isSubjectInvalid(status) {
   return "invalid" in status;
+}
+function isSubjectDormant(status) {
+  return "dormant" in status;
+}
+function isSubjectRestoring(status) {
+  return "restoring" in status;
 }
 function isDisputePending(status) {
   return "pending" in status;
@@ -4205,7 +4282,6 @@ function getOutcomeName(outcome) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  AppealVoteChoiceEnum,
   CHALLENGER_RECORD_SEED,
   CHALLENGER_SEED,
   DEFENDER_POOL_SEED,
@@ -4229,6 +4305,7 @@ function getOutcomeName(outcome) {
   REPUTATION_GAIN_RATE,
   REPUTATION_LOSS_RATE,
   ResolutionOutcomeEnum,
+  RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER,
   SUBJECT_SEED,
   SubjectStatusEnum,
@@ -4245,7 +4322,9 @@ function getOutcomeName(outcome) {
   isDisputeResolved,
   isNoParticipation,
   isSubjectDisputed,
+  isSubjectDormant,
   isSubjectInvalid,
+  isSubjectRestoring,
   isSubjectValid,
   pda
 });
