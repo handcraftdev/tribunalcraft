@@ -34,6 +34,7 @@ export default function JurorPage() {
     fetchChallengerRecord,
     fetchDefenderRecord,
     voteOnDispute,
+    voteOnRestore,
     addToVote,
     resolveDispute,
     claimJurorReward,
@@ -257,7 +258,7 @@ export default function JurorPage() {
   };
 
   // Handlers for dispute actions
-  const handleVote = useCallback(async (stakeAmount: string, choice: "forChallenger" | "forDefender", rationale: string) => {
+  const handleVote = useCallback(async (stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
     if (!publicKey || !jurorAccount || !selectedItem) return;
     setActionLoading(true);
     setError(null);
@@ -265,10 +266,15 @@ export default function JurorPage() {
       const disputeKey = selectedItem.dispute.publicKey.toBase58();
       const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
       const hasExistingVote = userVotes[disputeKey];
+      const isRestore = selectedItem.dispute.account.isRestore;
 
       if (hasExistingVote) {
         await addToVote(selectedItem.dispute.publicKey, stake);
         setSuccess(`Added ${stakeAmount} SOL to vote`);
+      } else if (isRestore) {
+        const restoreChoice = { [choice]: {} } as any;
+        await voteOnRestore(selectedItem.dispute.publicKey, restoreChoice, stake, rationale);
+        setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(selectedItem.dispute.publicKey, voteChoice, stake, rationale);
@@ -279,7 +285,7 @@ export default function JurorPage() {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  }, [publicKey, jurorAccount, selectedItem, userVotes, addToVote, voteOnDispute, loadData]);
+  }, [publicKey, jurorAccount, selectedItem, userVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
 
   const handleResolve = useCallback(async () => {
     if (!publicKey || !selectedItem) return;

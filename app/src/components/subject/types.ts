@@ -28,6 +28,8 @@ export const getStatusBadge = (status: any) => {
   if (status.valid) return { label: "Valid", class: "bg-emerald/20 text-emerald" };
   if (status.disputed) return { label: "Disputed", class: "bg-gold/20 text-gold" };
   if (status.invalid) return { label: "Invalid", class: "bg-crimson/20 text-crimson" };
+  if (status.dormant) return { label: "Dormant", class: "bg-purple-500/20 text-purple-400" };
+  if (status.restoring) return { label: "Restoring", class: "bg-violet-500/20 text-violet-400" };
   return { label: "Unknown", class: "bg-steel/20 text-steel" };
 };
 
@@ -138,7 +140,7 @@ export interface SubjectModalProps {
   challengerRecord?: ChallengerRecordData | null;
   defenderRecord?: DefenderRecordData | null;
   onClose: () => void;
-  onVote?: (stake: string, choice: "forChallenger" | "forDefender", rationale: string) => void;
+  onVote?: (stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
   onAddStake?: (amount: string) => void;
   onJoinChallengers?: (amount: string) => void;
   onResolve?: () => void;
@@ -146,6 +148,7 @@ export interface SubjectModalProps {
   onClaimChallenger?: () => void;
   onClaimDefender?: () => void;
   onFileDispute?: () => void;
+  onRestore?: () => void;
   actionLoading: boolean;
   showActions?: boolean;
   getIpfsUrl?: (cid: string) => string;

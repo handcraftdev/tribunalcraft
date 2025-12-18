@@ -18,7 +18,7 @@ import {
   type DefenderRecord,
   type DisputeType,
   type VoteChoice,
-  type AppealVoteChoice,
+  type RestoreVoteChoice,
   type TransactionResult,
 } from "@tribunalcraft/sdk";
 import { BN } from "@coral-xyz/anchor";
@@ -230,7 +230,7 @@ export const useTribunalcraft = () => {
     });
   }, [client]);
 
-  const submitAppeal = useCallback(async (
+  const submitRestore = useCallback(async (
     subject: PublicKey,
     subjectData: { disputeCount: number },
     disputeType: DisputeType,
@@ -238,7 +238,7 @@ export const useTribunalcraft = () => {
     stakeAmount: BN
   ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.submitAppeal({
+    return client.submitRestore({
       subject,
       disputeCount: subjectData.disputeCount,
       disputeType,
@@ -280,14 +280,14 @@ export const useTribunalcraft = () => {
     });
   }, [client]);
 
-  const voteOnAppeal = useCallback(async (
+  const voteOnRestore = useCallback(async (
     dispute: PublicKey,
-    choice: AppealVoteChoice,
+    choice: RestoreVoteChoice,
     stakeAllocation: BN,
     rationaleCid: string = ""
   ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.voteOnAppeal({
+    return client.voteOnRestore({
       dispute,
       choice,
       stakeAllocation,
@@ -458,11 +458,11 @@ export const useTribunalcraft = () => {
     // Dispute
     submitDispute,
     submitFreeDispute,
-    submitAppeal,
+    submitRestore,
     addToDispute,
     // Voting
     voteOnDispute,
-    voteOnAppeal,
+    voteOnRestore,
     addToVote,
     // Resolution
     resolveDispute,
@@ -505,7 +505,7 @@ export type {
   DefenderRecord,
   DisputeType,
   VoteChoice,
-  AppealVoteChoice,
+  RestoreVoteChoice,
   TransactionResult,
 };
 
@@ -516,10 +516,12 @@ export {
   ResolutionOutcomeEnum,
   DisputeTypeEnum,
   VoteChoiceEnum,
-  AppealVoteChoiceEnum,
+  RestoreVoteChoiceEnum,
   isSubjectValid,
   isSubjectDisputed,
   isSubjectInvalid,
+  isSubjectDormant,
+  isSubjectRestoring,
   isDisputePending,
   isDisputeResolved,
   isChallengerWins,

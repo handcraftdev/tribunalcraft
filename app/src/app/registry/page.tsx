@@ -10,7 +10,7 @@ import { BN } from "@coral-xyz/anchor";
 import type { DisputeType } from "@/hooks/useTribunalcraft";
 import type { SubjectContent, DisputeContent } from "@/lib/content-types";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
-import { FileIcon, GavelIcon, PlusIcon, XIcon } from "@/components/Icons";
+import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
 
 // Create Dispute Modal
 const CreateDisputeModal = memo(function CreateDisputeModal({
@@ -85,6 +85,78 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
           )}
           <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full">
             {isLoading ? "Submitting..." : "Submit Dispute"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Restore Subject Modal (for Invalid subjects)
+const RestoreModal = memo(function RestoreModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  subjectContent,
+  minStake,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (form: { title: string; reason: string; stakeAmount: string }) => void;
+  subjectContent: SubjectContent | null;
+  minStake: number;
+  isLoading: boolean;
+}) {
+  const [form, setForm] = useState({
+    title: "",
+    reason: "",
+    stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2),
+  });
+
+  // Update stake amount when minStake changes
+  useEffect(() => {
+    setForm(f => ({ ...f, stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2) }));
+  }, [minStake]);
+
+  const handleSubmit = () => {
+    onSubmit(form);
+    setForm({ title: "", reason: "", stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2) });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-ivory">Restore Subject</h3>
+          <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          {subjectContent && (
+            <div className="p-3 bg-obsidian border border-slate-light">
+              <p className="text-xs text-steel">Restoring Subject</p>
+              <p className="text-sm text-parchment font-medium">{subjectContent.title}</p>
+            </div>
+          )}
+          <div className="p-3 bg-purple-500/10 border border-purple-500/30 text-sm text-purple-300">
+            Request to restore this subject from Invalid status. If successful, your stake (minus 20% fees) becomes the subject&apos;s backing and it returns to Valid status. If unsuccessful, your stake (minus 20% fees) is returned to you.
+          </div>
+          <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title (e.g., Request for Restoration)" className="input w-full" autoComplete="off" />
+          <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for restoration..." className="input w-full h-24" />
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-steel">Stake Amount (SOL)</label>
+              <span className="text-xs text-purple-400">
+                Min: {(minStake / LAMPORTS_PER_SOL).toFixed(2)} SOL
+              </span>
+            </div>
+            <input value={form.stakeAmount} onChange={e => setForm(f => ({ ...f, stakeAmount: e.target.value }))} className="input w-full" autoComplete="off" />
+            <p className="text-[10px] text-steel mt-1">Must be at least the previous dispute&apos;s total (stake + bond)</p>
+          </div>
+          <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full bg-purple-600 hover:bg-purple-500">
+            {isLoading ? "Submitting..." : "Submit Restoration Request"}
           </button>
         </div>
       </div>
@@ -198,6 +270,7 @@ export default function RegistryPage() {
     createFreeSubject,
     submitDispute,
     submitFreeDispute,
+    submitRestore,
     addToDispute,
     resolveDispute,
     addToStake,
@@ -208,6 +281,7 @@ export default function RegistryPage() {
     fetchDefenderPool,
     fetchChallengersByDispute,
     voteOnDispute,
+    voteOnRestore,
     addToVote,
     fetchJurorAccount,
     fetchVoteRecord,
@@ -250,9 +324,7 @@ export default function RegistryPage() {
   const [selectedItem, setSelectedItem] = useState<{ subject: SubjectData; dispute: DisputeData | null } | null>(null);
   const [showCreateSubject, setShowCreateSubject] = useState(false);
   const [showCreateDispute, setShowCreateDispute] = useState<string | null>(null);
-
-  // Section filter - only global data (Valid and Disputed)
-  const [activeFilter, setActiveFilter] = useState<"valid" | "disputed">("valid");
+  const [showRestore, setShowRestore] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -383,20 +455,8 @@ export default function RegistryPage() {
   const validSubjects = subjects.filter(s => s.account.status.valid);
   const disputedItems = disputes.filter(d => d.account.status.pending);
   const invalidSubjects = subjects.filter(s => s.account.status.invalid);
-
-  // Get items based on active filter
-  const getActiveItems = () => {
-    switch (activeFilter) {
-      case "valid":
-        return validSubjects.map(s => ({ subject: s, dispute: null as DisputeData | null }));
-      case "disputed":
-        return disputedItems.map(d => {
-          const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
-          return subject ? { subject, dispute: d } : null;
-        }).filter((item): item is { subject: SubjectData; dispute: DisputeData } => item !== null);
-    }
-  };
-  const activeItems = getActiveItems();
+  const dormantSubjects = subjects.filter(s => s.account.status.dormant);
+  const restoringSubjects = subjects.filter(s => s.account.status.restoring);
 
   // Get past disputes for history (only for selected subject)
   const getPastDisputes = (subjectKey: string, currentDisputeKey?: string) => {
@@ -495,7 +555,45 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, showCreateDispute, subjects, uploadDispute, submitFreeDispute, submitDispute, loadData]);
 
-  const handleVote = useCallback(async (stakeAmount: string, choice: "forChallenger" | "forDefender", rationale: string) => {
+  const handleSubmitRestore = useCallback(async (form: { title: string; reason: string; stakeAmount: string }) => {
+    if (!publicKey || !showRestore) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const subject = subjects.find(s => s.publicKey.toBase58() === showRestore);
+      if (!subject) throw new Error("Subject not found");
+
+      // Upload restore content (reuse dispute content structure)
+      const uploadResult = await uploadDispute({
+        title: form.title,
+        reason: form.reason,
+        type: "other",
+        subjectCid: subject.account.detailsCid,
+        requestedOutcome: "Restore subject to valid status",
+      });
+      if (!uploadResult) throw new Error("Failed to upload content");
+
+      const stake = new BN(parseFloat(form.stakeAmount) * LAMPORTS_PER_SOL);
+      const disputeType: DisputeType = { other: {} } as DisputeType;
+
+      await submitRestore(
+        subject.publicKey,
+        { disputeCount: subject.account.disputeCount },
+        disputeType,
+        uploadResult.cid,
+        stake
+      );
+
+      setSuccess("Restoration request submitted");
+      setShowRestore(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to submit restoration request");
+    }
+    setActionLoading(false);
+  }, [publicKey, showRestore, subjects, uploadDispute, submitRestore, loadData]);
+
+  const handleVote = useCallback(async (stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
     if (!publicKey || !jurorAccount || !selectedItem?.dispute) return;
     setActionLoading(true);
     setError(null);
@@ -503,10 +601,15 @@ export default function RegistryPage() {
       const disputeKey = selectedItem.dispute.publicKey.toBase58();
       const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
       const hasExistingVote = existingVotes[disputeKey];
+      const isRestore = selectedItem.dispute.account.isRestore;
 
       if (hasExistingVote) {
         await addToVote(selectedItem.dispute.publicKey, stake);
         setSuccess(`Added ${stakeAmount} SOL to vote`);
+      } else if (isRestore) {
+        const restoreChoice = { [choice]: {} } as any;
+        await voteOnRestore(selectedItem.dispute.publicKey, restoreChoice, stake, rationale);
+        setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(selectedItem.dispute.publicKey, voteChoice, stake, rationale);
@@ -517,16 +620,17 @@ export default function RegistryPage() {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  }, [publicKey, jurorAccount, selectedItem, existingVotes, addToVote, voteOnDispute, loadData]);
+  }, [publicKey, jurorAccount, selectedItem, existingVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
 
   const handleAddStake = useCallback(async (amount: string) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
+      const isDormant = selectedItem.subject.account.status.dormant;
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
       await addToStake(selectedItem.subject.publicKey, stake);
-      setSuccess(`Added ${amount} SOL stake`);
+      setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL stake`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to add stake");
@@ -620,6 +724,9 @@ export default function RegistryPage() {
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
 
+  const restoreSubject = showRestore ? subjects.find(s => s.publicKey.toBase58() === showRestore) : null;
+  const restoreSubjectContent = restoreSubject ? subjectContents[restoreSubject.publicKey.toBase58()] : null;
+
   return (
     <div className="min-h-screen bg-obsidian">
       <Navigation />
@@ -642,46 +749,89 @@ export default function RegistryPage() {
           <div className="text-center py-12 text-steel">Loading...</div>
         ) : (
           <div className="space-y-6">
-            {/* Active Section */}
+            {/* Valid Section */}
             <div className="bg-slate/30 border border-slate-light p-4">
               <div className="flex items-center gap-2 mb-4">
                 <FileIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Browse</h2>
-                <span className="text-xs text-steel ml-auto">{activeItems.length}</span>
-              </div>
-              {/* Filter Tabs - only Valid and Disputed */}
-              <div className="flex gap-1 mb-4 max-w-md">
-                {(["valid", "disputed"] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setActiveFilter(f)}
-                    className={`flex-1 py-1.5 text-xs uppercase tracking-wide ${
-                      activeFilter === f
-                        ? "bg-gold text-obsidian font-semibold"
-                        : "bg-slate-light/50 text-steel hover:text-parchment"
-                    }`}
-                  >
-                    {f} ({f === "valid" ? validSubjects.length : disputedItems.length})
-                  </button>
-                ))}
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Valid</h2>
+                <span className="text-xs text-steel ml-auto">{validSubjects.length}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {activeItems.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">
-                    {activeFilter === "valid" ? "No valid subjects" : "No active disputes"}
-                  </p>
+                {validSubjects.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No valid subjects</p>
                 ) : (
-                  activeItems.map((item, i) => (
+                  validSubjects.map((s, i) => (
                     <SubjectCard
                       key={i}
-                      subject={item.subject}
-                      dispute={item.dispute}
-                      existingVote={item.dispute ? existingVotes[item.dispute.publicKey.toBase58()] : null}
-                      subjectContent={subjectContents[item.subject.publicKey.toBase58()]}
-                      disputeContent={item.dispute ? disputeContents[item.dispute.publicKey.toBase58()] : null}
-                      onClick={() => setSelectedItem(item)}
+                      subject={s}
+                      dispute={null}
+                      subjectContent={subjectContents[s.publicKey.toBase58()]}
+                      onClick={() => setSelectedItem({ subject: s, dispute: null })}
                     />
                   ))
+                )}
+              </div>
+            </div>
+
+            {/* Disputed Section */}
+            <div className="bg-slate/30 border border-slate-light p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <GavelIcon />
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Disputed</h2>
+                <span className="text-xs text-steel ml-auto">{disputedItems.length}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {disputedItems.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No active disputes</p>
+                ) : (
+                  disputedItems.map((d, i) => {
+                    const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
+                    if (!subject) return null;
+                    return (
+                      <SubjectCard
+                        key={i}
+                        subject={subject}
+                        dispute={d}
+                        existingVote={existingVotes[d.publicKey.toBase58()]}
+                        subjectContent={subjectContents[subject.publicKey.toBase58()]}
+                        disputeContent={disputeContents[d.publicKey.toBase58()]}
+                        onClick={() => setSelectedItem({ subject, dispute: d })}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Restoring Section */}
+            <div className="bg-slate/30 border border-slate-light p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <GavelIcon />
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Restoring</h2>
+                <span className="text-xs text-steel ml-auto">{restoringSubjects.length}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {restoringSubjects.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No subjects being restored</p>
+                ) : (
+                  restoringSubjects.map((s, i) => {
+                    const restoreDispute = disputes.find(d =>
+                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.status.pending &&
+                      d.account.isRestore
+                    );
+                    return (
+                      <SubjectCard
+                        key={i}
+                        subject={s}
+                        dispute={restoreDispute}
+                        existingVote={restoreDispute ? existingVotes[restoreDispute.publicKey.toBase58()] : null}
+                        subjectContent={subjectContents[s.publicKey.toBase58()]}
+                        disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
+                        onClick={() => setSelectedItem({ subject: s, dispute: restoreDispute || null })}
+                      />
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -712,6 +862,38 @@ export default function RegistryPage() {
                         subjectContent={subjectContents[s.publicKey.toBase58()]}
                         disputeContent={invalidatingDispute ? disputeContents[invalidatingDispute.publicKey.toBase58()] : null}
                         onClick={() => setSelectedItem({ subject: s, dispute: invalidatingDispute || null })}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Dormant Section */}
+            <div className="bg-slate/30 border border-slate-light p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <MoonIcon />
+                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dormant</h2>
+                <span className="text-xs text-steel ml-auto">{dormantSubjects.length}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {dormantSubjects.length === 0 ? (
+                  <p className="text-steel text-xs text-center py-4 col-span-full">No dormant subjects</p>
+                ) : (
+                  dormantSubjects.map((s, i) => {
+                    const lastDispute = disputes.find(d =>
+                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.status.resolved
+                    );
+                    return (
+                      <SubjectCard
+                        key={i}
+                        subject={s}
+                        dispute={lastDispute}
+                        isResolved={true}
+                        subjectContent={subjectContents[s.publicKey.toBase58()]}
+                        disputeContent={lastDispute ? disputeContents[lastDispute.publicKey.toBase58()] : null}
+                        onClick={() => setSelectedItem({ subject: s, dispute: lastDispute || null })}
                       />
                     );
                   })
@@ -751,6 +933,10 @@ export default function RegistryPage() {
             setSelectedItem(null);
             setShowCreateDispute(selectedItem.subject.publicKey.toBase58());
           }}
+          onRestore={() => {
+            setSelectedItem(null);
+            setShowRestore(selectedItem.subject.publicKey.toBase58());
+          }}
           actionLoading={actionLoading}
           getIpfsUrl={getUrl}
           disputeCid={selectedItem.dispute ? disputeCids[selectedItem.dispute.publicKey.toBase58()] : undefined}
@@ -771,6 +957,14 @@ export default function RegistryPage() {
         matchMode={disputeSubject?.account.matchMode ?? false}
         maxStake={disputeSubject?.account.maxStake?.toNumber() ?? 0}
         freeCase={disputeSubject?.account.freeCase ?? false}
+        isLoading={actionLoading || isUploading}
+      />
+      <RestoreModal
+        isOpen={!!showRestore}
+        onClose={() => setShowRestore(null)}
+        onSubmit={handleSubmitRestore}
+        subjectContent={restoreSubjectContent}
+        minStake={restoreSubject?.account.lastDisputeTotal?.toNumber() ?? 0}
         isLoading={actionLoading || isUploading}
       />
     </div>

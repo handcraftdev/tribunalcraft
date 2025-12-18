@@ -39,13 +39,17 @@ const VoteForm = memo(function VoteForm({
   existingVote,
   onVote,
   isLoading,
+  isRestore = false,
 }: {
   existingVote: any;
-  onVote: (stake: string, choice: "forChallenger" | "forDefender", rationale: string) => void;
+  onVote: (stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
   isLoading: boolean;
+  isRestore?: boolean;
 }) {
   const [voteStake, setVoteStake] = useState("0.01");
-  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender">("forDefender");
+  const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender" | "forRestoration" | "againstRestoration">(
+    isRestore ? "forRestoration" : "forDefender"
+  );
   const [voteRationale, setVoteRationale] = useState("");
 
   const handleSubmit = () => {
@@ -53,13 +57,56 @@ const VoteForm = memo(function VoteForm({
     if (!existingVote) setVoteRationale("");
   };
 
+  // Get existing vote display based on whether it's a restore vote
+  const getExistingVoteLabel = () => {
+    if (!existingVote) return "";
+    if (existingVote.account.isRestoreVote) {
+      return existingVote.account.restoreChoice?.forRestoration ? "FOR RESTORATION" : "AGAINST RESTORATION";
+    }
+    return existingVote.account.choice?.forChallenger ? "FOR CHALLENGER" : "FOR DEFENDER";
+  };
+
+  const getExistingVoteClass = () => {
+    if (!existingVote) return "";
+    if (existingVote.account.isRestoreVote) {
+      return existingVote.account.restoreChoice?.forRestoration ? "text-purple-400" : "text-crimson";
+    }
+    return existingVote.account.choice?.forChallenger ? "text-crimson" : "text-sky-400";
+  };
+
+  // Vote choices based on restore or regular dispute
+  const choices = isRestore
+    ? (["forRestoration", "againstRestoration"] as const)
+    : (["forDefender", "forChallenger"] as const);
+
+  const getChoiceLabel = (choice: string) => {
+    switch (choice) {
+      case "forDefender": return "For Defender";
+      case "forChallenger": return "For Challenger";
+      case "forRestoration": return "For Restoration";
+      case "againstRestoration": return "Against Restoration";
+      default: return choice;
+    }
+  };
+
+  const getChoiceClass = (choice: string, isSelected: boolean) => {
+    if (!isSelected) return "bg-slate-light hover:bg-slate text-parchment";
+    switch (choice) {
+      case "forDefender": return "bg-sky-500 text-obsidian";
+      case "forChallenger": return "bg-crimson text-ivory";
+      case "forRestoration": return "bg-purple-500 text-ivory";
+      case "againstRestoration": return "bg-crimson text-ivory";
+      default: return "bg-gold text-obsidian";
+    }
+  };
+
   return (
     <>
       {existingVote && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-steel">Your Vote:</span>
-          <span className={`font-medium ${existingVote.account.choice.forChallenger ? "text-crimson" : "text-sky-400"}`}>
-            {existingVote.account.choice.forChallenger ? "FOR CHALLENGER" : existingVote.account.choice.forDefender ? "FOR DEFENDER" : "ABSTAIN"} - {(existingVote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+          <span className={`font-medium ${getExistingVoteClass()}`}>
+            {getExistingVoteLabel()} - {(existingVote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
           </span>
         </div>
       )}
@@ -68,17 +115,13 @@ const VoteForm = memo(function VoteForm({
       ) : (
         <>
           <div className="flex gap-2">
-            {(["forDefender", "forChallenger"] as const).map((choice) => (
+            {choices.map((choice) => (
               <button
                 key={choice}
                 onClick={() => setVoteChoice(choice)}
-                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${
-                  voteChoice === choice
-                    ? choice === "forDefender" ? "bg-sky-500 text-obsidian" : "bg-crimson text-ivory"
-                    : "bg-slate-light hover:bg-slate text-parchment"
-                }`}
+                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${getChoiceClass(choice, voteChoice === choice)}`}
               >
-                {choice === "forDefender" ? "For Defender" : "For Challenger"}
+                {getChoiceLabel(choice)}
               </button>
             ))}
           </div>
@@ -116,10 +159,12 @@ const JoinForm = memo(function JoinForm({
   type,
   onJoin,
   isLoading,
+  label,
 }: {
   type: "defender" | "challenger";
   onJoin: (amount: string) => void;
   isLoading: boolean;
+  label?: string;
 }) {
   const [amount, setAmount] = useState(type === "defender" ? "0.1" : "0.05");
 
@@ -128,7 +173,7 @@ const JoinForm = memo(function JoinForm({
       {type === "defender" ? (
         <>
           <button onClick={() => onJoin(amount)} disabled={isLoading} className="btn btn-secondary py-1.5 px-3 text-sm border-sky-500/50 hover:border-sky-400 shrink-0">
-            <span className="text-sky-400">Join Defenders</span>
+            <span className="text-sky-400">{label || "Join Defenders"}</span>
           </button>
           <input
             type="text"
@@ -176,9 +221,25 @@ const HistoryItem = memo(function HistoryItem({
   const favorPercent = totalVotes > 0
     ? (pastDispute.account.votesFavorWeight.toNumber() / totalVotes) * 100
     : 50;
+  const isRestore = pastDispute.account.isRestore;
+
+  // Calculate juror pot (19% of total pool)
+  const PROTOCOL_FEE_BPS = 2000;
+  const JUROR_SHARE_BPS = 9500;
+  let totalPool: number;
+  if (isRestore) {
+    totalPool = pastDispute.account.restoreStake.toNumber();
+  } else {
+    totalPool = pastDispute.account.totalBond.toNumber() +
+      pastDispute.account.stakeHeld.toNumber() +
+      pastDispute.account.directStakeHeld.toNumber();
+  }
+  const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
+  const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
+  const jurorFees = jurorPot > 0 ? `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)} SOL` : "FREE";
 
   return (
-    <div className="border border-slate-light">
+    <div className={`border ${isRestore ? 'border-purple-500/30' : 'border-slate-light'}`}>
       {/* Clickable header */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -191,7 +252,9 @@ const HistoryItem = memo(function HistoryItem({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-steel">{getDisputeTypeLabel(pastDispute.account.disputeType)}</span>
+          <span className={`text-[10px] ${isRestore ? 'text-purple-400' : 'text-steel'}`}>
+            {isRestore ? 'Restore Request' : getDisputeTypeLabel(pastDispute.account.disputeType)}
+          </span>
           <ChevronDownIcon expanded={expanded} />
         </div>
       </button>
@@ -199,41 +262,90 @@ const HistoryItem = memo(function HistoryItem({
       {/* Expandable content */}
       {expanded && (
         <>
-          {/* VS / Power bar */}
+          {/* VS / Power bar - different for restorations */}
           <div className="p-3 bg-slate-light/10 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-sky-400">
-                {pastDispute.account.snapshotDefenderCount} Defender{pastDispute.account.snapshotDefenderCount !== 1 ? 's' : ''}
-              </span>
-              <span className="text-crimson">
-                {pastDispute.account.challengerCount} Challenger{pastDispute.account.challengerCount !== 1 ? 's' : ''}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-sky-400">
-                {((pastDispute.account.stakeHeld.toNumber() + pastDispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL
-              </span>
-              <span className="text-crimson">
-                {(pastDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
-              </span>
-            </div>
-            <div className="h-2 rounded overflow-hidden flex bg-obsidian">
-              <div className="h-full" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
-              <div className="h-full" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
-            </div>
-            <div className="flex justify-between text-[10px]">
-              <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
-              <span className="text-steel">{pastDispute.account.voteCount} votes</span>
-              <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
+            {isRestore ? (
+              <>
+                {/* Restoration voting bar */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-purple-400">For Restoration</span>
+                  <span className="text-crimson">Against Restoration</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-purple-400">
+                    {(pastDispute.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL stake
+                  </span>
+                  <span className="text-steel text-xs">
+                    {pastDispute.account.restorer.toBase58().slice(0, 4)}...{pastDispute.account.restorer.toBase58().slice(-4)}
+                  </span>
+                </div>
+                <div className="h-2 rounded overflow-hidden flex bg-obsidian">
+                  <div className="h-full" style={{ width: `${favorPercent}%`, backgroundColor: '#a855f7' }} />
+                  <div className="h-full" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }} />
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
+                  <span className="text-steel">{pastDispute.account.voteCount} votes</span>
+                  <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Regular dispute bar */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-sky-400">
+                    {pastDispute.account.snapshotDefenderCount} Defender{pastDispute.account.snapshotDefenderCount !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-crimson">
+                    {pastDispute.account.challengerCount} Challenger{pastDispute.account.challengerCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-sky-400">
+                    {((pastDispute.account.stakeHeld.toNumber() + pastDispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                  </span>
+                  <span className="text-crimson">
+                    {(pastDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                  </span>
+                </div>
+                <div className="h-2 rounded overflow-hidden flex bg-obsidian">
+                  <div className="h-full" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
+                  <div className="h-full" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
+                  <span className="text-steel">{pastDispute.account.voteCount} votes</span>
+                  <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
+                </div>
+              </>
+            )}
+            {/* Stats row with juror pot */}
+            <div className="grid grid-cols-3 text-[10px] pt-2 border-t border-slate-light/30">
+              <div>
+                <span className="text-steel">Votes: </span>
+                <span className="text-parchment">{pastDispute.account.voteCount}</span>
+              </div>
+              <div className="text-center">
+                <span className="text-steel">Duration: </span>
+                <span className="text-parchment">
+                  {Math.round((pastDispute.account.votingEndsAt.toNumber() - pastDispute.account.votingStartsAt.toNumber()) / 3600)}h
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-steel">Juror Pot: </span>
+                <span className="text-gold">{jurorFees}</span>
+              </div>
             </div>
           </div>
 
-          {/* Dispute details */}
+          {/* Dispute/Restoration details */}
           <div className="p-3 bg-obsidian space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-crimson font-medium">{disputeContent?.title || "Dispute"}</p>
-              <span className="text-[10px] text-steel px-1.5 py-0.5 bg-slate-light/30 rounded">
-                {getDisputeTypeLabel(pastDispute.account.disputeType)}
+              <p className={`text-sm font-medium ${isRestore ? 'text-purple-400' : 'text-crimson'}`}>
+                {disputeContent?.title || (isRestore ? "Restoration Request" : "Dispute")}
+              </p>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${isRestore ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-light/30 text-steel'}`}>
+                {isRestore ? 'Restore' : getDisputeTypeLabel(pastDispute.account.disputeType)}
               </span>
             </div>
             {disputeContent?.reason && (
@@ -270,16 +382,27 @@ const HistoryItem = memo(function HistoryItem({
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {votes.map((vote, i) => {
                   const hasRationale = vote.account.rationaleCid && vote.account.rationaleCid.length > 0;
-                  const isForChallenger = vote.account.choice.forChallenger;
                   const jurorAddress = vote.account.juror.toBase58();
                   const stakeAmount = vote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL;
 
+                  // Determine vote display based on whether it's a restore vote
+                  const isRestoreVote = vote.account.isRestoreVote;
+                  const voteLabel = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "FOR RESTORATION" : "AGAINST RESTORATION")
+                    : (vote.account.choice?.forChallenger ? "FOR CHALLENGER" : "FOR DEFENDER");
+                  const voteColorClass = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "text-purple-400" : "text-crimson")
+                    : (vote.account.choice?.forChallenger ? "text-crimson" : "text-sky-400");
+                  const borderColorClass = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "border-purple-500/20" : "border-crimson/20")
+                    : (vote.account.choice?.forChallenger ? "border-crimson/20" : "border-sky-500/20");
+
                   return (
-                    <div key={i} className={`p-2 bg-obsidian border ${isForChallenger ? "border-crimson/20" : "border-sky-500/20"}`}>
+                    <div key={i} className={`p-2 bg-obsidian border ${borderColorClass}`}>
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-medium ${isForChallenger ? "text-crimson" : "text-sky-400"}`}>
-                            {isForChallenger ? "FOR CHALLENGER" : "FOR DEFENDER"}
+                          <span className={`text-[10px] font-medium ${voteColorClass}`}>
+                            {voteLabel}
                           </span>
                           <span className="text-[10px] text-steel">
                             {jurorAddress.slice(0, 4)}...{jurorAddress.slice(-4)}
@@ -325,6 +448,7 @@ export const SubjectModal = memo(function SubjectModal({
   onClaimChallenger,
   onClaimDefender,
   onFileDispute,
+  onRestore,
   actionLoading,
   showActions = true,
   getIpfsUrl,
@@ -349,16 +473,12 @@ export const SubjectModal = memo(function SubjectModal({
 
   const subjectKey = subject.publicKey.toBase58();
   const isInvalid = subject.account.status.invalid;
+  const isRestoring = subject.account.status.restoring;
+  const isRestore = dispute?.account.isRestore;
 
-  // For resolved disputes, show resolved state
+  // Show subject's current status
   const isResolvedDispute = dispute?.account.status.resolved;
-  const subjectStatus = isInvalid
-    ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
-    : isResolvedDispute && dispute?.account.outcome.defenderWins
-    ? { label: "Dismissed", class: "bg-sky-500/20 text-sky-400" }
-    : isResolvedDispute && dispute?.account.outcome.challengerWins
-    ? { label: "Invalidated", class: "bg-crimson/20 text-crimson" }
-    : getStatusBadge(subject.account.status);
+  const subjectStatus = getStatusBadge(subject.account.status);
 
   const outcome = dispute ? getOutcomeLabel(dispute.account.outcome) : null;
   const votingEnded = dispute ? Date.now() > dispute.account.votingEndsAt.toNumber() * 1000 : false;
@@ -377,11 +497,18 @@ export const SubjectModal = memo(function SubjectModal({
   const JUROR_SHARE_BPS = 9500;
   let disputeJurorFees = "FREE";
   if (!subject.account.freeCase && dispute) {
-    const bondPool = dispute.account.totalBond.toNumber();
-    const matchedStake = subject.account.matchMode
-      ? dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()
-      : dispute.account.snapshotTotalStake.toNumber();
-    const totalPool = bondPool + matchedStake;
+    let totalPool: number;
+    if (dispute.account.isRestore) {
+      // For restorations, juror pot is based on restore stake
+      totalPool = dispute.account.restoreStake.toNumber();
+    } else {
+      // For regular disputes, juror pot is based on bond + matched stake
+      const bondPool = dispute.account.totalBond.toNumber();
+      const matchedStake = subject.account.matchMode
+        ? dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()
+        : dispute.account.snapshotTotalStake.toNumber();
+      totalPool = bondPool + matchedStake;
+    }
     const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
     const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
     disputeJurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
@@ -466,11 +593,12 @@ export const SubjectModal = memo(function SubjectModal({
               {/* Subject Actions - based on subject status, not dispute status */}
               {showActions && (
                 <div className="flex gap-2 pt-2 border-t border-slate-light/50">
-                  {!subject.account.freeCase && subject.account.status.valid && onAddStake && (
+                  {!subject.account.freeCase && (subject.account.status.valid || subject.account.status.dormant) && onAddStake && (
                     <JoinForm
                       type="defender"
                       onJoin={onAddStake}
                       isLoading={actionLoading}
+                      label={subject.account.status.dormant ? "Revive Subject" : undefined}
                     />
                   )}
                   {subject.account.status.valid && onFileDispute && (
@@ -478,43 +606,72 @@ export const SubjectModal = memo(function SubjectModal({
                       File Dispute
                     </button>
                   )}
+                  {isInvalid && onRestore && (
+                    <button onClick={onRestore} className="btn btn-secondary py-1.5 px-3 text-sm border-purple-500/50 hover:border-purple-400">
+                      <span className="text-purple-400">Restore Subject</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* VS / POWER BAR SECTION - hide for invalidated */}
+          {/* VS / POWER BAR SECTION - hide for invalidated, different for restoring */}
           {dispute && !isInvalid && (
             <div className="space-y-3">
-              <div className="p-4 bg-slate-light/20 border border-slate-light space-y-3">
-                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
-                  <span className="text-sky-400">{subject.account.defenderCount} Defender{subject.account.defenderCount !== 1 ? 's' : ''}</span>
-                  <span className="text-steel">VS</span>
-                  <span className="text-crimson">{dispute.account.challengerCount} Challenger{dispute.account.challengerCount !== 1 ? 's' : ''}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="text-sky-400">
-                    {!subject.account.freeCase ? (
-                      <>
-                        <span>{((dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
-                        <span className="text-steel text-xs ml-1">(matched)</span>
-                      </>
-                    ) : '-'}
-                  </div>
-                  <span className="text-crimson">
-                    {(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="h-3 rounded overflow-hidden flex bg-obsidian">
-                    <div className="h-full transition-all" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
-                    <div className="h-full transition-all" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}% for Defender</span>
-                    <span className="text-crimson">{favorPercent.toFixed(0)}% for Challenger</span>
-                  </div>
-                </div>
+              <div className={`p-4 bg-slate-light/20 border ${isRestore ? 'border-purple-500/30' : 'border-slate-light'} space-y-3`}>
+                {isRestore ? (
+                  <>
+                    {/* Restoration voting bar */}
+                    <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
+                      <span className="text-purple-400">For Restoration</span>
+                      <span className="text-steel">VOTING</span>
+                      <span className="text-crimson">Against Restoration</span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="h-3 rounded overflow-hidden flex bg-obsidian">
+                        <div className="h-full transition-all" style={{ width: `${favorPercent}%`, backgroundColor: '#a855f7' }} />
+                        <div className="h-full transition-all" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }} />
+                      </div>
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-purple-400">{favorPercent.toFixed(0)}% for Restoration</span>
+                        <span className="text-crimson">{(100 - favorPercent).toFixed(0)}% against</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Regular dispute vs bar */}
+                    <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
+                      <span className="text-sky-400">{subject.account.defenderCount} Defender{subject.account.defenderCount !== 1 ? 's' : ''}</span>
+                      <span className="text-steel">VS</span>
+                      <span className="text-crimson">{dispute.account.challengerCount} Challenger{dispute.account.challengerCount !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="text-sky-400">
+                        {!subject.account.freeCase ? (
+                          <>
+                            <span>{((dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
+                            <span className="text-steel text-xs ml-1">(matched)</span>
+                          </>
+                        ) : '-'}
+                      </div>
+                      <span className="text-crimson">
+                        {(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="h-3 rounded overflow-hidden flex bg-obsidian">
+                        <div className="h-full transition-all" style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }} />
+                        <div className="h-full transition-all" style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }} />
+                      </div>
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}% for Defender</span>
+                        <span className="text-crimson">{favorPercent.toFixed(0)}% for Challenger</span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="grid grid-cols-3 text-sm pt-2 border-t border-slate-light/50">
                   <div>
                     <p className="text-steel text-xs">Time Left</p>
@@ -536,50 +693,93 @@ export const SubjectModal = memo(function SubjectModal({
             </div>
           )}
 
-          {/* DISPUTE SECTION - hide for invalidated */}
+          {/* DISPUTE/RESTORATION SECTION - hide for invalidated */}
           {dispute && !isInvalid && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-4 bg-crimson rounded"></div>
-                <h4 className="text-xs font-semibold text-crimson uppercase tracking-wider">Dispute (Challenger Side)</h4>
-              </div>
-              <div className="p-4 bg-obsidian border border-crimson/30 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-crimson font-medium">{disputeContent?.title || getDisputeTypeLabel(dispute.account.disputeType)}</p>
+              {isRestore ? (
+                <>
+                  {/* RESTORATION SECTION */}
                   <div className="flex items-center gap-2">
-                    {outcome && <span className={`text-xs font-medium ${outcome.class}`}>{outcome.label}</span>}
-                    {existingVote && <span className="text-emerald flex items-center gap-0.5 text-xs"><CheckIcon /> Voted</span>}
+                    <div className="w-1 h-4 bg-purple-500 rounded"></div>
+                    <h4 className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Restoration Request</h4>
                   </div>
-                </div>
-                {disputeContent?.reason && <p className="text-sm text-steel">{disputeContent.reason}</p>}
-                <div className="grid grid-cols-2 text-sm pt-2 border-t border-slate-light/50">
-                  <div>
-                    <p className="text-steel text-xs">Total Bond</p>
-                    <p className="text-crimson">{(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-steel text-xs">Challengers</p>
-                    <p className="text-crimson">{dispute.account.challengerCount}</p>
-                  </div>
-                </div>
-                {/* Dispute Actions */}
-                {showActions && isPending && (canResolve || !subject.account.freeCase) && (
-                  <div className="flex gap-2 pt-2 border-t border-slate-light/50">
-                    {canResolve && onResolve && (
-                      <button onClick={onResolve} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm flex-1">
-                        {actionLoading ? "..." : "Resolve"}
-                      </button>
+                  <div className="p-4 bg-obsidian border border-purple-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-purple-400 font-medium">{disputeContent?.title || "Restoration Request"}</p>
+                      <div className="flex items-center gap-2">
+                        {outcome && <span className={`text-xs font-medium ${outcome.class}`}>{outcome.label}</span>}
+                        {existingVote && <span className="text-emerald flex items-center gap-0.5 text-xs"><CheckIcon /> Voted</span>}
+                      </div>
+                    </div>
+                    {disputeContent?.reason && <p className="text-sm text-steel">{disputeContent.reason}</p>}
+                    <div className="grid grid-cols-2 text-sm pt-2 border-t border-slate-light/50">
+                      <div>
+                        <p className="text-steel text-xs">Restore Stake</p>
+                        <p className="text-purple-400">{(dispute.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-steel text-xs">Restorer</p>
+                        <p className="text-purple-400 text-xs">
+                          {dispute.account.restorer.toBase58().slice(0, 4)}...{dispute.account.restorer.toBase58().slice(-4)}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Restoration Actions - only resolve button */}
+                    {showActions && isPending && canResolve && onResolve && (
+                      <div className="flex gap-2 pt-2 border-t border-slate-light/50">
+                        <button onClick={onResolve} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm flex-1">
+                          {actionLoading ? "..." : "Resolve"}
+                        </button>
+                      </div>
                     )}
-                    {!subject.account.freeCase && !canResolve && onJoinChallengers && (
-                      <JoinForm
-                        type="challenger"
-                        onJoin={onJoinChallengers}
-                        isLoading={actionLoading}
-                      />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* DISPUTE SECTION (Challenger Side) */}
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-4 bg-crimson rounded"></div>
+                    <h4 className="text-xs font-semibold text-crimson uppercase tracking-wider">Dispute (Challenger Side)</h4>
+                  </div>
+                  <div className="p-4 bg-obsidian border border-crimson/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-crimson font-medium">{disputeContent?.title || getDisputeTypeLabel(dispute.account.disputeType)}</p>
+                      <div className="flex items-center gap-2">
+                        {outcome && <span className={`text-xs font-medium ${outcome.class}`}>{outcome.label}</span>}
+                        {existingVote && <span className="text-emerald flex items-center gap-0.5 text-xs"><CheckIcon /> Voted</span>}
+                      </div>
+                    </div>
+                    {disputeContent?.reason && <p className="text-sm text-steel">{disputeContent.reason}</p>}
+                    <div className="grid grid-cols-2 text-sm pt-2 border-t border-slate-light/50">
+                      <div>
+                        <p className="text-steel text-xs">Total Bond</p>
+                        <p className="text-crimson">{(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-steel text-xs">Challengers</p>
+                        <p className="text-crimson">{dispute.account.challengerCount}</p>
+                      </div>
+                    </div>
+                    {/* Dispute Actions */}
+                    {showActions && isPending && (canResolve || !subject.account.freeCase) && (
+                      <div className="flex gap-2 pt-2 border-t border-slate-light/50">
+                        {canResolve && onResolve && (
+                          <button onClick={onResolve} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm flex-1">
+                            {actionLoading ? "..." : "Resolve"}
+                          </button>
+                        )}
+                        {!subject.account.freeCase && !canResolve && onJoinChallengers && (
+                          <JoinForm
+                            type="challenger"
+                            onJoin={onJoinChallengers}
+                            isLoading={actionLoading}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
           )}
 
@@ -597,6 +797,7 @@ export const SubjectModal = memo(function SubjectModal({
                     existingVote={existingVote}
                     onVote={onVote}
                     isLoading={actionLoading}
+                    isRestore={dispute?.account.isRestore}
                   />
                 )}
               </div>
@@ -617,7 +818,10 @@ export const SubjectModal = memo(function SubjectModal({
                     <div>
                       <p className="text-sm text-parchment">Juror Reward</p>
                       <p className="text-xs text-steel">
-                        Voted {existingVote!.account.choice.forChallenger ? "for Challenger" : "for Defender"} - {(existingVote!.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                        Voted {existingVote!.account.isRestoreVote
+                          ? (existingVote!.account.restoreChoice?.forRestoration ? "for Restoration" : "against Restoration")
+                          : (existingVote!.account.choice?.forChallenger ? "for Challenger" : "for Defender")
+                        } - {(existingVote!.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(4)} SOL
                       </p>
                     </div>
                     <button onClick={onClaimJuror} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm">
@@ -664,17 +868,28 @@ export const SubjectModal = memo(function SubjectModal({
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {disputeVotes.map((vote, i) => {
                   const hasRationale = vote.account.rationaleCid && vote.account.rationaleCid.length > 0;
-                  const isForChallenger = vote.account.choice.forChallenger;
                   const jurorAddress = vote.account.juror.toBase58();
                   const stakeAmount = vote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL;
                   const votingPower = vote.account.votingPower.toNumber() / LAMPORTS_PER_SOL;
 
+                  // Determine vote display based on whether it's a restore vote
+                  const isRestoreVote = vote.account.isRestoreVote;
+                  const voteLabel = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "FOR RESTORATION" : "AGAINST RESTORATION")
+                    : (vote.account.choice?.forChallenger ? "FOR CHALLENGER" : "FOR DEFENDER");
+                  const voteColorClass = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "text-purple-400" : "text-crimson")
+                    : (vote.account.choice?.forChallenger ? "text-crimson" : "text-sky-400");
+                  const borderColorClass = isRestoreVote
+                    ? (vote.account.restoreChoice?.forRestoration ? "border-purple-500/30" : "border-crimson/30")
+                    : (vote.account.choice?.forChallenger ? "border-crimson/30" : "border-sky-500/30");
+
                   return (
-                    <div key={i} className={`p-3 bg-obsidian border ${isForChallenger ? "border-crimson/30" : "border-sky-500/30"}`}>
+                    <div key={i} className={`p-3 bg-obsidian border ${borderColorClass}`}>
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium ${isForChallenger ? "text-crimson" : "text-sky-400"}`}>
-                            {isForChallenger ? "FOR CHALLENGER" : "FOR DEFENDER"}
+                          <span className={`text-xs font-medium ${voteColorClass}`}>
+                            {voteLabel}
                           </span>
                           <span className="text-[10px] text-steel">
                             {jurorAddress.slice(0, 4)}...{jurorAddress.slice(-4)}
