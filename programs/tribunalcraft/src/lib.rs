@@ -235,11 +235,11 @@ pub mod tribunalcraft {
         instructions::resolve_dispute(ctx)
     }
 
-    /// Process juror's vote result (update reputation, unlock stake)
-    pub fn process_vote_result(
-        ctx: Context<ProcessVoteResult>,
+    /// Unlock juror stake after 7-day buffer
+    pub fn unlock_juror_stake(
+        ctx: Context<UnlockJurorStake>,
     ) -> Result<()> {
-        instructions::process_vote_result(ctx)
+        instructions::unlock_juror_stake(ctx)
     }
 
     /// Claim juror reward for correct vote
@@ -263,10 +263,11 @@ pub mod tribunalcraft {
         instructions::claim_defender_reward(ctx)
     }
 
-    /// Claim pool reward (linked mode - pool owner claims if dispute dismissed)
-    pub fn claim_pool_reward(
-        ctx: Context<ClaimPoolReward>,
+    /// Close escrow after all claims are complete
+    /// Returns rent to closer, sends any dust to treasury
+    pub fn close_escrow(
+        ctx: Context<CloseEscrow>,
     ) -> Result<()> {
-        instructions::claim_pool_reward(ctx)
+        instructions::close_escrow(ctx)
     }
 }

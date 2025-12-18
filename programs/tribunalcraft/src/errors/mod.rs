@@ -21,6 +21,9 @@ pub enum TribunalCraftError {
     #[msg("Stake still locked")]
     StakeStillLocked,
 
+    #[msg("Stake already unlocked")]
+    StakeAlreadyUnlocked,
+
     // Bond errors
     #[msg("Bond amount below minimum")]
     BondBelowMinimum,
@@ -101,4 +104,8 @@ pub enum TribunalCraftError {
 
     #[msg("Division by zero")]
     DivisionByZero,
+
+    // Escrow errors
+    #[msg("Not all claims have been processed")]
+    ClaimsNotComplete,
 }

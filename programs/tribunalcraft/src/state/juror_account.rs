@@ -1,16 +1,24 @@
 use anchor_lang::prelude::*;
+use crate::errors::TribunalCraftError;
 
 /// Juror (arbiter) account - global per wallet
+///
+/// Balance Model:
+/// - `total_stake`: Total SOL held in this PDA (actual lamports)
+/// - `available_stake`: SOL available to vote or withdraw
+/// - Held (locked): `total_stake - available_stake` (locked in active disputes)
+///
+/// SOL only transfers on deposit/withdraw. Voting is accounting only.
 #[account]
 #[derive(Default)]
 pub struct JurorAccount {
     /// Juror's wallet address
     pub juror: Pubkey,
 
-    /// Total stake deposited
+    /// Total stake held in this PDA (actual lamports)
     pub total_stake: u64,
 
-    /// Available stake (not locked in votes)
+    /// Available stake (not locked in active disputes)
     pub available_stake: u64,
 
     /// Reputation score (basis points, 0-10000+)
@@ -47,6 +55,45 @@ impl JurorAccount {
         1 +     // bump
         8 +     // joined_at
         8;      // last_vote_at
+
+    /// Get currently held (locked) stake
+    pub fn held_stake(&self) -> u64 {
+        self.total_stake.saturating_sub(self.available_stake)
+    }
+
+    /// Deposit SOL to balance (after actual transfer to PDA)
+    pub fn deposit(&mut self, amount: u64) {
+        self.total_stake = self.total_stake.saturating_add(amount);
+        self.available_stake = self.available_stake.saturating_add(amount);
+    }
+
+    /// Withdraw SOL from balance (before actual transfer from PDA)
+    pub fn withdraw(&mut self, amount: u64) -> Result<()> {
+        require!(self.available_stake >= amount, TribunalCraftError::InsufficientAvailableStake);
+        self.total_stake = self.total_stake.saturating_sub(amount);
+        self.available_stake = self.available_stake.saturating_sub(amount);
+        Ok(())
+    }
+
+    /// Allocate stake for voting (accounting only, no SOL transfer)
+    pub fn allocate_for_vote(&mut self, amount: u64) -> Result<()> {
+        require!(self.available_stake >= amount, TribunalCraftError::InsufficientAvailableStake);
+        self.available_stake = self.available_stake.saturating_sub(amount);
+        // Note: total_stake unchanged - SOL stays in PDA, just locked
+        Ok(())
+    }
+
+    /// Release stake from vote (accounting only, no SOL transfer)
+    pub fn release_from_vote(&mut self, amount: u64) {
+        self.available_stake = self.available_stake.saturating_add(amount);
+        // Note: total_stake unchanged - SOL was always in PDA
+    }
+
+    /// Add reward to balance (after actual transfer to PDA)
+    pub fn add_reward(&mut self, amount: u64) {
+        self.total_stake = self.total_stake.saturating_add(amount);
+        self.available_stake = self.available_stake.saturating_add(amount);
+    }
 
     /// Calculate voting power: sqrt(stake) * reputation * sqrt(votes + 1)
     /// Returns scaled value (multiplied by WEIGHT_PRECISION)

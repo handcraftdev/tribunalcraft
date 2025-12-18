@@ -68,6 +68,7 @@ pub const SUBJECT_SEED: &[u8] = b"subject";
 pub const JUROR_ACCOUNT_SEED: &[u8] = b"juror";
 pub const CHALLENGER_ACCOUNT_SEED: &[u8] = b"challenger";
 pub const DISPUTE_SEED: &[u8] = b"dispute";
+pub const DISPUTE_ESCROW_SEED: &[u8] = b"escrow";
 pub const CHALLENGER_RECORD_SEED: &[u8] = b"challenger_record";
 pub const DEFENDER_RECORD_SEED: &[u8] = b"defender_record";
 pub const VOTE_RECORD_SEED: &[u8] = b"vote";
