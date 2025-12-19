@@ -40,6 +40,7 @@ export default function JurorPage() {
     claimJurorReward,
     claimChallengerReward,
     claimDefenderReward,
+    batchClaimRewards,
     addToStake,
     addToDispute,
     getDisputePDA,
@@ -64,6 +65,7 @@ export default function JurorPage() {
   // Selected item state
   const [selectedItem, setSelectedItem] = useState<{ subject: SubjectData; dispute: DisputeData; vote: VoteData } | null>(null);
   const [disputeVotes, setDisputeVotes] = useState<VoteData[]>([]);
+  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { favor: number; against: number }>>({});
   const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
   const [defenderRecords, setDefenderRecords] = useState<Record<string, any>>({});
 
@@ -123,6 +125,7 @@ export default function JurorPage() {
 
           // Fetch vote records for all disputes
           const votes: Record<string, VoteData> = {};
+          const votedDisputeKeys: string[] = [];
           for (const d of disputesData) {
             const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
             try {
@@ -132,10 +135,62 @@ export default function JurorPage() {
                   publicKey: voteRecordPda,
                   account: voteRecord,
                 };
+                votedDisputeKeys.push(d.publicKey.toBase58());
               }
             } catch {}
           }
           setUserVotes(votes);
+
+          // Fetch vote counts for disputes user has voted on
+          const counts: Record<string, { favor: number; against: number }> = {};
+          for (const dKey of votedDisputeKeys) {
+            const d = disputesData.find((x: DisputeData) => x.publicKey.toBase58() === dKey);
+            if (!d) continue;
+            try {
+              const allVotes = await fetchVotesByDispute(d.publicKey);
+              if (allVotes) {
+                let favor = 0;
+                let against = 0;
+                for (const v of allVotes) {
+                  if (d.account.isRestore) {
+                    if ("forRestoration" in v.account.restoreChoice) favor++;
+                    else if ("againstRestoration" in v.account.restoreChoice) against++;
+                  } else {
+                    if ("forChallenger" in v.account.choice) favor++;
+                    else if ("forDefender" in v.account.choice) against++;
+                  }
+                }
+                counts[dKey] = { favor, against };
+              }
+            } catch {}
+          }
+          setDisputeVoteCounts(counts);
+
+          // Fetch challenger/defender records for resolved disputes
+          const challRecords: Record<string, any> = {};
+          const defRecords: Record<string, any> = {};
+          for (const dKey of votedDisputeKeys) {
+            const d = disputesData.find((x: DisputeData) => x.publicKey.toBase58() === dKey);
+            if (!d || !("resolved" in d.account.status)) continue;
+            const subject = subjectsData.find((s: SubjectData) => s.publicKey.toBase58() === d.account.subject.toBase58());
+            if (!subject) continue;
+
+            // Check challenger record
+            const [challengerRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
+            try {
+              const record = await fetchChallengerRecord(challengerRecordPda);
+              if (record) challRecords[dKey] = record;
+            } catch {}
+
+            // Check defender record
+            const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
+            try {
+              const record = await fetchDefenderRecord(defenderRecordPda);
+              if (record) defRecords[subject.publicKey.toBase58()] = record;
+            } catch {}
+          }
+          setChallengerRecords(challRecords);
+          setDefenderRecords(defRecords);
         } catch {
           setJurorAccount(null);
           setUserVotes({});
@@ -304,16 +359,27 @@ export default function JurorPage() {
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
   const handleClaimJurorReward = useCallback(async () => {
-    if (!publicKey || !selectedItem) return;
+    console.log("[Profile] handleClaimJurorReward triggered");
+    if (!publicKey || !selectedItem) {
+      console.log("[Profile] early return - no publicKey or selectedItem");
+      return;
+    }
     setActionLoading(true);
     setError(null);
     try {
       const [voteRecordPda] = getVoteRecordPDA(selectedItem.dispute.publicKey, publicKey);
+      console.log("[Profile] calling claimJurorReward with:", {
+        dispute: selectedItem.dispute.publicKey.toBase58(),
+        subject: selectedItem.subject.publicKey.toBase58(),
+        voteRecord: voteRecordPda.toBase58()
+      });
       await claimJurorReward(selectedItem.dispute.publicKey, selectedItem.subject.publicKey, voteRecordPda);
+      console.log("[Profile] claimJurorReward succeeded");
       setSuccess("Juror reward claimed!");
       setSelectedItem(null);
       await loadData();
     } catch (err: any) {
+      console.error("[Profile] claimJurorReward error:", err);
       setError(err.message || "Failed to claim juror reward");
     }
     setActionLoading(false);
@@ -438,18 +504,85 @@ export default function JurorPage() {
 
   const votedDisputes = getVotedDisputes();
 
-  // Categorize into Active and Past
-  // Active: pending disputes OR resolved with unclaimed rewards
-  // Past: resolved with claimed rewards
-  const activeVotedDisputes = votedDisputes.filter(item => {
+  // Categorize into Active, Pending Action, and Historical
+  // Active: pending disputes where voting is still ongoing
+  // Pending Action: needs resolution (voting ended) OR needs claim (resolved but unclaimed)
+  // Historical: resolved with rewards claimed
+  const activeDisputes = votedDisputes.filter(item => {
     const isPending = item.dispute.account.status.pending;
-    const isResolvedWithUnclaimedReward = item.dispute.account.status.resolved && !item.vote.account.rewardClaimed;
-    return isPending || isResolvedWithUnclaimedReward;
+    const votingEnded = Date.now() > item.dispute.account.votingEndsAt.toNumber() * 1000;
+    return isPending && !votingEnded;
   });
 
-  const pastVotedDisputes = votedDisputes.filter(item => {
-    return item.dispute.account.status.resolved && item.vote.account.rewardClaimed;
+  const pendingActionDisputes = votedDisputes.filter(item => {
+    const isPending = "pending" in item.dispute.account.status;
+    const isResolved = "resolved" in item.dispute.account.status;
+    const votingEnded = Date.now() > item.dispute.account.votingEndsAt.toNumber() * 1000;
+    const needsResolution = isPending && votingEnded;
+
+    if (!isResolved) return needsResolution;
+
+    // Check all possible claims for resolved disputes
+    const jurorNeedsClaim = !item.vote.account.rewardClaimed;
+    const challengerRecord = challengerRecords[item.dispute.publicKey.toBase58()];
+    const defenderRecord = defenderRecords[item.subject.publicKey.toBase58()];
+    const challengerNeedsClaim = challengerRecord && !challengerRecord.rewardClaimed;
+    const defenderNeedsClaim = defenderRecord && !defenderRecord.rewardClaimed;
+
+    return jurorNeedsClaim || challengerNeedsClaim || defenderNeedsClaim;
   });
+
+  const historicalDisputes = votedDisputes.filter(item => {
+    if (!("resolved" in item.dispute.account.status)) return false;
+
+    // All claims must be processed
+    const jurorClaimed = item.vote.account.rewardClaimed;
+    const challengerRecord = challengerRecords[item.dispute.publicKey.toBase58()];
+    const defenderRecord = defenderRecords[item.subject.publicKey.toBase58()];
+    const challengerClaimed = !challengerRecord || challengerRecord.rewardClaimed;
+    const defenderClaimed = !defenderRecord || defenderRecord.rewardClaimed;
+
+    return jurorClaimed && challengerClaimed && defenderClaimed;
+  });
+
+  // Batch claim all available rewards (must be defined after votedDisputes)
+  const handleBatchClaim = useCallback(async () => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      // Find all claimable disputes (resolved, not yet claimed)
+      const claimableDisputes = votedDisputes.filter(item =>
+        item.dispute.account.status.resolved && !item.vote.account.rewardClaimed
+      );
+
+      if (claimableDisputes.length === 0) {
+        setError("No rewards to claim");
+        setActionLoading(false);
+        return;
+      }
+
+      // Build juror claims
+      const jurorClaims = claimableDisputes.map(item => {
+        const [voteRecordPda] = getVoteRecordPDA(item.dispute.publicKey, publicKey);
+        return {
+          dispute: item.dispute.publicKey,
+          subject: item.subject.publicKey,
+          voteRecord: voteRecordPda,
+        };
+      });
+
+      // TODO: Add challenger and defender claims if user has those roles
+      // For now, just batch the juror claims
+
+      await batchClaimRewards({ jurorClaims });
+      setSuccess(`Claimed ${jurorClaims.length} reward(s) in a single transaction!`);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to batch claim");
+    }
+    setActionLoading(false);
+  }, [publicKey, votedDisputes, getVoteRecordPDA, batchClaimRewards, loadData]);
 
   // Get past disputes for history
   const getPastDisputes = (subjectKey: string, currentDisputeKey?: string) => {
@@ -471,7 +604,7 @@ export default function JurorPage() {
             <span className="text-xs uppercase tracking-[0.2em] text-gold">Justice</span>
           </div>
           <h1 className="font-display text-4xl md:text-5xl font-bold text-ivory mb-4">
-            Juror Portal
+            Profile
           </h1>
           <p className="text-steel text-lg">
             Manage your juror account and stake. Vote on disputes in the{" "}
@@ -671,62 +804,80 @@ export default function JurorPage() {
               </div>
             )}
 
-            {/* Active Disputes Section */}
-            {activeVotedDisputes.length > 0 && (
+            {/* Active Section - Ongoing disputes/restores */}
+            {activeDisputes.length > 0 && (
               <div className="bg-slate/30 border border-slate-light p-4 mb-6 animate-slide-up stagger-4">
                 <div className="flex items-center gap-2 mb-4">
                   <ClockIcon size={16} />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Active</h2>
-                  <span className="text-xs text-steel ml-auto">{activeVotedDisputes.length}</span>
+                  <span className="text-xs text-steel ml-auto">{activeDisputes.length}</span>
                 </div>
-                <p className="text-xs text-steel mb-4">Pending votes, resolutions, and unclaimed rewards</p>
+                <p className="text-xs text-steel mb-4">Ongoing disputes and restorations - voting in progress</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {activeVotedDisputes.map((item, i) => {
-                    const votingEnded = Date.now() > item.dispute.account.votingEndsAt.toNumber() * 1000;
-                    const canResolve = item.dispute.account.status.pending && votingEnded;
-                    const canClaim = item.dispute.account.status.resolved && !item.vote.account.rewardClaimed;
-
-                    return (
-                      <div key={i} className="relative">
-                        <SubjectCard
-                          subject={item.subject}
-                          dispute={item.dispute}
-                          existingVote={item.vote}
-                          subjectContent={subjectContents[item.subject.publicKey.toBase58()]}
-                          disputeContent={disputeContents[item.dispute.publicKey.toBase58()]}
-                          onClick={() => setSelectedItem(item)}
-                        />
-                        {/* Status badge overlay */}
-                        <div className="absolute top-1 left-1">
-                          {canClaim && (
-                            <span className="text-[10px] bg-gold text-obsidian px-1.5 py-0.5 font-semibold">
-                              CLAIM
-                            </span>
-                          )}
-                          {canResolve && (
-                            <span className="text-[10px] bg-emerald text-obsidian px-1.5 py-0.5 font-semibold">
-                              RESOLVE
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {activeDisputes.map((item, i) => (
+                    <SubjectCard
+                      key={i}
+                      subject={item.subject}
+                      dispute={item.dispute}
+                      existingVote={item.vote}
+                      subjectContent={subjectContents[item.subject.publicKey.toBase58()]}
+                      disputeContent={disputeContents[item.dispute.publicKey.toBase58()]}
+                      voteCounts={disputeVoteCounts[item.dispute.publicKey.toBase58()]}
+                      onClick={() => setSelectedItem(item)}
+                    />
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* Past Disputes Section */}
-            {pastVotedDisputes.length > 0 && (
-              <div className="bg-slate/30 border border-slate-light p-4 mb-6 animate-slide-up stagger-5">
+            {/* Pending Action Section - Needs resolution or claim */}
+            {pendingActionDisputes.length > 0 && (
+              <div className="bg-slate/30 border border-gold/30 p-4 mb-6 animate-slide-up stagger-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <ShieldIcon />
+                  <h2 className="text-sm font-semibold text-gold uppercase tracking-wider">Pending Action</h2>
+                  <span className="text-xs text-gold">{pendingActionDisputes.length}</span>
+                  {/* Batch Claim Button */}
+                  {pendingActionDisputes.some(item => item.dispute.account.status.resolved && !item.vote.account.rewardClaimed) && (
+                    <button
+                      onClick={handleBatchClaim}
+                      disabled={actionLoading}
+                      className="ml-auto btn btn-primary text-xs py-1 px-3"
+                    >
+                      {actionLoading ? "Claiming..." : "Claim All"}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-steel mb-4">Requires your attention: resolve disputes or claim rewards</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {pendingActionDisputes.map((item, i) => (
+                    <SubjectCard
+                      key={i}
+                      subject={item.subject}
+                      dispute={item.dispute}
+                      existingVote={item.vote}
+                      isResolved={item.dispute.account.status.resolved}
+                      subjectContent={subjectContents[item.subject.publicKey.toBase58()]}
+                      disputeContent={disputeContents[item.dispute.publicKey.toBase58()]}
+                      voteCounts={disputeVoteCounts[item.dispute.publicKey.toBase58()]}
+                      onClick={() => setSelectedItem(item)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Historical Section - Completed disputes */}
+            {historicalDisputes.length > 0 && (
+              <div className="bg-slate/30 border border-slate-light p-4 mb-6 animate-slide-up stagger-6">
                 <div className="flex items-center gap-2 mb-4">
                   <CheckIcon />
-                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Past</h2>
-                  <span className="text-xs text-steel ml-auto">{pastVotedDisputes.length}</span>
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Historical</h2>
+                  <span className="text-xs text-steel ml-auto">{historicalDisputes.length}</span>
                 </div>
-                <p className="text-xs text-steel mb-4">Historical votes with rewards claimed</p>
+                <p className="text-xs text-steel mb-4">Completed disputes with rewards claimed</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {pastVotedDisputes.map((item, i) => (
+                  {historicalDisputes.map((item, i) => (
                     <SubjectCard
                       key={i}
                       subject={item.subject}
@@ -735,6 +886,7 @@ export default function JurorPage() {
                       existingVote={item.vote}
                       subjectContent={subjectContents[item.subject.publicKey.toBase58()]}
                       disputeContent={disputeContents[item.dispute.publicKey.toBase58()]}
+                      voteCounts={disputeVoteCounts[item.dispute.publicKey.toBase58()]}
                       onClick={() => setSelectedItem(item)}
                     />
                   ))}
@@ -743,7 +895,7 @@ export default function JurorPage() {
             )}
 
             {/* Call to Action when no disputes */}
-            {activeVotedDisputes.length === 0 && pastVotedDisputes.length === 0 && (
+            {activeDisputes.length === 0 && pendingActionDisputes.length === 0 && historicalDisputes.length === 0 && (
               <div className="tribunal-card-gold p-6 text-center animate-slide-up stagger-4">
                 <p className="text-steel mb-4">
                   Ready to vote? Browse subjects and disputes in the registry.

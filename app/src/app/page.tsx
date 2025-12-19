@@ -268,7 +268,7 @@ export default function Dashboard() {
               </Link>
 
               <Link
-                href="/juror"
+                href="/profile"
                 className="tribunal-card p-6 group cursor-pointer transition-all hover:border-gold/50"
               >
                 <div className="flex items-start justify-between mb-4">
