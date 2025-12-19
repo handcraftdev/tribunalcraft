@@ -19,8 +19,8 @@ const WalletButton = dynamic(
 const navItems = [
   { href: "/", label: "Overview" },
   { href: "/registry", label: "Registry" },
+  { href: "/analytics", label: "Analytics" },
   { href: "/profile", label: "Profile" },
-  { href: "/account", label: "Account" },
 ];
 
 // Scale of Justice SVG Icon
