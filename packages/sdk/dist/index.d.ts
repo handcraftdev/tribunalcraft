@@ -3820,6 +3820,7 @@ declare class TribunalCraftClient {
     /**
      * Helper to run RPC with optional simulation first
      * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
+     * @param forceSimulate - If true, always simulate regardless of simulateFirst setting
      */
     private rpcWithSimulation;
     /**
@@ -3971,6 +3972,7 @@ declare class TribunalCraftClient {
     }): Promise<TransactionResult>;
     /**
      * Claim juror reward (processes reputation + distributes reward)
+     * Simulates transaction first to catch errors before sending
      */
     claimJurorReward(params: {
         dispute: PublicKey;
@@ -3979,6 +3981,7 @@ declare class TribunalCraftClient {
     }): Promise<TransactionResult>;
     /**
      * Claim challenger reward (if dispute upheld)
+     * Simulates transaction first to catch errors before sending
      */
     claimChallengerReward(params: {
         dispute: PublicKey;
@@ -3987,6 +3990,7 @@ declare class TribunalCraftClient {
     }): Promise<TransactionResult>;
     /**
      * Claim defender reward (if dispute dismissed)
+     * Simulates transaction first to catch errors before sending
      */
     claimDefenderReward(params: {
         dispute: PublicKey;
@@ -3995,9 +3999,31 @@ declare class TribunalCraftClient {
     }): Promise<TransactionResult>;
     /**
      * Claim restorer refund for failed restoration request
+     * Simulates transaction first to catch errors before sending
      */
     claimRestorerRefund(params: {
         dispute: PublicKey;
+    }): Promise<TransactionResult>;
+    /**
+     * Batch claim all available rewards in a single transaction
+     * Combines juror, challenger, and defender claims
+     */
+    batchClaimRewards(params: {
+        jurorClaims?: Array<{
+            dispute: PublicKey;
+            subject: PublicKey;
+            voteRecord: PublicKey;
+        }>;
+        challengerClaims?: Array<{
+            dispute: PublicKey;
+            subject: PublicKey;
+            challengerRecord: PublicKey;
+        }>;
+        defenderClaims?: Array<{
+            dispute: PublicKey;
+            subject: PublicKey;
+            defenderRecord: PublicKey;
+        }>;
     }): Promise<TransactionResult>;
     /**
      * Fetch protocol config

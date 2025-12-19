@@ -298,7 +298,9 @@ export const useTribunalcraft = () => {
     subject: PublicKey,
     voteRecord: PublicKey
   ) => {
+    console.log("[Hook] claimJurorReward called");
     if (!client) throw new Error("Client not initialized");
+    console.log("[Hook] calling client.claimJurorReward");
     return client.claimJurorReward({ dispute, subject, voteRecord });
   }, [client]);
 
@@ -318,6 +320,28 @@ export const useTribunalcraft = () => {
   ) => {
     if (!client) throw new Error("Client not initialized");
     return client.claimDefenderReward({ dispute, subject, defenderRecord });
+  }, [client]);
+
+  // Batch claim all rewards in a single transaction
+  const batchClaimRewards = useCallback(async (params: {
+    jurorClaims?: Array<{
+      dispute: PublicKey;
+      subject: PublicKey;
+      voteRecord: PublicKey;
+    }>;
+    challengerClaims?: Array<{
+      dispute: PublicKey;
+      subject: PublicKey;
+      challengerRecord: PublicKey;
+    }>;
+    defenderClaims?: Array<{
+      dispute: PublicKey;
+      subject: PublicKey;
+      defenderRecord: PublicKey;
+    }>;
+  }) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.batchClaimRewards(params);
   }, [client]);
 
   // Fetch single accounts
@@ -454,6 +478,7 @@ export const useTribunalcraft = () => {
     claimJurorReward,
     claimChallengerReward,
     claimDefenderReward,
+    batchClaimRewards,
     // Fetch single
     fetchDefenderPool,
     fetchSubject,

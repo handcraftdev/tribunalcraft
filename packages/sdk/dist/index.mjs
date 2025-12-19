@@ -3647,10 +3647,12 @@ var TribunalCraftClient = class {
   /**
    * Helper to run RPC with optional simulation first
    * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
+   * @param forceSimulate - If true, always simulate regardless of simulateFirst setting
    */
-  async rpcWithSimulation(methodBuilder, actionName) {
-    if (this.simulateFirst) {
-      console.log(`[Simulation] ${actionName}...`);
+  async rpcWithSimulation(methodBuilder, actionName, forceSimulate = false) {
+    console.log(`[SDK] rpcWithSimulation called: ${actionName}, simulateFirst=${this.simulateFirst}, forceSimulate=${forceSimulate}`);
+    if (this.simulateFirst || forceSimulate) {
+      console.log(`[Simulation] Running simulation for ${actionName}...`);
       try {
         const simResult = await methodBuilder.simulate();
         console.log(`[Simulation] ${actionName} passed`);
@@ -3982,48 +3984,138 @@ var TribunalCraftClient = class {
   }
   /**
    * Claim juror reward (processes reputation + distributes reward)
+   * Simulates transaction first to catch errors before sending
    */
   async claimJurorReward(params) {
+    console.log("[SDK] claimJurorReward called");
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.claimJurorReward().accountsPartial({
+    const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
+    console.log("[SDK] jurorAccount:", jurorAccount.toBase58());
+    const method = program.methods.claimJurorReward().accountsPartial({
+      juror: wallet.publicKey,
+      jurorAccount,
       dispute: params.dispute,
       subject: params.subject,
       voteRecord: params.voteRecord
-    }).rpc();
+    });
+    console.log("[SDK] calling rpcWithSimulation for claimJurorReward");
+    const signature = await this.rpcWithSimulation(method, "claimJurorReward", true);
     return { signature };
   }
   /**
    * Claim challenger reward (if dispute upheld)
+   * Simulates transaction first to catch errors before sending
    */
   async claimChallengerReward(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.claimChallengerReward().accountsPartial({
+    const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
+    const method = program.methods.claimChallengerReward().accountsPartial({
+      challenger: wallet.publicKey,
+      challengerAccount,
       dispute: params.dispute,
       subject: params.subject,
       challengerRecord: params.challengerRecord
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(method, "claimChallengerReward", true);
     return { signature };
   }
   /**
    * Claim defender reward (if dispute dismissed)
+   * Simulates transaction first to catch errors before sending
    */
   async claimDefenderReward(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.claimDefenderReward().accountsPartial({
+    const method = program.methods.claimDefenderReward().accountsPartial({
+      defender: wallet.publicKey,
       dispute: params.dispute,
       subject: params.subject,
       defenderRecord: params.defenderRecord
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(method, "claimDefenderReward", true);
     return { signature };
   }
   /**
    * Claim restorer refund for failed restoration request
+   * Simulates transaction first to catch errors before sending
    */
   async claimRestorerRefund(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.claimRestorerRefund().accountsPartial({
+    const method = program.methods.claimRestorerRefund().accountsPartial({
+      restorer: wallet.publicKey,
       dispute: params.dispute
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(method, "claimRestorerRefund", true);
+    return { signature };
+  }
+  /**
+   * Batch claim all available rewards in a single transaction
+   * Combines juror, challenger, and defender claims
+   */
+  async batchClaimRewards(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const instructions = [];
+    if (params.jurorClaims && params.jurorClaims.length > 0) {
+      const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
+      for (const claim of params.jurorClaims) {
+        const ix = await program.methods.claimJurorReward().accountsPartial({
+          juror: wallet.publicKey,
+          jurorAccount,
+          dispute: claim.dispute,
+          subject: claim.subject,
+          voteRecord: claim.voteRecord
+        }).instruction();
+        instructions.push(ix);
+      }
+    }
+    if (params.challengerClaims && params.challengerClaims.length > 0) {
+      const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
+      for (const claim of params.challengerClaims) {
+        const ix = await program.methods.claimChallengerReward().accountsPartial({
+          challenger: wallet.publicKey,
+          challengerAccount,
+          dispute: claim.dispute,
+          subject: claim.subject,
+          challengerRecord: claim.challengerRecord
+        }).instruction();
+        instructions.push(ix);
+      }
+    }
+    if (params.defenderClaims && params.defenderClaims.length > 0) {
+      for (const claim of params.defenderClaims) {
+        const ix = await program.methods.claimDefenderReward().accountsPartial({
+          defender: wallet.publicKey,
+          dispute: claim.dispute,
+          subject: claim.subject,
+          defenderRecord: claim.defenderRecord
+        }).instruction();
+        instructions.push(ix);
+      }
+    }
+    if (instructions.length === 0) {
+      throw new Error("No claims provided");
+    }
+    const tx = new Transaction().add(...instructions);
+    if (this.simulateFirst) {
+      console.log(`[SDK] Simulating batch claim with ${instructions.length} instructions`);
+      try {
+        const { blockhash } = await this.connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = wallet.publicKey;
+        const simulation = await this.connection.simulateTransaction(tx);
+        if (simulation.value.err) {
+          const errorMessage = this.parseErrorFromLogs(simulation.value.logs || []);
+          throw new Error(`Simulation failed: ${errorMessage.message}`);
+        }
+        console.log("[SDK] Simulation succeeded");
+      } catch (err) {
+        if (err.message.includes("Simulation failed")) {
+          throw err;
+        }
+        console.warn("[SDK] Simulation warning:", err.message);
+      }
+    }
+    const signature = await program.provider.sendAndConfirm(tx, []);
+    console.log(`[SDK] Batch claim completed: ${instructions.length} claims in tx ${signature}`);
     return { signature };
   }
   // NOTE: closeEscrow removed - no escrow in simplified model
