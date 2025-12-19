@@ -25,9 +25,9 @@ export const SUBJECT_CATEGORIES = [
 
 // Helper functions
 export const getStatusBadge = (status: any) => {
-  if (status.valid) return { label: "Valid", class: "bg-emerald/20 text-emerald" };
+  if (status.valid) return { label: "Valid", class: "bg-emerald-700/20 text-emerald" };
   if (status.disputed) return { label: "Disputed", class: "bg-gold/20 text-gold" };
-  if (status.invalid) return { label: "Invalid", class: "bg-crimson/20 text-crimson" };
+  if (status.invalid) return { label: "Invalid", class: "bg-red-800/20 text-crimson" };
   if (status.dormant) return { label: "Dormant", class: "bg-purple-500/20 text-purple-400" };
   if (status.restoring) return { label: "Restoring", class: "bg-violet-500/20 text-violet-400" };
   return { label: "Unknown", class: "bg-steel/20 text-steel" };
@@ -122,11 +122,16 @@ export interface VoteCounts {
   against: number;
 }
 
+export interface UserRoles {
+  juror: boolean;
+  defender: boolean;
+  challenger: boolean;
+}
+
 export interface SubjectCardProps {
   subject: SubjectData;
   dispute?: DisputeData | null;
   isResolved?: boolean;
-  existingVote?: VoteData | null;
   subjectContent?: SubjectContent | null;
   disputeContent?: DisputeContent | null;
   voteCounts?: VoteCounts | null;
@@ -135,28 +140,16 @@ export interface SubjectCardProps {
 
 export interface SubjectModalProps {
   subject: SubjectData;
-  dispute?: DisputeData | null;
   subjectContent?: SubjectContent | null;
-  disputeContent?: DisputeContent | null;
-  existingVote?: VoteData | null;
   jurorAccount?: any;
-  disputeVotes: VoteData[];
-  pastDisputes: DisputeData[];
-  pastDisputeContents: Record<string, DisputeContent | null>;
-  challengerRecord?: ChallengerRecordData | null;
-  defenderRecord?: DefenderRecordData | null;
   onClose: () => void;
-  onVote?: (stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
+  onVote?: (disputeKey: string, stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
   onAddStake?: (amount: string) => void;
-  onJoinChallengers?: (amount: string) => void;
-  onResolve?: () => void;
-  onClaimJuror?: () => void;
-  onClaimChallenger?: () => void;
-  onClaimDefender?: () => void;
-  onFileDispute?: () => void;
-  onRestore?: () => void;
+  onJoinChallengers?: (disputeKey: string, amount: string) => void;
+  onResolve?: (disputeKey: string) => void;
+  onClaimAll?: (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
+  onRefresh?: () => void; // Called after dispute/restore submission to refresh data
   actionLoading: boolean;
   showActions?: boolean;
   getIpfsUrl?: (cid: string) => string;
-  disputeCid?: string;
 }
