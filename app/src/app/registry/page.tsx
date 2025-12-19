@@ -3,11 +3,11 @@
 import { useState, useEffect, memo, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import type { DisputeType } from "@/hooks/useTribunalcraft";
+import type { DisputeType, ChallengerAccount } from "@/hooks/useTribunalcraft";
 import type { SubjectContent, DisputeContent } from "@/lib/content-types";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
@@ -22,6 +22,7 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
   maxStake,
   freeCase,
   isLoading,
+  minBond,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -31,19 +32,32 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
   maxStake: number;
   freeCase: boolean;
   isLoading: boolean;
+  minBond: number;
 }) {
+  // Calculate default bond as minBond in SOL
+  const minBondSol = minBond / LAMPORTS_PER_SOL;
   const [form, setForm] = useState({
     type: "other",
     title: "",
     reason: "",
     requestedOutcome: "",
-    bondAmount: "0.05",
+    bondAmount: minBondSol.toFixed(6),
   });
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setForm({ type: "other", title: "", reason: "", requestedOutcome: "", bondAmount: minBondSol.toFixed(6) });
+    }
+  }, [isOpen, minBondSol]);
 
   const handleSubmit = () => {
     onSubmit(form);
-    setForm({ type: "other", title: "", reason: "", requestedOutcome: "", bondAmount: "0.05" });
   };
+
+  // Check if entered bond is below minimum
+  const enteredBond = parseFloat(form.bondAmount) * LAMPORTS_PER_SOL;
+  const isBelowMin = !freeCase && enteredBond < minBond;
 
   if (!isOpen) return null;
 
@@ -71,19 +85,32 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-steel">Bond Amount (SOL)</label>
-                {matchMode && (
+                <div className="flex gap-2">
                   <span className="text-xs text-gold">
-                    Max: {(maxStake / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                    Min: {minBondSol.toFixed(6)} SOL
                   </span>
-                )}
+                  {matchMode && (
+                    <span className="text-xs text-steel">
+                      | Max: {(maxStake / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                    </span>
+                  )}
+                </div>
               </div>
-              <input value={form.bondAmount} onChange={e => setForm(f => ({ ...f, bondAmount: e.target.value }))} className="input w-full" autoComplete="off" />
-              {matchMode && (
+              <input
+                value={form.bondAmount}
+                onChange={e => setForm(f => ({ ...f, bondAmount: e.target.value }))}
+                className={`input w-full ${isBelowMin ? 'border-crimson' : ''}`}
+                autoComplete="off"
+              />
+              {isBelowMin && (
+                <p className="text-[10px] text-crimson mt-1">Bond must be at least {minBondSol.toFixed(6)} SOL</p>
+              )}
+              {matchMode && !isBelowMin && (
                 <p className="text-[10px] text-steel mt-1">Match mode: bond cannot exceed defender stake</p>
               )}
             </div>
           )}
-          <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full">
+          <button onClick={handleSubmit} disabled={isLoading || isBelowMin} className="btn btn-primary w-full">
             {isLoading ? "Submitting..." : "Submit Dispute"}
           </button>
         </div>
@@ -108,20 +135,22 @@ const RestoreModal = memo(function RestoreModal({
   minStake: number;
   isLoading: boolean;
 }) {
+  const minStakeSol = (minStake / LAMPORTS_PER_SOL).toFixed(6);
   const [form, setForm] = useState({
     title: "",
     reason: "",
-    stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2),
+    stakeAmount: minStakeSol,
   });
 
-  // Update stake amount when minStake changes
+  // Reset form when modal opens
   useEffect(() => {
-    setForm(f => ({ ...f, stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2) }));
-  }, [minStake]);
+    if (isOpen) {
+      setForm({ title: "", reason: "", stakeAmount: minStakeSol });
+    }
+  }, [isOpen, minStakeSol]);
 
   const handleSubmit = () => {
     onSubmit(form);
-    setForm({ title: "", reason: "", stakeAmount: (minStake / LAMPORTS_PER_SOL).toFixed(2) });
   };
 
   if (!isOpen) return null;
@@ -149,7 +178,7 @@ const RestoreModal = memo(function RestoreModal({
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs text-steel">Stake Amount (SOL)</label>
               <span className="text-xs text-purple-400">
-                Min: {(minStake / LAMPORTS_PER_SOL).toFixed(2)} SOL
+                Min: {(minStake / LAMPORTS_PER_SOL).toFixed(6)} SOL
               </span>
             </div>
             <input value={form.stakeAmount} onChange={e => setForm(f => ({ ...f, stakeAmount: e.target.value }))} className="input w-full" autoComplete="off" />
@@ -192,6 +221,14 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
 
   const poolEmpty = poolBalance === 0;
 
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSubjectType("staked");
+      setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0" });
+    }
+  }, [isOpen]);
+
   const handleSubmit = () => {
     // If pool is empty and staked, require initial stake
     if (subjectType === "staked" && poolEmpty) {
@@ -202,7 +239,6 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
       }
     }
     onSubmit(form, subjectType);
-    setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0" });
   };
 
   if (!isOpen) return null;
@@ -234,17 +270,9 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
             <textarea value={form.termsText} onChange={e => setForm(f => ({ ...f, termsText: e.target.value }))} placeholder="Terms" className="input w-full h-16" />
           </div>
           <div className="border-t border-slate-light pt-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-steel mb-1 block">Voting Period (hours)</label>
-                <input value={form.votingPeriod} onChange={e => setForm(f => ({ ...f, votingPeriod: e.target.value }))} className="input w-full" autoComplete="off" />
-              </div>
-              {subjectType !== "free" && (
-                <div>
-                  <label className="text-xs text-steel mb-1 block">Protocol Fee</label>
-                  <div className="input w-full bg-slate-light/50 text-steel cursor-not-allowed">20% (19% jurors, 1% platform)</div>
-                </div>
-              )}
+            <div>
+              <label className="text-xs text-steel mb-1 block">Voting Period (hours)</label>
+              <input value={form.votingPeriod} onChange={e => setForm(f => ({ ...f, votingPeriod: e.target.value }))} className="input w-full" autoComplete="off" />
             </div>
             {subjectType === "staked" && (
               <>
@@ -311,14 +339,14 @@ export default function RegistryPage() {
     getJurorPDA,
     getVoteRecordPDA,
     fetchVotesByDispute,
-    claimJurorReward,
-    claimChallengerReward,
-    claimDefenderReward,
+    batchClaimRewards,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
     fetchChallengerRecord,
     fetchDefenderRecord,
     fetchProtocolConfig,
+    getChallengerPDA,
+    fetchChallengerAccount,
   } = useTribunalcraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
@@ -344,12 +372,14 @@ export default function RegistryPage() {
   // Challenger/Defender records for claims (only used in modal)
   const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
   const [defenderRecords, setDefenderRecords] = useState<Record<string, any>>({});
+  const [disputeCreatorReputation, setDisputeCreatorReputation] = useState<number | null>(null);
 
   // Modal state
   const [selectedItem, setSelectedItem] = useState<{ subject: SubjectData; dispute: DisputeData | null } | null>(null);
   const [showCreateSubject, setShowCreateSubject] = useState(false);
   const [showCreateDispute, setShowCreateDispute] = useState<string | null>(null);
   const [showRestore, setShowRestore] = useState<string | null>(null);
+  const [challengerAccount, setChallengerAccount] = useState<ChallengerAccount | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -484,53 +514,102 @@ export default function RegistryPage() {
     }
   }, [publicKey, client]);
 
+  // Sync selectedItem when disputes/subjects change (after loadData)
+  useEffect(() => {
+    if (selectedItem?.dispute) {
+      const disputeKey = selectedItem.dispute.publicKey.toBase58();
+      const subjectKey = selectedItem.subject.publicKey.toBase58();
+      const updatedDispute = disputes.find(d => d.publicKey.toBase58() === disputeKey);
+      const updatedSubject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
+      if (updatedDispute && updatedSubject) {
+        // Only update if data actually changed
+        if (updatedDispute.account.votesFavorWeight.toNumber() !== selectedItem.dispute.account.votesFavorWeight.toNumber() ||
+            updatedDispute.account.votesAgainstWeight.toNumber() !== selectedItem.dispute.account.votesAgainstWeight.toNumber()) {
+          setSelectedItem({ subject: updatedSubject, dispute: updatedDispute });
+        }
+      }
+    }
+  }, [disputes, subjects]);
+
   // Fetch votes and records when a subject is selected
   useEffect(() => {
     const fetchSelectedData = async () => {
       if (!selectedItem || !publicKey) {
         setDisputeVotes([]);
+        setDisputeCreatorReputation(null);
         return;
       }
 
       const { subject, dispute } = selectedItem;
       const subjectKey = subject.publicKey.toBase58();
 
-      // Fetch dispute votes
+      // Get all disputes for this subject (current + history)
+      const subjectDisputes = disputes.filter(d =>
+        d.account.subject.toBase58() === subjectKey
+      );
+
+      // Fetch defender record (applies to all disputes on this subject)
+      const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
+      try {
+        const record = await fetchDefenderRecord(defenderRecordPda);
+        if (record) setDefenderRecords(prev => ({ ...prev, [subjectKey]: record }));
+      } catch {}
+
+      // Fetch records for ALL disputes on this subject (for history)
+      for (const d of subjectDisputes) {
+        const dKey = d.publicKey.toBase58();
+
+        // Fetch vote record
+        const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
+        try {
+          const voteRecord = await fetchVoteRecord(voteRecordPda);
+          if (voteRecord) setExistingVotes(prev => ({
+            ...prev,
+            [dKey]: { publicKey: voteRecordPda, account: voteRecord }
+          }));
+        } catch {}
+
+        // Fetch challenger record
+        const [challengerRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
+        try {
+          const record = await fetchChallengerRecord(challengerRecordPda);
+          if (record) setChallengerRecords(prev => ({ ...prev, [dKey]: record }));
+        } catch {}
+      }
+
+      // Fetch current dispute specific data
       if (dispute) {
         const votes = await fetchVotesByDispute(dispute.publicKey);
         setDisputeVotes(votes || []);
 
-        // Fetch challenger record for resolved disputes
-        if (dispute.account.status.resolved) {
-          const [challengerRecordPda] = getChallengerRecordPDA(dispute.publicKey, publicKey);
-          try {
-            const record = await fetchChallengerRecord(challengerRecordPda);
-            if (record) setChallengerRecords(prev => ({ ...prev, [dispute.publicKey.toBase58()]: record }));
-          } catch {}
-
-          // Fetch defender record
-          const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
-          try {
-            const record = await fetchDefenderRecord(defenderRecordPda);
-            if (record) setDefenderRecords(prev => ({ ...prev, [subjectKey]: record }));
-          } catch {}
-
-          // Fetch vote record for resolved disputes
-          const [voteRecordPda] = getVoteRecordPDA(dispute.publicKey, publicKey);
-          try {
-            const voteRecord = await fetchVoteRecord(voteRecordPda);
-            if (voteRecord) setExistingVotes(prev => ({
-              ...prev,
-              [dispute.publicKey.toBase58()]: { publicKey: voteRecordPda, account: voteRecord }
-            }));
-          } catch {}
+        // Fetch the dispute creator's reputation
+        try {
+          const challengers = await fetchChallengersByDispute(dispute.publicKey);
+          if (challengers && challengers.length > 0) {
+            const creatorPubkey = challengers[0].account.challenger;
+            const [creatorChallengerPda] = getChallengerPDA(creatorPubkey);
+            const creatorAccount = await fetchChallengerAccount(creatorChallengerPda);
+            if (creatorAccount) {
+              const rep = creatorAccount.reputation;
+              setDisputeCreatorReputation(
+                typeof rep === 'number' ? rep : (rep as any).toNumber?.() ?? null
+              );
+            } else {
+              setDisputeCreatorReputation(null);
+            }
+          } else {
+            setDisputeCreatorReputation(null);
+          }
+        } catch {
+          setDisputeCreatorReputation(null);
         }
       } else {
         setDisputeVotes([]);
+        setDisputeCreatorReputation(null);
       }
     };
     fetchSelectedData();
-  }, [selectedItem, publicKey]);
+  }, [selectedItem, publicKey, disputes]);
 
   // Filter data for sections
   const validSubjects = subjects.filter(s => s.account.status.valid);
@@ -685,26 +764,26 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, showRestore, subjects, uploadDispute, submitRestore, loadData]);
 
-  const handleVote = useCallback(async (stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
-    if (!publicKey || !jurorAccount || !selectedItem?.dispute) return;
+  const handleVote = useCallback(async (disputeKey: string, stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
+    if (!publicKey || !jurorAccount) return;
     setActionLoading(true);
     setError(null);
     try {
-      const disputeKey = selectedItem.dispute.publicKey.toBase58();
+      const disputePubkey = new PublicKey(disputeKey);
       const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
       const hasExistingVote = existingVotes[disputeKey];
-      const isRestore = selectedItem.dispute.account.isRestore;
+      const isRestore = choice === "forRestoration" || choice === "againstRestoration";
 
       if (hasExistingVote) {
-        await addToVote(selectedItem.dispute.publicKey, stake);
+        await addToVote(disputePubkey, stake);
         setSuccess(`Added ${stakeAmount} SOL to vote`);
       } else if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
-        await voteOnRestore(selectedItem.dispute.publicKey, restoreChoice, stake, rationale);
+        await voteOnRestore(disputePubkey, restoreChoice, stake, rationale);
         setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
-        await voteOnDispute(selectedItem.dispute.publicKey, voteChoice, stake, rationale);
+        await voteOnDispute(disputePubkey, voteChoice, stake, rationale);
         setSuccess("Vote cast");
       }
       await loadData();
@@ -712,7 +791,7 @@ export default function RegistryPage() {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  }, [publicKey, jurorAccount, selectedItem, existingVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
+  }, [publicKey, jurorAccount, existingVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
 
   const handleAddStake = useCallback(async (amount: string) => {
     if (!publicKey || !selectedItem) return;
@@ -745,14 +824,14 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, selectedItem, addToStake, loadData, fetchProtocolConfig]);
 
-  const handleJoinChallengers = useCallback(async (amount: string) => {
+  const handleJoinChallengers = useCallback(async (disputeKey: string, amount: string) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
       const subject = selectedItem.subject;
       const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      const [disputePda] = getDisputePDA(subject.publicKey, subject.account.disputeCount - 1);
+      const disputePubkey = new PublicKey(disputeKey);
       const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
 
       // Get pool owner if subject is linked
@@ -764,21 +843,22 @@ export default function RegistryPage() {
         }
       }
 
-      await addToDispute(subject.publicKey, disputePda, defenderPool, poolOwner, "", bond);
+      await addToDispute(subject.publicKey, disputePubkey, defenderPool, poolOwner, "", bond);
       setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getDisputePDA, addToDispute, fetchDefenderPool, loadData]);
+  }, [publicKey, selectedItem, addToDispute, fetchDefenderPool, loadData]);
 
-  const handleResolve = useCallback(async () => {
-    if (!publicKey || !selectedItem?.dispute) return;
+  const handleResolve = useCallback(async (disputeKey: string) => {
+    if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
-      await resolveDispute(selectedItem.dispute.publicKey, selectedItem.subject.publicKey);
+      const disputePubkey = new PublicKey(disputeKey);
+      await resolveDispute(disputePubkey, selectedItem.subject.publicKey);
       setSuccess("Dispute resolved");
       setSelectedItem(null);
       await loadData();
@@ -788,57 +868,83 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
-  const handleClaimJurorReward = useCallback(async () => {
-    if (!publicKey || !selectedItem?.dispute) return;
+  const handleClaimAll = useCallback(async (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
+    if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
+    const claimedRewards: string[] = [];
     try {
-      const [voteRecordPda] = getVoteRecordPDA(selectedItem.dispute.publicKey, publicKey);
-      await claimJurorReward(selectedItem.dispute.publicKey, selectedItem.subject.publicKey, voteRecordPda);
-      setSuccess("Juror reward claimed!");
-      setSelectedItem(null);
-      await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to claim juror reward");
-    }
-    setActionLoading(false);
-  }, [publicKey, selectedItem, getVoteRecordPDA, claimJurorReward, loadData]);
+      const disputePubkey = new PublicKey(disputeKey);
+      const subjectPubkey = selectedItem.subject.publicKey;
 
-  const handleClaimChallengerReward = useCallback(async () => {
-    if (!publicKey || !selectedItem?.dispute) return;
-    setActionLoading(true);
-    setError(null);
-    try {
-      const [challengerRecordPda] = getChallengerRecordPDA(selectedItem.dispute.publicKey, publicKey);
-      await claimChallengerReward(selectedItem.dispute.publicKey, selectedItem.subject.publicKey, challengerRecordPda);
-      setSuccess("Challenger reward claimed!");
-      setSelectedItem(null);
-      await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to claim challenger reward");
-    }
-    setActionLoading(false);
-  }, [publicKey, selectedItem, getChallengerRecordPDA, claimChallengerReward, loadData]);
+      // Build batch claim params
+      const batchParams: {
+        jurorClaims?: Array<{ dispute: PublicKey; subject: PublicKey; voteRecord: PublicKey }>;
+        challengerClaims?: Array<{ dispute: PublicKey; subject: PublicKey; challengerRecord: PublicKey }>;
+        defenderClaims?: Array<{ dispute: PublicKey; subject: PublicKey; defenderRecord: PublicKey }>;
+      } = {};
 
-  const handleClaimDefenderReward = useCallback(async () => {
-    if (!publicKey || !selectedItem?.dispute) return;
-    setActionLoading(true);
-    setError(null);
-    try {
-      const [defenderRecordPda] = getDefenderRecordPDA(selectedItem.subject.publicKey, publicKey);
-      await claimDefenderReward(selectedItem.dispute.publicKey, selectedItem.subject.publicKey, defenderRecordPda);
-      setSuccess("Defender reward claimed!");
-      setSelectedItem(null);
+      if (claims.juror) {
+        const [voteRecordPda] = getVoteRecordPDA(disputePubkey, publicKey);
+        batchParams.jurorClaims = [{ dispute: disputePubkey, subject: subjectPubkey, voteRecord: voteRecordPda }];
+        claimedRewards.push("Juror");
+      }
+
+      if (claims.challenger) {
+        const [challengerRecordPda] = getChallengerRecordPDA(disputePubkey, publicKey);
+        batchParams.challengerClaims = [{ dispute: disputePubkey, subject: subjectPubkey, challengerRecord: challengerRecordPda }];
+        claimedRewards.push("Challenger");
+      }
+
+      if (claims.defender) {
+        const [defenderRecordPda] = getDefenderRecordPDA(subjectPubkey, publicKey);
+        batchParams.defenderClaims = [{ dispute: disputePubkey, subject: subjectPubkey, defenderRecord: defenderRecordPda }];
+        claimedRewards.push("Defender");
+      }
+
+      // Process all claims in a single transaction
+      await batchClaimRewards(batchParams);
+
+      setSuccess(`${claimedRewards.join(", ")} reward${claimedRewards.length > 1 ? "s" : ""} claimed!`);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to claim defender reward");
+      setError(err.message || "Failed to claim rewards");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getDefenderRecordPDA, claimDefenderReward, loadData]);
+  }, [publicKey, selectedItem, getVoteRecordPDA, getChallengerRecordPDA, getDefenderRecordPDA, batchClaimRewards, loadData]);
 
   // Get dispute subject data for create dispute modal
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
+
+  // Fetch challenger account when dispute modal opens
+  useEffect(() => {
+    const fetchChallenger = async () => {
+      if (showCreateDispute && publicKey) {
+        try {
+          const [challengerPda] = getChallengerPDA(publicKey);
+          const account = await fetchChallengerAccount(challengerPda);
+          setChallengerAccount(account);
+        } catch {
+          // Account doesn't exist yet - new challenger
+          setChallengerAccount(null);
+        }
+      } else {
+        setChallengerAccount(null);
+      }
+    };
+    fetchChallenger();
+  }, [showCreateDispute, publicKey, getChallengerPDA, fetchChallengerAccount]);
+
+  // Calculate minimum bond based on challenger reputation
+  // reputation is stored as u64 on-chain, which may come as number or BN
+  const rawRep = challengerAccount?.reputation;
+  const challengerReputation = rawRep != null
+    ? (typeof rawRep === 'number' ? rawRep : (rawRep as any).toNumber?.() ?? rawRep)
+    : null;
+  const minBond = calculateMinBond(
+    typeof challengerReputation === 'number' ? challengerReputation : INITIAL_REPUTATION
+  );
 
   const restoreSubject = showRestore ? subjects.find(s => s.publicKey.toBase58() === showRestore) : null;
   const restoreSubjectContent = restoreSubject ? subjectContents[restoreSubject.publicKey.toBase58()] : null;
@@ -847,22 +953,48 @@ export default function RegistryPage() {
     <div className="min-h-screen bg-obsidian">
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="font-display text-2xl font-bold text-ivory">Registry</h1>
-          {publicKey && (
-            <button onClick={() => setShowCreateSubject(true)} className="btn btn-primary flex items-center gap-2 text-sm py-2 px-3">
-              <PlusIcon /> New Subject
-            </button>
-          )}
+        <div className="mb-10 animate-slide-up">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-[1px] bg-gradient-to-r from-gold to-transparent" />
+            <span className="text-xs uppercase tracking-[0.2em] text-gold font-medium">Subjects</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="font-display text-4xl md:text-5xl font-bold text-ivory mb-3">
+                Registry
+              </h1>
+              <p className="text-steel text-lg">
+                Browse and manage registered subjects, disputes, and restorations
+              </p>
+            </div>
+            {publicKey && (
+              <button onClick={() => setShowCreateSubject(true)} className="btn btn-primary flex items-center gap-2">
+                <PlusIcon /> New Subject
+              </button>
+            )}
+          </div>
         </div>
 
-        {error && <div className="bg-crimson/10 border border-crimson p-3 mb-4 text-crimson text-sm">{error}</div>}
-        {success && <div className="bg-emerald/10 border border-emerald p-3 mb-4 text-emerald text-sm">{success}</div>}
+        {/* Alerts */}
+        {error && (
+          <div className="bg-red-800/10 border border-red-800/50 p-4 mb-6 animate-slide-up">
+            <p className="text-crimson text-sm">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-emerald-700/10 border border-emerald-700/50 p-4 mb-6 animate-slide-up">
+            <p className="text-emerald text-sm">{success}</p>
+          </div>
+        )}
 
         {loading ? (
-          <div className="text-center py-12 text-steel">Loading...</div>
+          <div className="tribunal-card p-12 text-center animate-slide-up stagger-2">
+            <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-steel">Loading registry data...</p>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Valid Section */}
@@ -908,7 +1040,6 @@ export default function RegistryPage() {
                         key={i}
                         subject={subject}
                         dispute={d}
-                        existingVote={existingVotes[d.publicKey.toBase58()]}
                         subjectContent={subjectContents[subject.publicKey.toBase58()]}
                         disputeContent={disputeContents[d.publicKey.toBase58()]}
                         voteCounts={disputeVoteCounts[d.publicKey.toBase58()]}
@@ -942,7 +1073,6 @@ export default function RegistryPage() {
                         key={i}
                         subject={s}
                         dispute={restoreDispute}
-                        existingVote={restoreDispute ? existingVotes[restoreDispute.publicKey.toBase58()] : null}
                         subjectContent={subjectContents[s.publicKey.toBase58()]}
                         disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
                         voteCounts={restoreDispute ? disputeVoteCounts[restoreDispute.publicKey.toBase58()] : null}
@@ -1026,38 +1156,18 @@ export default function RegistryPage() {
       {selectedItem && (
         <SubjectModal
           subject={selectedItem.subject}
-          dispute={selectedItem.dispute}
           subjectContent={subjectContents[selectedItem.subject.publicKey.toBase58()]}
-          disputeContent={selectedItem.dispute ? disputeContents[selectedItem.dispute.publicKey.toBase58()] : null}
-          existingVote={selectedItem.dispute ? existingVotes[selectedItem.dispute.publicKey.toBase58()] : null}
           jurorAccount={jurorAccount}
-          disputeVotes={disputeVotes}
-          pastDisputes={getPastDisputes(
-            selectedItem.subject.publicKey.toBase58(),
-            selectedItem.dispute?.publicKey.toBase58()
-          )}
-          pastDisputeContents={disputeContents}
-          challengerRecord={selectedItem.dispute ? challengerRecords[selectedItem.dispute.publicKey.toBase58()] : null}
-          defenderRecord={defenderRecords[selectedItem.subject.publicKey.toBase58()]}
           onClose={() => setSelectedItem(null)}
           onVote={handleVote}
           onAddStake={handleAddStake}
           onJoinChallengers={handleJoinChallengers}
           onResolve={handleResolve}
-          onClaimJuror={handleClaimJurorReward}
-          onClaimChallenger={handleClaimChallengerReward}
-          onClaimDefender={handleClaimDefenderReward}
-          onFileDispute={() => {
-            setSelectedItem(null);
-            setShowCreateDispute(selectedItem.subject.publicKey.toBase58());
-          }}
-          onRestore={() => {
-            setSelectedItem(null);
-            setShowRestore(selectedItem.subject.publicKey.toBase58());
-          }}
+          onClaimAll={handleClaimAll}
+          onRefresh={loadData}
           actionLoading={actionLoading}
+          showActions={true}
           getIpfsUrl={getUrl}
-          disputeCid={selectedItem.dispute ? disputeCids[selectedItem.dispute.publicKey.toBase58()] : undefined}
         />
       )}
 
@@ -1077,6 +1187,7 @@ export default function RegistryPage() {
         maxStake={disputeSubject?.account.maxStake?.toNumber() ?? 0}
         freeCase={disputeSubject?.account.freeCase ?? false}
         isLoading={actionLoading || isUploading}
+        minBond={minBond}
       />
       <RestoreModal
         isOpen={!!showRestore}
