@@ -6,13 +6,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
+tribunalcraft = "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN"
 
 [programs.devnet]
-tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
+tribunalcraft = "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN"
 
 [programs.mainnet]
-tribunalcraft = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
+tribunalcraft = "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN"
 
 [registry]
 url = "https://api.apr.dev"

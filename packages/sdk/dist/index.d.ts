@@ -4127,7 +4127,7 @@ declare const INITIAL_REPUTATION = 5000;
 declare const REPUTATION_GAIN_RATE = 500;
 declare const REPUTATION_LOSS_RATE = 1000;
 
-var address = "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX";
+var address = "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN";
 var metadata = {
 	name: "tribunalcraft",
 	version: "0.1.0",

@@ -10,7 +10,7 @@ import { PublicKey as PublicKey2 } from "@solana/web3.js";
 // src/constants.ts
 import { PublicKey } from "@solana/web3.js";
 var PROGRAM_ID = new PublicKey(
-  "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX"
+  "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN"
 );
 var PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 var DEFENDER_POOL_SEED = Buffer.from("defender_pool");
@@ -129,7 +129,7 @@ var pda = new PDA();
 
 // src/idl.json
 var idl_default = {
-  address: "4b9qTHcLrkjURroj8X9TCr8xKPNqDT7pNrCqi9brLiZX",
+  address: "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN",
   metadata: {
     name: "tribunalcraft",
     version: "0.1.0",
