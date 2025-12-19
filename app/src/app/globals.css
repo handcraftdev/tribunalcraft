@@ -577,6 +577,12 @@ h4 {
   padding: 0.625rem 1.25rem !important;
 }
 
+.wallet-adapter-button-start-icon,
+.wallet-adapter-button i,
+.wallet-adapter-button img {
+  display: none !important;
+}
+
 .wallet-adapter-button:hover {
   background: var(--gold-light) !important;
   border-color: var(--gold-light) !important;
@@ -663,12 +669,14 @@ h4 {
 .text-steel { color: var(--steel); }
 .text-parchment { color: var(--parchment); }
 .text-ivory { color: var(--ivory); }
+.text-sky { color: #38bdf8; }
 
 .bg-obsidian { background: var(--obsidian); }
 .bg-slate { background: var(--slate); }
 .bg-slate-light { background: var(--slate-light); }
 .bg-crimson { background: var(--crimson); }
-.bg-sky-500 { background: #0ea5e9; }
+.bg-sky { background: #0ea5e9; }
+.bg-sky-light { background: rgba(14, 165, 233, 0.2); }
 
 .border-gold { border-color: var(--gold); }
 .border-slate { border-color: var(--slate-light); }
