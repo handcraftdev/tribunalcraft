@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
-use crate::constants::{SUBJECT_SEED, DEFENDER_RECORD_SEED, DEFENDER_POOL_SEED, PROTOCOL_CONFIG_SEED, TOTAL_FEE_BPS};
+use crate::constants::{SUBJECT_SEED, DEFENDER_RECORD_SEED, DEFENDER_POOL_SEED, PROTOCOL_CONFIG_SEED, TOTAL_FEE_BPS, PLATFORM_SHARE_BPS};
 use crate::errors::TribunalCraftError;
 
 /// Create a subject linked to owner's defender pool
@@ -193,10 +193,11 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
     // In proportional mode during dispute, fees are deducted first
     let is_proportional_during_dispute = has_active_dispute && !is_match_mode;
 
-    // Calculate fees and net stake for proportional mode during dispute
+    // Calculate platform fee (1%) for proportional mode during dispute
+    // Only platform fee goes to treasury; remaining 19% juror share stays on subject
     let (fee_amount, net_stake) = if is_proportional_during_dispute {
-        let fee = (stake as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, stake.saturating_sub(fee))
+        let platform_fee = (stake as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, stake.saturating_sub(platform_fee))
     } else {
         // No dispute or match mode: no fees
         (0, stake)
@@ -237,8 +238,9 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
         anchor_lang::system_program::transfer(cpi_context, net_stake)?;
     }
 
-    // Update subject stake with net amount
-    subject.available_stake += net_stake;
+    // Update subject stake with GROSS amount for consistent accounting
+    // available_stake tracks GROSS values for resolution calculations
+    subject.available_stake += stake;
 
     // Revive dormant subject when stake is added
     if subject.status == SubjectStatus::Dormant && subject.available_stake > 0 {
@@ -261,9 +263,9 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
             TribunalCraftError::DisputeAlreadyResolved
         );
 
-        // Update dispute tracking - net stake is at risk
-        dispute.direct_stake_held += net_stake;
-        dispute.snapshot_total_stake += net_stake;
+        // Update dispute tracking with GROSS amounts
+        dispute.direct_stake_held += stake;
+        dispute.snapshot_total_stake += stake;
 
         msg!("Stake added during proportional dispute: {} gross, {} net (fee: {})",
             stake, net_stake, fee_amount);
@@ -279,21 +281,21 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
     let is_new_staker = defender_record.staked_at == 0;
 
     if is_new_staker {
-        // Initialize new staker record
+        // Initialize new staker record with GROSS stake
         defender_record.subject = subject.key();
         defender_record.defender = ctx.accounts.staker.key();
-        defender_record.stake = net_stake;
+        defender_record.stake = stake;
         defender_record.reward_claimed = false;
         defender_record.bump = ctx.bumps.defender_record;
         defender_record.staked_at = clock.unix_timestamp;
         defender_record.stake_in_escrow = 0; // No escrow in new model
 
         subject.defender_count += 1;
-        msg!("New defender added: {} lamports (net)", net_stake);
+        msg!("New defender added: {} lamports (gross)", stake);
     } else {
         // Add to existing stake (don't increment counts)
-        defender_record.stake += net_stake;
-        msg!("Added to existing stake: {} lamports (total: {})", net_stake, defender_record.stake);
+        defender_record.stake += stake;
+        msg!("Added to existing stake: {} lamports (total: {})", stake, defender_record.stake);
     }
 
     Ok(())

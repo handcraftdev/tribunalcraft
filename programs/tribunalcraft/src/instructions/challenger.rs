@@ -3,7 +3,7 @@ use crate::state::*;
 use crate::constants::{
     CHALLENGER_ACCOUNT_SEED, DISPUTE_SEED, PROTOCOL_CONFIG_SEED,
     CHALLENGER_RECORD_SEED, INITIAL_REPUTATION, BASE_CHALLENGER_BOND,
-    TOTAL_FEE_BPS,
+    TOTAL_FEE_BPS, PLATFORM_SHARE_BPS,
 };
 use crate::errors::TribunalCraftError;
 
@@ -159,24 +159,25 @@ pub fn submit_dispute(
         }
     };
 
-    // Calculate fees for bond, pool stake, and direct stake
+    // Calculate platform fees (1% = TOTAL_FEE_BPS * PLATFORM_SHARE_BPS / 10000 / 10000)
+    // Only platform fee goes to treasury; remaining 19% juror share stays on subject
     let (bond_fee, net_bond) = if !subject.free_case && bond > 0 {
-        let fee = (bond as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, bond.saturating_sub(fee))
+        let platform_fee = (bond as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, bond.saturating_sub(platform_fee))
     } else {
         (0, bond)
     };
 
     let (pool_fee, net_pool_stake) = if pool_stake_to_transfer > 0 {
-        let fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, pool_stake_to_transfer.saturating_sub(fee))
+        let platform_fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, pool_stake_to_transfer.saturating_sub(platform_fee))
     } else {
         (0, 0)
     };
 
-    let (direct_fee, net_direct_stake) = if direct_stake_at_risk > 0 {
-        let fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, direct_stake_at_risk.saturating_sub(fee))
+    let (direct_fee, _net_direct_stake) = if direct_stake_at_risk > 0 {
+        let platform_fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, direct_stake_at_risk.saturating_sub(platform_fee))
     } else {
         (0, 0)
     };
@@ -228,25 +229,26 @@ pub fn submit_dispute(
             **ctx.accounts.treasury.try_borrow_mut_lamports()? += pool_fee;
         }
 
-        // Transfer net pool stake to subject
+        // Transfer net pool stake to subject (lamports)
         if net_pool_stake > 0 {
             **defender_pool.to_account_info().try_borrow_mut_lamports()? -= net_pool_stake;
             **subject.to_account_info().try_borrow_mut_lamports()? += net_pool_stake;
 
-            // Consolidate into pool owner's stake (net amount)
-            pool_owner_record.stake += net_pool_stake;
-            subject.available_stake += net_pool_stake;
+            // Track GROSS amounts for consistent accounting
+            // available_stake and defender records use GROSS for resolution calculations
+            pool_owner_record.stake += pool_stake_to_transfer;
+            subject.available_stake += pool_stake_to_transfer;
         }
 
         msg!("Pool stake: {} gross, {} net (fee: {})", pool_stake_to_transfer, net_pool_stake, pool_fee);
     }
 
-    // Direct stake: transfer fee from subject to treasury (stake stays on subject)
+    // Direct stake: transfer fee from matched amount to treasury
+    // Note: available_stake is NOT modified - it stays constant during dispute
     if direct_fee > 0 {
         **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
-        subject.available_stake = subject.available_stake.saturating_sub(direct_fee);
-        msg!("Direct stake fee collected: {}", direct_fee);
+        msg!("Direct stake fee collected: {} (from matched amount)", direct_fee);
     }
 
     // Update subject status
@@ -255,12 +257,13 @@ pub fn submit_dispute(
     subject.dispute_count += 1;
     subject.updated_at = clock.unix_timestamp;
 
-    // Initialize dispute with NET amounts (after fees)
+    // Initialize dispute with GROSS amounts (before fees)
+    // This ensures available_stake is correctly reduced at resolution
     dispute.subject = subject.key();
     dispute.dispute_type = dispute_type;
-    dispute.total_bond = net_bond;
-    dispute.stake_held = net_pool_stake;
-    dispute.direct_stake_held = net_direct_stake;
+    dispute.total_bond = bond;
+    dispute.stake_held = pool_stake_to_transfer;
+    dispute.direct_stake_held = direct_stake_at_risk;
     dispute.challenger_count = 1;
     dispute.status = DisputeStatus::Pending;
     dispute.outcome = ResolutionOutcome::None;
@@ -272,9 +275,9 @@ pub fn submit_dispute(
     dispute.created_at = clock.unix_timestamp;
     dispute.pool_reward_claimed = false;
 
-    // Snapshot for claim calculations (use NET amounts after fees)
-    // Direct stake is now (snapshot_total_stake - direct_fee), pool stake is net_pool_stake
-    dispute.snapshot_total_stake = snapshot_total_stake.saturating_sub(direct_fee) + net_pool_stake;
+    // Snapshot for claim calculations (use GROSS amounts for consistent accounting)
+    // available_stake already GROSS, add GROSS pool stake
+    dispute.snapshot_total_stake = snapshot_total_stake + pool_stake_to_transfer;
     dispute.snapshot_defender_count = subject.defender_count;
     dispute.challengers_claimed = 0;
     dispute.defenders_claimed = 0;
@@ -288,19 +291,19 @@ pub fn submit_dispute(
     // Voting starts immediately
     dispute.start_voting(clock.unix_timestamp, subject.voting_period);
 
-    // Initialize challenger record
+    // Initialize challenger record with GROSS bond
     challenger_record.dispute = dispute.key();
     challenger_record.challenger = ctx.accounts.challenger.key();
     challenger_record.challenger_account = challenger_account.key();
-    challenger_record.bond = net_bond;
+    challenger_record.bond = bond;
     challenger_record.details_cid = details_cid;
     challenger_record.reward_claimed = false;
     challenger_record.bump = ctx.bumps.challenger_record;
     challenger_record.challenged_at = clock.unix_timestamp;
 
     let total_fees = bond_fee + pool_fee + direct_fee;
-    msg!("Dispute submitted: bond={} (net), pool={} (net), direct={} (net), total_fees={}",
-        net_bond, net_pool_stake, net_direct_stake, total_fees);
+    msg!("Dispute submitted: bond={} (gross), pool={} (gross), direct={} (gross), total_fees={}",
+        bond, pool_stake_to_transfer, direct_stake_at_risk, total_fees);
 
     // Update challenger stats
     challenger_account.disputes_submitted += 1;
@@ -440,24 +443,25 @@ pub fn add_to_dispute(
         (0, 0)
     };
 
-    // Calculate fees for bond, pool stake, and direct stake
+    // Calculate platform fees (1% = TOTAL_FEE_BPS * PLATFORM_SHARE_BPS / 10000 / 10000)
+    // Only platform fee goes to treasury; remaining 19% juror share stays on subject
     let (bond_fee, net_bond) = if bond > 0 {
-        let fee = (bond as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, bond.saturating_sub(fee))
+        let platform_fee = (bond as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, bond.saturating_sub(platform_fee))
     } else {
         (0, 0)
     };
 
     let (pool_fee, net_pool_stake) = if pool_stake_to_transfer > 0 {
-        let fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, pool_stake_to_transfer.saturating_sub(fee))
+        let platform_fee = (pool_stake_to_transfer as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, pool_stake_to_transfer.saturating_sub(platform_fee))
     } else {
         (0, 0)
     };
 
-    let (direct_fee, net_direct_stake) = if direct_stake_at_risk > 0 {
-        let fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 / 10000) as u64;
-        (fee, direct_stake_at_risk.saturating_sub(fee))
+    let (direct_fee, _net_direct_stake) = if direct_stake_at_risk > 0 {
+        let platform_fee = (direct_stake_at_risk as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+        (platform_fee, direct_stake_at_risk.saturating_sub(platform_fee))
     } else {
         (0, 0)
     };
@@ -509,35 +513,35 @@ pub fn add_to_dispute(
             **ctx.accounts.treasury.try_borrow_mut_lamports()? += pool_fee;
         }
 
-        // Transfer net pool stake to subject
+        // Transfer net pool stake to subject (lamports)
         if net_pool_stake > 0 {
             **defender_pool.to_account_info().try_borrow_mut_lamports()? -= net_pool_stake;
             **subject.to_account_info().try_borrow_mut_lamports()? += net_pool_stake;
 
-            // Consolidate into pool owner's stake (net amount)
-            pool_owner_record.stake += net_pool_stake;
-            subject.available_stake += net_pool_stake;
+            // Track GROSS amounts for consistent accounting
+            pool_owner_record.stake += pool_stake_to_transfer;
+            subject.available_stake += pool_stake_to_transfer;
 
-            // Update snapshot to include new pool stake (net)
-            dispute.snapshot_total_stake += net_pool_stake;
+            // Update snapshot with GROSS pool stake
+            dispute.snapshot_total_stake += pool_stake_to_transfer;
         }
 
         msg!("Pool stake: {} gross, {} net (fee: {})", pool_stake_to_transfer, net_pool_stake, pool_fee);
     }
 
-    // Direct stake: transfer fee from subject to treasury
+    // Direct stake: transfer fee from matched amount to treasury
+    // Note: available_stake is NOT modified - it stays constant during dispute
     if direct_fee > 0 {
         **subject.to_account_info().try_borrow_mut_lamports()? -= direct_fee;
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += direct_fee;
-        subject.available_stake = subject.available_stake.saturating_sub(direct_fee);
-        // Note: Don't add to snapshot_total_stake since we're reducing existing stake
-        msg!("Direct stake fee collected: {}", direct_fee);
+        msg!("Direct stake fee collected: {} (from matched amount)", direct_fee);
     }
 
-    // Update dispute accounting with NET amounts
-    dispute.total_bond += net_bond;
-    dispute.stake_held += net_pool_stake;
-    dispute.direct_stake_held += net_direct_stake;
+    // Update dispute accounting with GROSS amounts (before fees)
+    // This ensures available_stake is correctly reduced at resolution
+    dispute.total_bond += bond;
+    dispute.stake_held += pool_stake_to_transfer;
+    dispute.direct_stake_held += direct_stake_at_risk;
 
     // Check if new challenger
     let is_new_challenger = challenger_record.challenged_at == 0;
@@ -546,7 +550,7 @@ pub fn add_to_dispute(
         challenger_record.dispute = dispute.key();
         challenger_record.challenger = ctx.accounts.challenger.key();
         challenger_record.challenger_account = challenger_account.key();
-        challenger_record.bond = net_bond;
+        challenger_record.bond = bond;
         challenger_record.details_cid = details_cid;
         challenger_record.reward_claimed = false;
         challenger_record.bump = ctx.bumps.challenger_record;
@@ -556,10 +560,10 @@ pub fn add_to_dispute(
         challenger_account.last_dispute_at = clock.unix_timestamp;
         dispute.challenger_count += 1;
 
-        msg!("New challenger added: {} bond (net after fees)", net_bond);
+        msg!("New challenger added: {} bond (gross)", bond);
     } else {
-        challenger_record.bond += net_bond;
-        msg!("Added to existing bond: {} (total: {})", net_bond, challenger_record.bond);
+        challenger_record.bond += bond;
+        msg!("Added to existing bond: {} (total: {})", bond, challenger_record.bond);
     }
 
     Ok(())

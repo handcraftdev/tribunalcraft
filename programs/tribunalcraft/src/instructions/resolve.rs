@@ -3,7 +3,7 @@ use crate::state::*;
 use crate::constants::{
     stacked_sigmoid, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE,
     JUROR_ACCOUNT_SEED, CHALLENGER_ACCOUNT_SEED, DEFENDER_RECORD_SEED,
-    TOTAL_FEE_BPS, JUROR_SHARE_BPS, WINNER_SHARE_BPS,
+    TOTAL_FEE_BPS, JUROR_SHARE_BPS, WINNER_SHARE_BPS, PLATFORM_SHARE_BPS,
 };
 use crate::errors::TribunalCraftError;
 
@@ -55,11 +55,10 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     };
     subject.last_voting_period = dispute_voting_period;
 
-    // Note: Platform fees already collected upfront when bonds were deposited
-    // No escrow transfer needed here
+    // Note: Platform fees (1%) already collected upfront when bonds were deposited
+    // Juror share (19%) remains on subject for jurors to claim
 
-    // Update available_stake: subtract stake that was at risk (both outcomes)
-    // This is done regardless of outcome since the stake was committed to the dispute
+    // Update available_stake: subtract stake that was at risk
     if !dispute.is_restore {
         let stake_at_risk = dispute.total_stake_held();
         subject.available_stake = subject.available_stake.saturating_sub(stake_at_risk);
@@ -97,7 +96,7 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     } else {
         match outcome {
             ResolutionOutcome::NoParticipation | ResolutionOutcome::DefenderWins => {
-                // Defender wins - check if stake remains
+                // Defender wins - check if stake remains after settlement
                 if subject.available_stake > 0 {
                     subject.status = SubjectStatus::Valid;
                     msg!("Dispute resolved - defender wins, subject valid");
@@ -230,11 +229,11 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
             if correct {
                 juror_account.correct_votes += 1;
                 let remaining = 10000u16.saturating_sub(juror_account.reputation);
-                let gain = (remaining as u32 * REPUTATION_GAIN_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
+                let gain = (remaining as u64 * REPUTATION_GAIN_RATE as u64 * multiplier as u64 / 10000 / 10000) as u16;
                 juror_account.reputation = juror_account.reputation.saturating_add(gain);
                 msg!("Reputation gain: +{}", gain);
             } else {
-                let loss = (juror_account.reputation as u32 * REPUTATION_LOSS_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
+                let loss = (juror_account.reputation as u64 * REPUTATION_LOSS_RATE as u64 * multiplier as u64 / 10000 / 10000) as u16;
                 juror_account.reputation = juror_account.reputation.saturating_sub(loss);
                 msg!("Reputation loss: -{}", loss);
             }
@@ -378,11 +377,15 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
             msg!("Dispute dismissed - challenger loses bond");
         }
         ResolutionOutcome::NoParticipation => {
-            // No votes: full bond return
-            **subject.to_account_info().try_borrow_mut_lamports()? -= bond;
-            **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += bond;
+            // No votes: return net bond (99% of gross, platform fee already taken)
+            let platform_fee = (bond as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+            let bond_return = bond.saturating_sub(platform_fee);
 
-            msg!("No participation - bond returned: {} lamports", bond);
+            // Transfer from subject to this challenger
+            **subject.to_account_info().try_borrow_mut_lamports()? -= bond_return;
+            **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += bond_return;
+
+            msg!("No participation - bond returned: {} lamports", bond_return);
         }
         _ => {
             return Err(TribunalCraftError::DisputeNotFound.into());
@@ -464,19 +467,18 @@ pub fn claim_defender_reward(ctx: Context<ClaimDefenderReward>) -> Result<()> {
             let stake_return = (stake_at_risk as u128 * WINNER_SHARE_BPS as u128 / 10000) as u64;
             let total_return = reward + stake_return;
 
-            // Transfer from subject
+            // Transfer from subject to defender
             **subject.to_account_info().try_borrow_mut_lamports()? -= total_return;
             **ctx.accounts.defender.to_account_info().try_borrow_mut_lamports()? += total_return;
 
             msg!("Defender reward claimed: {} lamports (stake_at_risk: {})", total_return, stake_at_risk);
         }
         ResolutionOutcome::ChallengerWins => {
-            // Loser: loses stake (stays on subject, goes to challengers)
+            // Loser: loses stake (stays on subject for challenger to claim)
             msg!("Challenger wins - defender loses stake ({})", stake_at_risk);
         }
         ResolutionOutcome::NoParticipation => {
-            // No votes: defender keeps their stake (already on subject, nothing to transfer)
-            // Note: Direct stake never moved, pool stake consolidated into defender's stake
+            // No votes: stake stays on subject, bond is claimable
             msg!("No participation - stake retained on subject: {}", stake_at_risk);
         }
         _ => {
