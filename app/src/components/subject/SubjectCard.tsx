@@ -40,6 +40,7 @@ export const SubjectCard = memo(function SubjectCard({
   existingVote,
   subjectContent,
   disputeContent,
+  voteCounts,
   onClick,
 }: SubjectCardProps) {
   const subjectKey = subject.publicKey.toBase58();
@@ -62,30 +63,26 @@ export const SubjectCard = memo(function SubjectCard({
     ? (dispute!.account.votesFavorWeight.toNumber() / totalVotes) * 100
     : 50;
 
-  // Juror fees display (19% of total pool - 95% of 20% fee)
+  // Juror fees display (19% of total pool - 95% of 20% fee) - only calculated when dispute exists
   const PROTOCOL_FEE_BPS = 2000;
   const JUROR_SHARE_BPS = 9500;
-  let jurorFees = "FREE";
-  if (!subject.account.freeCase) {
-    if (showDisputeInfo) {
-      let totalPool: number;
-      if (dispute!.account.isRestore) {
-        // For restorations, juror pot is based on restore stake
-        totalPool = dispute!.account.restoreStake.toNumber();
-      } else {
-        // For regular disputes, juror pot is based on bond + matched stake
-        const bondPool = dispute!.account.totalBond.toNumber();
-        const matchedStake = subject.account.matchMode
-          ? dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()
-          : dispute!.account.snapshotTotalStake.toNumber();
-        totalPool = bondPool + matchedStake;
-      }
-      const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
-      const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
-      jurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)} SOL`;
+  let jurorFees = "";
+  if (showDisputeInfo && !subject.account.freeCase) {
+    let totalPool: number;
+    if (dispute!.account.isRestore) {
+      totalPool = dispute!.account.restoreStake.toNumber();
     } else {
-      jurorFees = "19%";
+      const bondPool = dispute!.account.totalBond.toNumber();
+      const matchedStake = subject.account.matchMode
+        ? dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()
+        : dispute!.account.snapshotTotalStake.toNumber();
+      totalPool = bondPool + matchedStake;
     }
+    const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
+    const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
+    jurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(3)}`;
+  } else if (showDisputeInfo && subject.account.freeCase) {
+    jurorFees = "FREE";
   }
 
   return (
@@ -112,11 +109,17 @@ export const SubjectCard = memo(function SubjectCard({
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
             subject.account.matchMode ? "bg-gold/20 text-gold" : "bg-steel/20 text-steel"
           }`}>
-            {subject.account.matchMode ? "Match" : "Proportional"}
+            {subject.account.matchMode ? "Match" : "Prop"}
           </span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${status.class}`}>
             {status.label}
           </span>
+          {/* Juror fees - only show when there's an active dispute */}
+          {jurorFees && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/20 text-gold">
+              {jurorFees}
+            </span>
+          )}
         </div>
       </div>
 
@@ -173,85 +176,79 @@ export const SubjectCard = memo(function SubjectCard({
           <div className="flex items-center justify-between text-[10px]">
             {isRestore ? (
               <>
-                <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
+                <span>
+                  <span className="text-purple-400">
+                    {(dispute.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-purple-400">
+                    {voteCounts ? voteCounts.favor : dispute.account.voteCount}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
+                </span>
                 <span className="text-steel flex items-center gap-1">
                   <ClockIcon />
                   <Countdown endTime={dispute.account.votingEndsAt.toNumber() * 1000} />
                 </span>
-                <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
+                <span>
+                  <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {voteCounts ? voteCounts.against : 0}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-purple-400">
+                    {dispute.account.restorer.toBase58().slice(0, 4)}...
+                  </span>
+                </span>
               </>
             ) : (
               <>
-                <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
+                <span>
+                  <span className="text-sky-400">
+                    {((dispute.account.stakeHeld.toNumber() + dispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-sky-400">
+                    {voteCounts ? voteCounts.against : dispute.account.voteCount}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
+                </span>
                 <span className="text-steel flex items-center gap-1">
                   <ClockIcon />
                   <Countdown endTime={dispute.account.votingEndsAt.toNumber() * 1000} />
                 </span>
-                <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
+                <span>
+                  <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {voteCounts ? voteCounts.favor : 0}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {(dispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
+                  </span>
+                </span>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* Footer */}
-      <div className="grid grid-cols-3 text-[10px] pt-2 border-t border-slate-light/50">
-        <span>
-          {!subject.account.freeCase && (
-            showDisputeInfo ? (
-              isRestore ? (
-                // Restoration: show restore stake
-                <span className="text-purple-400">
-                  {(dispute!.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
-                </span>
-              ) : (
-                // Regular dispute: show defender stake / challenger bond
-                <>
-                  <span className="text-sky-400">
-                    {((dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(2)}
-                  </span>
-                  <span className="text-steel"> / </span>
-                  <span className="text-crimson">
-                    {(dispute!.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
-                  </span>
-                </>
-              )
-            ) : (
-              <>
-                <span className="text-sky-400">
-                  {(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)}
-                </span>
-                {subject.account.matchMode && !subject.account.defenderPool.equals(PublicKey.default) && (
-                  <span className="text-steel">
-                    {" "}(max {(subject.account.maxStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)})
-                  </span>
-                )}
-              </>
-            )
-          )}
-        </span>
-        <span className="text-center">
-          {showDisputeInfo && isRestore ? (
-            // Restoration: show restorer address
-            <span className="text-purple-400">
-              {dispute!.account.restorer.toBase58().slice(0, 4)}...
-            </span>
-          ) : (
-            <>
-              <span className="text-sky-400">{subject.account.defenderCount}</span>
-              {showDisputeInfo ? (
-                <>
-                  <span className="text-steel"> vs </span>
-                  <span className="text-crimson">{dispute!.account.challengerCount}</span>
-                </>
-              ) : (
-                <span className="text-steel"> ({subject.account.disputeCount})</span>
-              )}
-            </>
-          )}
-        </span>
-        <span className="text-gold text-right">{jurorFees}</span>
-      </div>
+      {/* Footer - only for non-disputed subjects */}
+      {!showDisputeInfo && (
+        // No dispute: just show stake and defender count
+        <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-light/50">
+          <span className="text-sky-400">
+            {(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL
+          </span>
+          <span className="text-sky-400">
+            {subject.account.defenderCount} defender{subject.account.defenderCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
     </div>
   );
 });

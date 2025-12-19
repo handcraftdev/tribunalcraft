@@ -117,6 +117,11 @@ export interface DefenderRecordData {
   [key: string]: any;
 }
 
+export interface VoteCounts {
+  favor: number;
+  against: number;
+}
+
 export interface SubjectCardProps {
   subject: SubjectData;
   dispute?: DisputeData | null;
@@ -124,6 +129,7 @@ export interface SubjectCardProps {
   existingVote?: VoteData | null;
   subjectContent?: SubjectContent | null;
   disputeContent?: DisputeContent | null;
+  voteCounts?: VoteCounts | null;
   onClick: () => void;
 }
 

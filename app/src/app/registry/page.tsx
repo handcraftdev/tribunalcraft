@@ -339,6 +339,7 @@ export default function RegistryPage() {
   const [jurorAccount, setJurorAccount] = useState<any>(null);
   const [existingVotes, setExistingVotes] = useState<Record<string, VoteData>>({});
   const [disputeVotes, setDisputeVotes] = useState<VoteData[]>([]);
+  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { favor: number; against: number }>>({});
 
   // Challenger/Defender records for claims (only used in modal)
   const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
@@ -442,6 +443,31 @@ export default function RegistryPage() {
             } catch {}
           }
           setExistingVotes(votes);
+
+          // Fetch vote counts for pending disputes (for SubjectCard display)
+          const counts: Record<string, { favor: number; against: number }> = {};
+          for (const d of pendingDisputes) {
+            try {
+              const allVotes = await fetchVotesByDispute(d.publicKey);
+              if (allVotes) {
+                let favor = 0;
+                let against = 0;
+                for (const v of allVotes) {
+                  // For restorations: forRestoration is favor, againstRestoration is against
+                  // For regular disputes: forChallenger is favor, forDefender is against
+                  if (d.account.isRestore) {
+                    if ("forRestoration" in v.account.restoreChoice) favor++;
+                    else if ("againstRestoration" in v.account.restoreChoice) against++;
+                  } else {
+                    if ("forChallenger" in v.account.choice) favor++;
+                    else if ("forDefender" in v.account.choice) against++;
+                  }
+                }
+                counts[d.publicKey.toBase58()] = { favor, against };
+              }
+            } catch {}
+          }
+          setDisputeVoteCounts(counts);
         } catch {
           setJurorAccount(null);
         }
@@ -885,6 +911,7 @@ export default function RegistryPage() {
                         existingVote={existingVotes[d.publicKey.toBase58()]}
                         subjectContent={subjectContents[subject.publicKey.toBase58()]}
                         disputeContent={disputeContents[d.publicKey.toBase58()]}
+                        voteCounts={disputeVoteCounts[d.publicKey.toBase58()]}
                         onClick={() => setSelectedItem({ subject, dispute: d })}
                       />
                     );
@@ -918,6 +945,7 @@ export default function RegistryPage() {
                         existingVote={restoreDispute ? existingVotes[restoreDispute.publicKey.toBase58()] : null}
                         subjectContent={subjectContents[s.publicKey.toBase58()]}
                         disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
+                        voteCounts={restoreDispute ? disputeVoteCounts[restoreDispute.publicKey.toBase58()] : null}
                         onClick={() => setSelectedItem({ subject: s, dispute: restoreDispute || null })}
                       />
                     );
