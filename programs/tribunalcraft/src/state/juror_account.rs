@@ -21,8 +21,8 @@ pub struct JurorAccount {
     /// Available stake (not locked in active disputes)
     pub available_stake: u64,
 
-    /// Reputation score (basis points, 0-10000+)
-    pub reputation: u16,
+    /// Reputation score (6 decimals, 100% = 100_000_000)
+    pub reputation: u64,
 
     /// Total votes cast
     pub votes_cast: u64,
@@ -48,7 +48,7 @@ impl JurorAccount {
         32 +    // juror
         8 +     // total_stake
         8 +     // available_stake
-        2 +     // reputation
+        8 +     // reputation (u64)
         8 +     // votes_cast
         8 +     // correct_votes
         1 +     // is_active
@@ -98,7 +98,7 @@ impl JurorAccount {
     /// Calculate voting power: sqrt(stake) * reputation * sqrt(votes + 1)
     /// Returns scaled value (multiplied by WEIGHT_PRECISION)
     pub fn calculate_voting_power(&self, stake_allocated: u64) -> u64 {
-        use crate::constants::WEIGHT_PRECISION;
+        use crate::constants::{WEIGHT_PRECISION, REP_100_PERCENT};
 
         // sqrt(stake_allocated) - using integer sqrt approximation
         let sqrt_stake = integer_sqrt(stake_allocated);
@@ -106,25 +106,27 @@ impl JurorAccount {
         // sqrt(votes_cast + 1)
         let sqrt_votes = integer_sqrt(self.votes_cast + 1);
 
-        // reputation as decimal (divide by 10000 later)
-        let rep = self.reputation as u64;
+        // reputation as decimal (divide by REP_100_PERCENT later)
+        let rep = self.reputation;
 
-        // voting_power = sqrt(stake) * (rep / 10000) * sqrt(votes + 1)
+        // voting_power = sqrt(stake) * (rep / 100_000_000) * sqrt(votes + 1)
         // Scale by WEIGHT_PRECISION for precision
-        (sqrt_stake * rep * sqrt_votes * WEIGHT_PRECISION) / 10000
+        (sqrt_stake as u128 * rep as u128 * sqrt_votes as u128 * WEIGHT_PRECISION as u128 / REP_100_PERCENT as u128) as u64
     }
 
     /// Calculate withdrawal return based on reputation
     /// Returns (return_amount, slash_amount)
-    pub fn calculate_withdrawal(&self, amount: u64, slash_threshold: u16) -> (u64, u64) {
+    pub fn calculate_withdrawal(&self, amount: u64, slash_threshold: u64) -> (u64, u64) {
+        use crate::constants::REP_100_PERCENT;
+
         if self.reputation >= slash_threshold {
             // Full return if reputation >= 50%
             (amount, 0)
         } else {
-            // return_percentage = reputation * 2 (in basis points)
-            // e.g., 25% rep = 50% return
-            let return_bps = (self.reputation as u64) * 2;
-            let return_amount = (amount * return_bps) / 10000;
+            // return_percentage = reputation * 2 / REP_100_PERCENT
+            // e.g., 25% rep (25_000_000) = 50% return
+            let return_pct = self.reputation * 2;
+            let return_amount = (amount as u128 * return_pct as u128 / REP_100_PERCENT as u128) as u64;
             let slash_amount = amount - return_amount;
             (return_amount, slash_amount)
         }

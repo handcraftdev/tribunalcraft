@@ -189,6 +189,16 @@ pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
     let has_active_dispute = subject.has_active_dispute();
     let is_match_mode = subject.match_mode;
 
+    // If there's an active dispute, check voting hasn't ended
+    if has_active_dispute {
+        if let Some(dispute) = ctx.accounts.dispute.as_ref() {
+            require!(
+                !dispute.is_voting_ended(clock.unix_timestamp),
+                TribunalCraftError::VotingEnded
+            );
+        }
+    }
+
     // In the no-escrow model, all stake always goes to subject
     // In proportional mode during dispute, fees are deducted first
     let is_proportional_during_dispute = has_active_dispute && !is_match_mode;

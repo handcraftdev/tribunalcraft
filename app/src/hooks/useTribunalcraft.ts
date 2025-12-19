@@ -292,6 +292,11 @@ export const useTribunalcraft = () => {
     return client.unlockJurorStake({ dispute, voteRecord });
   }, [client]);
 
+  const batchUnlockStake = useCallback(async (unlocks: Array<{ dispute: PublicKey; voteRecord: PublicKey }>) => {
+    if (!client) throw new Error("Client not initialized");
+    return client.batchUnlockStake({ unlocks });
+  }, [client]);
+
   // Reward Claims
   const claimJurorReward = useCallback(async (
     dispute: PublicKey,
@@ -474,6 +479,7 @@ export const useTribunalcraft = () => {
     // Resolution
     resolveDispute,
     unlockJurorStake,
+    batchUnlockStake,
     // Rewards
     claimJurorReward,
     claimChallengerReward,
@@ -545,8 +551,15 @@ export {
   MIN_JUROR_STAKE,
   MIN_CHALLENGER_BOND,
   MIN_DEFENDER_STAKE,
+  BASE_CHALLENGER_BOND,
   STAKE_UNLOCK_BUFFER,
   TOTAL_FEE_BPS,
   JUROR_SHARE_BPS,
   WINNER_SHARE_BPS,
+  // Reputation helpers
+  REP_PRECISION,
+  REP_100_PERCENT,
+  INITIAL_REPUTATION,
+  calculateMinBond,
+  formatReputation,
 } from "@tribunalcraft/sdk";

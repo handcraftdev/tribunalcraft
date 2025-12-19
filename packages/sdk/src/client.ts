@@ -858,6 +858,64 @@ export class TribunalCraftClient {
   }
 
   /**
+   * Batch unlock all ready juror stakes in a single transaction
+   */
+  async batchUnlockStake(params: {
+    unlocks: Array<{
+      dispute: PublicKey;
+      voteRecord: PublicKey;
+    }>;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+
+    if (params.unlocks.length === 0) {
+      throw new Error("No stakes to unlock");
+    }
+
+    const instructions: TransactionInstruction[] = [];
+
+    for (const unlock of params.unlocks) {
+      const ix = await program.methods
+        .unlockJurorStake()
+        .accountsPartial({
+          dispute: unlock.dispute,
+          voteRecord: unlock.voteRecord,
+        })
+        .instruction();
+      instructions.push(ix);
+    }
+
+    // Build and send transaction
+    const tx = new Transaction().add(...instructions);
+
+    // Simulate if enabled
+    if (this.simulateFirst) {
+      console.log(`[SDK] Simulating batch unlock with ${instructions.length} instructions`);
+      try {
+        const { blockhash } = await this.connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = wallet.publicKey;
+        const simulation = await this.connection.simulateTransaction(tx);
+        if (simulation.value.err) {
+          const errorMessage = this.parseErrorFromLogs(simulation.value.logs || []);
+          throw new Error(`Simulation failed: ${errorMessage.message}`);
+        }
+        console.log("[SDK] Simulation succeeded");
+      } catch (err: any) {
+        if (err.message.includes("Simulation failed")) {
+          throw err;
+        }
+        console.warn("[SDK] Simulation warning:", err.message);
+      }
+    }
+
+    const signature = await program.provider.sendAndConfirm!(tx, []);
+    console.log(`[SDK] Batch unlock completed: ${instructions.length} unlocks in tx ${signature}`);
+
+    return { signature };
+  }
+
+  /**
    * Claim juror reward (processes reputation + distributes reward)
    * Simulates transaction first to catch errors before sending
    */

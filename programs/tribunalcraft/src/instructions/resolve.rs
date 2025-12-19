@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{
-    stacked_sigmoid, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE,
+    stacked_sigmoid, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT,
     JUROR_ACCOUNT_SEED, CHALLENGER_ACCOUNT_SEED, DEFENDER_RECORD_SEED,
     TOTAL_FEE_BPS, JUROR_SHARE_BPS, WINNER_SHARE_BPS, PLATFORM_SHARE_BPS,
 };
@@ -228,12 +228,18 @@ pub fn claim_juror_reward(ctx: Context<ClaimJurorReward>) -> Result<()> {
 
             if correct {
                 juror_account.correct_votes += 1;
-                let remaining = 10000u16.saturating_sub(juror_account.reputation);
-                let gain = (remaining as u64 * REPUTATION_GAIN_RATE as u64 * multiplier as u64 / 10000 / 10000) as u16;
+                // GAIN = (100% - rep) × 1% × f(rep)
+                // In scaled integers: (REP_100_PERCENT - rep) × GAIN_RATE × multiplier / REP_100_PERCENT²
+                let remaining = REP_100_PERCENT.saturating_sub(juror_account.reputation);
+                let gain = (remaining as u128 * REPUTATION_GAIN_RATE as u128 * multiplier as u128
+                    / REP_100_PERCENT as u128 / REP_100_PERCENT as u128) as u64;
                 juror_account.reputation = juror_account.reputation.saturating_add(gain);
                 msg!("Reputation gain: +{}", gain);
             } else {
-                let loss = (juror_account.reputation as u64 * REPUTATION_LOSS_RATE as u64 * multiplier as u64 / 10000 / 10000) as u16;
+                // LOSS = rep × 2% × f(rep)
+                // In scaled integers: rep × LOSS_RATE × multiplier / REP_100_PERCENT²
+                let loss = (juror_account.reputation as u128 * REPUTATION_LOSS_RATE as u128 * multiplier as u128
+                    / REP_100_PERCENT as u128 / REP_100_PERCENT as u128) as u64;
                 juror_account.reputation = juror_account.reputation.saturating_sub(loss);
                 msg!("Reputation loss: -{}", loss);
             }
@@ -358,10 +364,11 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
             **subject.to_account_info().try_borrow_mut_lamports()? -= total_return;
             **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += total_return;
 
-            // Update reputation
-            let remaining = 10000u16.saturating_sub(challenger_account.reputation);
+            // Update reputation: GAIN = (100% - rep) × 1% × f(rep)
+            let remaining = REP_100_PERCENT.saturating_sub(challenger_account.reputation);
             let multiplier = stacked_sigmoid(challenger_account.reputation);
-            let gain = (remaining as u32 * REPUTATION_GAIN_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
+            let gain = (remaining as u128 * REPUTATION_GAIN_RATE as u128 * multiplier as u128
+                / REP_100_PERCENT as u128 / REP_100_PERCENT as u128) as u64;
             challenger_account.reputation = challenger_account.reputation.saturating_add(gain);
             challenger_account.disputes_upheld += 1;
 
@@ -369,23 +376,29 @@ pub fn claim_challenger_reward(ctx: Context<ClaimChallengerReward>) -> Result<()
         }
         ResolutionOutcome::DefenderWins => {
             // Loser: loses bond (bond stays on subject, goes to defenders)
+            // LOSS = rep × 2% × f(rep)
             let multiplier = stacked_sigmoid(challenger_account.reputation);
-            let loss = (challenger_account.reputation as u32 * REPUTATION_LOSS_RATE as u32 * multiplier as u32 / 10000 / 10000) as u16;
+            let loss = (challenger_account.reputation as u128 * REPUTATION_LOSS_RATE as u128 * multiplier as u128
+                / REP_100_PERCENT as u128 / REP_100_PERCENT as u128) as u64;
             challenger_account.reputation = challenger_account.reputation.saturating_sub(loss);
             challenger_account.disputes_dismissed += 1;
 
             msg!("Dispute dismissed - challenger loses bond");
         }
         ResolutionOutcome::NoParticipation => {
-            // No votes: return net bond (99% of gross, platform fee already taken)
+            // No votes: return net bond (1% platform fee was already taken at deposit)
+            // Subject only has net_bond = bond - 1%, so that's what we return
             let platform_fee = (bond as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
             let bond_return = bond.saturating_sub(platform_fee);
 
             // Transfer from subject to this challenger
-            **subject.to_account_info().try_borrow_mut_lamports()? -= bond_return;
-            **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += bond_return;
+            if bond_return > 0 {
+                **subject.to_account_info().try_borrow_mut_lamports()? -= bond_return;
+                **ctx.accounts.challenger.to_account_info().try_borrow_mut_lamports()? += bond_return;
+            }
 
-            msg!("No participation - bond returned: {} lamports", bond_return);
+            msg!("No participation - bond returned: {} lamports (gross: {}, fee already taken: {})",
+                bond_return, bond, platform_fee);
         }
         _ => {
             return Err(TribunalCraftError::DisputeNotFound.into());
@@ -478,8 +491,20 @@ pub fn claim_defender_reward(ctx: Context<ClaimDefenderReward>) -> Result<()> {
             msg!("Challenger wins - defender loses stake ({})", stake_at_risk);
         }
         ResolutionOutcome::NoParticipation => {
-            // No votes: stake stays on subject, bond is claimable
-            msg!("No participation - stake retained on subject: {}", stake_at_risk);
+            // No votes: return net stake (1% platform fee was already taken at deposit)
+            // stake_at_risk is calculated from GROSS accounting, but subject has NET lamports
+            // So we return 99% of stake_at_risk (the actual amount on subject)
+            let platform_fee = (stake_at_risk as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
+            let stake_return = stake_at_risk.saturating_sub(platform_fee);
+
+            if stake_return > 0 {
+                // Transfer from subject to defender
+                **subject.to_account_info().try_borrow_mut_lamports()? -= stake_return;
+                **ctx.accounts.defender.to_account_info().try_borrow_mut_lamports()? += stake_return;
+            }
+
+            msg!("No participation - stake returned: {} lamports (gross: {}, fee already taken: {})",
+                stake_return, stake_at_risk, platform_fee);
         }
         _ => {
             return Err(TribunalCraftError::DisputeNotFound.into());

@@ -3971,6 +3971,15 @@ declare class TribunalCraftClient {
         voteRecord: PublicKey;
     }): Promise<TransactionResult>;
     /**
+     * Batch unlock all ready juror stakes in a single transaction
+     */
+    batchUnlockStake(params: {
+        unlocks: Array<{
+            dispute: PublicKey;
+            voteRecord: PublicKey;
+        }>;
+    }): Promise<TransactionResult>;
+    /**
      * Claim juror reward (processes reputation + distributes reward)
      * Simulates transaction first to catch errors before sending
      */
@@ -4146,14 +4155,43 @@ declare const WINNER_SHARE_BPS = 8000;
 declare const MIN_JUROR_STAKE = 100000000;
 declare const MIN_CHALLENGER_BOND = 100000000;
 declare const MIN_DEFENDER_STAKE = 100000000;
+declare const BASE_CHALLENGER_BOND = 10000000;
 declare const STAKE_UNLOCK_BUFFER: number;
 declare const MIN_VOTING_PERIOD: number;
 declare const MAX_VOTING_PERIOD: number;
-declare const INITIAL_REPUTATION = 5000;
-declare const REPUTATION_GAIN_RATE = 500;
-declare const REPUTATION_LOSS_RATE = 1000;
+declare const REP_PRECISION = 1000000;
+declare const REP_100_PERCENT = 100000000;
+declare const INITIAL_REPUTATION = 50000000;
+declare const REPUTATION_GAIN_RATE = 1000000;
+declare const REPUTATION_LOSS_RATE = 2000000;
+/**
+ * Integer square root using Newton's method
+ * Mirrors the on-chain implementation
+ */
+declare function integerSqrt(n: number): number;
+/**
+ * Calculate minimum bond based on challenger reputation
+ * Mirrors the on-chain calculate_min_bond function
+ *
+ * Formula: min_bond = base_bond * sqrt(0.5 / reputation_pct)
+ * - 50% rep = 1.0x multiplier (base bond)
+ * - 25% rep = 1.41x multiplier
+ * - 100% rep = 0.71x multiplier (minimum)
+ * - 0% rep = 10x multiplier (maximum)
+ *
+ * @param reputation - Challenger's reputation (0 to REP_100_PERCENT)
+ * @param baseBond - Base bond amount in lamports (default: BASE_CHALLENGER_BOND)
+ * @returns Minimum bond required in lamports
+ */
+declare function calculateMinBond(reputation: number, baseBond?: number): number;
+/**
+ * Format reputation as percentage string
+ * @param reputation - Reputation value (0 to REP_100_PERCENT)
+ * @returns Formatted percentage string (e.g., "50.0%")
+ */
+declare function formatReputation(reputation: number): string;
 
-var address = "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN";
+var address = "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC";
 var metadata = {
 	name: "tribunalcraft",
 	version: "0.1.0",
@@ -6522,9 +6560,9 @@ var types = [
 				{
 					name: "reputation",
 					docs: [
-						"Reputation score (basis points)"
+						"Reputation score (6 decimals, 100% = 100_000_000)"
 					],
-					type: "u16"
+					type: "u64"
 				},
 				{
 					name: "disputes_submitted",
@@ -7071,9 +7109,9 @@ var types = [
 				{
 					name: "reputation",
 					docs: [
-						"Reputation score (basis points, 0-10000+)"
+						"Reputation score (6 decimals, 100% = 100_000_000)"
 					],
-					type: "u16"
+					type: "u64"
 				},
 				{
 					name: "votes_cast",
@@ -7505,4 +7543,4 @@ var idl = {
 	types: types
 };
 
-export { CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, canLinkedSubjectBeDisputed, getDisputeTypeName, getEffectiveStatus, getOutcomeName, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };
+export { BASE_CHALLENGER_BOND, CHALLENGER_RECORD_SEED, CHALLENGER_SEED, type ChallengerAccount, type ChallengerRecord, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type Dispute, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, idl as IDL, INITIAL_REPUTATION, JUROR_SEED, JUROR_SHARE_BPS, type JurorAccount, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT, REP_PRECISION, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type Tribunalcraft, VOTE_RECORD_SEED, type VoteChoice, VoteChoiceEnum, type VoteRecord, WINNER_SHARE_BPS, calculateMinBond, canLinkedSubjectBeDisputed, formatReputation, getDisputeTypeName, getEffectiveStatus, getOutcomeName, integerSqrt, isChallengerWins, isDefenderWins, isDisputePending, isDisputeResolved, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, pda };

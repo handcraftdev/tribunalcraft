@@ -294,6 +294,11 @@ export function canLinkedSubjectBeDisputed(
   pool: DefenderPool | null,
   minBond: BN
 ): boolean {
+  // Free cases don't require stake checks - always disputable
+  if (subject.freeCase) {
+    return true;
+  }
+
   // Non-linked subjects don't depend on pool
   if (subject.defenderPool.equals(new PublicKey(0))) {
     return true;

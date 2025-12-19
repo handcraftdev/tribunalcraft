@@ -20,6 +20,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  BASE_CHALLENGER_BOND: () => BASE_CHALLENGER_BOND,
   CHALLENGER_RECORD_SEED: () => CHALLENGER_RECORD_SEED,
   CHALLENGER_SEED: () => CHALLENGER_SEED,
   DEFENDER_POOL_SEED: () => DEFENDER_POOL_SEED,
@@ -42,6 +43,8 @@ __export(index_exports, {
   PROTOCOL_CONFIG_SEED: () => PROTOCOL_CONFIG_SEED,
   REPUTATION_GAIN_RATE: () => REPUTATION_GAIN_RATE,
   REPUTATION_LOSS_RATE: () => REPUTATION_LOSS_RATE,
+  REP_100_PERCENT: () => REP_100_PERCENT,
+  REP_PRECISION: () => REP_PRECISION,
   ResolutionOutcomeEnum: () => ResolutionOutcomeEnum,
   RestoreVoteChoiceEnum: () => RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER: () => STAKE_UNLOCK_BUFFER,
@@ -52,10 +55,13 @@ __export(index_exports, {
   VOTE_RECORD_SEED: () => VOTE_RECORD_SEED,
   VoteChoiceEnum: () => VoteChoiceEnum,
   WINNER_SHARE_BPS: () => WINNER_SHARE_BPS,
+  calculateMinBond: () => calculateMinBond,
   canLinkedSubjectBeDisputed: () => canLinkedSubjectBeDisputed,
+  formatReputation: () => formatReputation,
   getDisputeTypeName: () => getDisputeTypeName,
   getEffectiveStatus: () => getEffectiveStatus,
   getOutcomeName: () => getOutcomeName,
+  integerSqrt: () => integerSqrt,
   isChallengerWins: () => isChallengerWins,
   isDefenderWins: () => isDefenderWins,
   isDisputePending: () => isDisputePending,
@@ -80,7 +86,7 @@ var import_web32 = require("@solana/web3.js");
 // src/constants.ts
 var import_web3 = require("@solana/web3.js");
 var PROGRAM_ID = new import_web3.PublicKey(
-  "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN"
+  "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC"
 );
 var PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 var DEFENDER_POOL_SEED = Buffer.from("defender_pool");
@@ -98,12 +104,40 @@ var WINNER_SHARE_BPS = 8e3;
 var MIN_JUROR_STAKE = 1e8;
 var MIN_CHALLENGER_BOND = 1e8;
 var MIN_DEFENDER_STAKE = 1e8;
+var BASE_CHALLENGER_BOND = 1e7;
 var STAKE_UNLOCK_BUFFER = 7 * 24 * 60 * 60;
 var MIN_VOTING_PERIOD = 24 * 60 * 60;
 var MAX_VOTING_PERIOD = 30 * 24 * 60 * 60;
-var INITIAL_REPUTATION = 5e3;
-var REPUTATION_GAIN_RATE = 500;
-var REPUTATION_LOSS_RATE = 1e3;
+var REP_PRECISION = 1e6;
+var REP_100_PERCENT = 1e8;
+var INITIAL_REPUTATION = 5e7;
+var REPUTATION_GAIN_RATE = 1e6;
+var REPUTATION_LOSS_RATE = 2e6;
+function integerSqrt(n) {
+  if (n === 0) return 0;
+  let x = n;
+  let y = Math.floor((x + 1) / 2);
+  while (y < x) {
+    x = y;
+    y = Math.floor((x + Math.floor(n / x)) / 2);
+  }
+  return x;
+}
+function calculateMinBond(reputation, baseBond = BASE_CHALLENGER_BOND) {
+  if (reputation === 0) {
+    return baseBond * 10;
+  }
+  const sqrtHalf = 7071;
+  const sqrtRep = integerSqrt(reputation);
+  if (sqrtRep === 0) {
+    return baseBond * 10;
+  }
+  const result = Math.floor(baseBond * sqrtHalf / sqrtRep);
+  return Math.max(result, Math.floor(baseBond * 7 / 10));
+}
+function formatReputation(reputation) {
+  return `${(reputation / REP_PRECISION).toFixed(1)}%`;
+}
 
 // src/pda.ts
 var PDA = class {
@@ -199,7 +233,7 @@ var pda = new PDA();
 
 // src/idl.json
 var idl_default = {
-  address: "H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN",
+  address: "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC",
   metadata: {
     name: "tribunalcraft",
     version: "0.1.0",
@@ -2560,9 +2594,9 @@ var idl_default = {
           {
             name: "reputation",
             docs: [
-              "Reputation score (basis points)"
+              "Reputation score (6 decimals, 100% = 100_000_000)"
             ],
-            type: "u16"
+            type: "u64"
           },
           {
             name: "disputes_submitted",
@@ -3109,9 +3143,9 @@ var idl_default = {
           {
             name: "reputation",
             docs: [
-              "Reputation score (basis points, 0-10000+)"
+              "Reputation score (6 decimals, 100% = 100_000_000)"
             ],
-            type: "u16"
+            type: "u64"
           },
           {
             name: "votes_cast",
@@ -4053,6 +4087,46 @@ var TribunalCraftClient = class {
     return { signature };
   }
   /**
+   * Batch unlock all ready juror stakes in a single transaction
+   */
+  async batchUnlockStake(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    if (params.unlocks.length === 0) {
+      throw new Error("No stakes to unlock");
+    }
+    const instructions = [];
+    for (const unlock of params.unlocks) {
+      const ix = await program.methods.unlockJurorStake().accountsPartial({
+        dispute: unlock.dispute,
+        voteRecord: unlock.voteRecord
+      }).instruction();
+      instructions.push(ix);
+    }
+    const tx = new import_web33.Transaction().add(...instructions);
+    if (this.simulateFirst) {
+      console.log(`[SDK] Simulating batch unlock with ${instructions.length} instructions`);
+      try {
+        const { blockhash } = await this.connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = wallet.publicKey;
+        const simulation = await this.connection.simulateTransaction(tx);
+        if (simulation.value.err) {
+          const errorMessage = this.parseErrorFromLogs(simulation.value.logs || []);
+          throw new Error(`Simulation failed: ${errorMessage.message}`);
+        }
+        console.log("[SDK] Simulation succeeded");
+      } catch (err) {
+        if (err.message.includes("Simulation failed")) {
+          throw err;
+        }
+        console.warn("[SDK] Simulation warning:", err.message);
+      }
+    }
+    const signature = await program.provider.sendAndConfirm(tx, []);
+    console.log(`[SDK] Batch unlock completed: ${instructions.length} unlocks in tx ${signature}`);
+    return { signature };
+  }
+  /**
    * Claim juror reward (processes reputation + distributes reward)
    * Simulates transaction first to catch errors before sending
    */
@@ -4500,6 +4574,9 @@ function getOutcomeName(outcome) {
   return "Unknown";
 }
 function canLinkedSubjectBeDisputed(subject, pool, minBond) {
+  if (subject.freeCase) {
+    return true;
+  }
   if (subject.defenderPool.equals(new import_web34.PublicKey(0))) {
     return true;
   }
@@ -4524,6 +4601,7 @@ function getEffectiveStatus(subject, pool, minBond) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  BASE_CHALLENGER_BOND,
   CHALLENGER_RECORD_SEED,
   CHALLENGER_SEED,
   DEFENDER_POOL_SEED,
@@ -4546,6 +4624,8 @@ function getEffectiveStatus(subject, pool, minBond) {
   PROTOCOL_CONFIG_SEED,
   REPUTATION_GAIN_RATE,
   REPUTATION_LOSS_RATE,
+  REP_100_PERCENT,
+  REP_PRECISION,
   ResolutionOutcomeEnum,
   RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER,
@@ -4556,10 +4636,13 @@ function getEffectiveStatus(subject, pool, minBond) {
   VOTE_RECORD_SEED,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
+  calculateMinBond,
   canLinkedSubjectBeDisputed,
+  formatReputation,
   getDisputeTypeName,
   getEffectiveStatus,
   getOutcomeName,
+  integerSqrt,
   isChallengerWins,
   isDefenderWins,
   isDisputePending,

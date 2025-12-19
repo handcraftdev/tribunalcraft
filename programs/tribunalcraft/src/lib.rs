@@ -10,7 +10,7 @@ pub use errors::*;
 pub use state::*;
 pub use instructions::*;
 
-declare_id!("H78rc6j9eVazT5gXekn1ydCtFdjLLyRFJdBCYT6Dh9AN");
+declare_id!("4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC");
 
 #[program]
 pub mod tribunalcraft {

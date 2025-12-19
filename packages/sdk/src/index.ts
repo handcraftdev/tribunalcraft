@@ -75,14 +75,21 @@ export {
   MIN_JUROR_STAKE,
   MIN_CHALLENGER_BOND,
   MIN_DEFENDER_STAKE,
+  BASE_CHALLENGER_BOND,
   // Time Constants
   STAKE_UNLOCK_BUFFER,
   MIN_VOTING_PERIOD,
   MAX_VOTING_PERIOD,
   // Reputation Constants
+  REP_PRECISION,
+  REP_100_PERCENT,
   INITIAL_REPUTATION,
   REPUTATION_GAIN_RATE,
   REPUTATION_LOSS_RATE,
+  // Reputation Helpers
+  integerSqrt,
+  calculateMinBond,
+  formatReputation,
 } from "./constants";
 
 // IDL (for advanced usage)
