@@ -83,6 +83,7 @@ export interface DisputeData {
     votingStartsAt: any;
     votingEndsAt: any;
     resolvedAt: any;
+    createdAt?: any;
     snapshotTotalStake: any;
     snapshotDefenderCount: number;
     [key: string]: any;

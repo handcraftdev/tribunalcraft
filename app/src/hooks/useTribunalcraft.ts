@@ -303,9 +303,7 @@ export const useTribunalcraft = () => {
     subject: PublicKey,
     voteRecord: PublicKey
   ) => {
-    console.log("[Hook] claimJurorReward called");
     if (!client) throw new Error("Client not initialized");
-    console.log("[Hook] calling client.claimJurorReward");
     return client.claimJurorReward({ dispute, subject, voteRecord });
   }, [client]);
 

@@ -1,68 +1,26 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import type { SubjectData, DisputeData } from "@/components/subject/types";
 
 // Types
 type TimePeriod = "1d" | "7d" | "30d" | "all";
 type TabView = "overview" | "economics" | "participants" | "trends" | "leaderboard";
 
-interface DisputeData {
-  publicKey: any;
-  account: {
-    subject: any;
-    disputeType: any;
-    totalBond: any;
-    stakeHeld: any;
-    directStakeHeld: any;
-    challengerCount: number;
-    status: any;
-    outcome: any;
-    votesFavorWeight: any;
-    votesAgainstWeight: any;
-    voteCount: number;
-    votingEndsAt: any;
-    votingStartsAt: any;
-    resolvedAt: any;
-    createdAt: any;
-    isRestore: boolean;
-    snapshotTotalStake: any;
-    snapshotDefenderCount: number;
-    [key: string]: any;
-  };
-}
-
-interface SubjectData {
-  publicKey: any;
-  account: {
-    status: any;
-    availableStake: any;
-    maxStake: any;
-    defenderCount: number;
-    disputeCount: number;
-    votingPeriod: any;
-    matchMode: boolean;
-    freeCase: boolean;
-    createdAt: any;
-    updatedAt: any;
-    [key: string]: any;
-  };
-}
-
 interface JurorData {
-  publicKey: any;
+  publicKey: PublicKey;
   account: {
-    totalStake: any;
-    availableStake: any;
+    totalStake: { toNumber: () => number };
+    availableStake: { toNumber: () => number };
     reputation: number;
-    votesCast: any;
-    correctVotes: any;
+    votesCast: { toNumber: () => number };
+    correctVotes: { toNumber: () => number };
     isActive: boolean;
-    joinedAt: any;
-    lastVoteAt: any;
-    [key: string]: any;
+    joinedAt: { toNumber: () => number };
+    lastVoteAt: { toNumber: () => number };
   };
 }
 
@@ -133,36 +91,39 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("7d");
   const [activeTab, setActiveTab] = useState<TabView>("overview");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   // Load data
-  useEffect(() => {
-    const loadData = async () => {
-      if (!client) return;
-      setLoading(true);
-      try {
-        const [subjectsData, disputesData, jurorsData] = await Promise.all([
-          fetchAllSubjects(),
-          fetchAllDisputes(),
-          fetchAllJurors(),
-        ]);
-        setSubjects(subjectsData || []);
-        setDisputes(disputesData || []);
-        setJurors(jurorsData || []);
-      } catch (error) {
-        console.error("Error loading analytics data:", error);
-      }
-      setLoading(false);
-    };
-    loadData();
-  }, [client]);
+  const loadData = useCallback(async () => {
+    if (!client) return;
+    setLoading(true);
+    try {
+      const [subjectsData, disputesData, jurorsData] = await Promise.all([
+        fetchAllSubjects(),
+        fetchAllDisputes(),
+        fetchAllJurors(),
+      ]);
+      setSubjects(subjectsData || []);
+      setDisputes(disputesData || []);
+      setJurors(jurorsData || []);
+      setCurrentTime(Date.now());
+    } catch (error) {
+      console.error("Error loading analytics data:", error);
+    }
+    setLoading(false);
+  }, [client, fetchAllSubjects, fetchAllDisputes, fetchAllJurors]);
 
-  // Filter by time period
-  const filterByPeriod = <T extends { account: { createdAt?: any; resolvedAt?: any } }>(
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Filter by time period - memoized to avoid impure function calls during render
+  const filterByPeriod = useCallback(<T extends { account: { createdAt?: { toNumber: () => number }; resolvedAt?: { toNumber: () => number } } }>(
     items: T[],
-    useResolved = false
+    useResolved = false,
+    now: number
   ): T[] => {
     if (period === "all") return items;
-    const now = Date.now();
     const cutoffs: Record<TimePeriod, number> = {
       "1d": now - 24 * 60 * 60 * 1000,
       "7d": now - 7 * 24 * 60 * 60 * 1000,
@@ -172,16 +133,15 @@ export default function AnalyticsPage() {
     const cutoff = cutoffs[period];
     return items.filter((item) => {
       const timestamp = useResolved
-        ? item.account.resolvedAt?.toNumber() * 1000
-        : item.account.createdAt?.toNumber() * 1000;
+        ? (item.account.resolvedAt?.toNumber() ?? 0) * 1000
+        : (item.account.createdAt?.toNumber() ?? 0) * 1000;
       return timestamp && timestamp >= cutoff;
     });
-  };
+  }, [period]);
 
-  // Get previous period for comparison
-  const filterByPreviousPeriod = <T extends { account: { createdAt?: any } }>(items: T[]): T[] => {
+  // Get previous period for comparison - memoized
+  const filterByPreviousPeriod = useCallback(<T extends { account: { createdAt?: { toNumber: () => number } } }>(items: T[], now: number): T[] => {
     if (period === "all") return [];
-    const now = Date.now();
     const durations: Record<TimePeriod, number> = {
       "1d": 24 * 60 * 60 * 1000,
       "7d": 7 * 24 * 60 * 60 * 1000,
@@ -193,15 +153,15 @@ export default function AnalyticsPage() {
     const endCutoff = now - duration;
 
     return items.filter((item) => {
-      const timestamp = item.account.createdAt?.toNumber() * 1000;
+      const timestamp = (item.account.createdAt?.toNumber() ?? 0) * 1000;
       return timestamp && timestamp >= startCutoff && timestamp < endCutoff;
     });
-  };
+  }, [period]);
 
   // Computed statistics
   const stats = useMemo(() => {
-    const periodDisputes = filterByPeriod(disputes);
-    const prevPeriodDisputes = filterByPreviousPeriod(disputes);
+    const periodDisputes = filterByPeriod(disputes, false, currentTime);
+    const prevPeriodDisputes = filterByPreviousPeriod(disputes, currentTime);
     const resolvedDisputes = periodDisputes.filter((d) => "resolved" in d.account.status);
     const activeDisputes = periodDisputes.filter((d) => "pending" in d.account.status);
 
@@ -362,7 +322,7 @@ export default function AnalyticsPage() {
       inflowChange,
       disputeChange,
     };
-  }, [disputes, subjects, jurors, period]);
+  }, [disputes, subjects, jurors, period, currentTime, filterByPeriod, filterByPreviousPeriod]);
 
   // Leaderboard data
   const leaderboards = useMemo(() => {
@@ -429,11 +389,10 @@ export default function AnalyticsPage() {
 
   // Time series data for trends (simplified buckets)
   const trendData = useMemo(() => {
-    const periodDisputes = filterByPeriod(disputes);
+    const periodDisputes = filterByPeriod(disputes, false, currentTime);
 
     // Create time buckets
     const bucketCount = 7; // Always show 7 data points
-    const now = Date.now();
     const durations: Record<TimePeriod, number> = {
       "1d": 24 * 60 * 60 * 1000,
       "7d": 7 * 24 * 60 * 60 * 1000,
@@ -445,7 +404,7 @@ export default function AnalyticsPage() {
       // For "all", create buckets based on total time range
       const timestamps = disputes
         .map((d) => d.account.createdAt?.toNumber() * 1000)
-        .filter((t) => t);
+        .filter((t): t is number => !!t);
       if (timestamps.length === 0) return [];
 
       const minTime = Math.min(...timestamps);
@@ -480,7 +439,7 @@ export default function AnalyticsPage() {
     const bucketSize = duration / bucketCount;
 
     return Array.from({ length: bucketCount }, (_, i) => {
-      const bucketStart = now - duration + i * bucketSize;
+      const bucketStart = currentTime - duration + i * bucketSize;
       const bucketEnd = bucketStart + bucketSize;
 
       const bucketDisputes = periodDisputes.filter((d) => {
@@ -505,7 +464,7 @@ export default function AnalyticsPage() {
         ),
       };
     });
-  }, [disputes, period]);
+  }, [disputes, period, currentTime, filterByPeriod]);
 
   // Format helpers
   const formatSOL = (lamports: number) => (lamports / LAMPORTS_PER_SOL).toFixed(4);

@@ -666,18 +666,13 @@ export default function JurorPage() {
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
   const handleClaimAll = useCallback(async (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
-    console.log("[ClaimAll] Called with:", { disputeKey, claims, hasPublicKey: !!publicKey, hasSelectedItem: !!selectedItem });
-    if (!publicKey || !selectedItem) {
-      console.log("[ClaimAll] Early return - missing publicKey or selectedItem");
-      return;
-    }
+    if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     const claimedRewards: string[] = [];
     try {
       const disputePubkey = new PublicKey(disputeKey);
       const subjectPubkey = selectedItem.subject.publicKey;
-      console.log("[ClaimAll] Dispute:", disputePubkey.toBase58(), "Subject:", subjectPubkey.toBase58());
 
       // Build batch claim params
       const batchParams: {
@@ -690,33 +685,21 @@ export default function JurorPage() {
         const [voteRecordPda] = getVoteRecordPDA(disputePubkey, publicKey);
         batchParams.jurorClaims = [{ dispute: disputePubkey, subject: subjectPubkey, voteRecord: voteRecordPda }];
         claimedRewards.push("Juror");
-        console.log("[ClaimAll] Added juror claim, voteRecord:", voteRecordPda.toBase58());
       }
 
       if (claims.challenger) {
         const [challengerRecordPda] = getChallengerRecordPDA(disputePubkey, publicKey);
         batchParams.challengerClaims = [{ dispute: disputePubkey, subject: subjectPubkey, challengerRecord: challengerRecordPda }];
         claimedRewards.push("Challenger");
-        console.log("[ClaimAll] Added challenger claim, challengerRecord:", challengerRecordPda.toBase58());
       }
 
       if (claims.defender) {
         const [defenderRecordPda] = getDefenderRecordPDA(subjectPubkey, publicKey);
         batchParams.defenderClaims = [{ dispute: disputePubkey, subject: subjectPubkey, defenderRecord: defenderRecordPda }];
         claimedRewards.push("Defender");
-        console.log("[ClaimAll] Added defender claim, defenderRecord:", defenderRecordPda.toBase58());
       }
 
-      console.log("[ClaimAll] Batch params:", {
-        jurorClaims: batchParams.jurorClaims?.length || 0,
-        challengerClaims: batchParams.challengerClaims?.length || 0,
-        defenderClaims: batchParams.defenderClaims?.length || 0,
-      });
-
-      // Process all claims in a single transaction
       await batchClaimRewards(batchParams);
-
-      console.log("[ClaimAll] Success!");
       setSuccess(`${claimedRewards.join(", ")} reward${claimedRewards.length > 1 ? "s" : ""} claimed!`);
       await loadData();
     } catch (err: any) {
@@ -1030,15 +1013,7 @@ export default function JurorPage() {
 
   // Batch claim handler - claims all pending rewards across all disputes
   const handleBatchClaim = useCallback(async () => {
-    console.log("[BatchClaim] Called, publicKey:", publicKey?.toBase58());
-    console.log("[BatchClaim] allUserDisputes count:", allUserDisputes.length);
-    console.log("[BatchClaim] challengerRecords:", Object.keys(challengerRecords));
-    console.log("[BatchClaim] defenderRecords:", Object.keys(defenderRecords));
-
-    if (!publicKey) {
-      console.log("[BatchClaim] Early return - no publicKey");
-      return;
-    }
+    if (!publicKey) return;
     setActionLoading(true);
     setError(null);
     try {
@@ -1053,43 +1028,24 @@ export default function JurorPage() {
 
       // Find claimable juror rewards (resolved disputes with votes not claimed, excluding free cases)
       const claimableJurorDisputes = allUserDisputes.filter(item => {
-        const isResolved = item.dispute.account.status.resolved;
         const hasVote = !!item.vote;
         const notClaimed = item.vote && !item.vote.account.rewardClaimed;
-        const notFree = hasRewards(item);
-        console.log("[BatchClaim] Juror check:", item.dispute.publicKey.toBase58().slice(0,8), { isResolved, hasVote, notClaimed, notFree });
-        return hasVote && isResolved && notClaimed && notFree;
+        return hasVote && item.dispute.account.status.resolved && notClaimed && hasRewards(item);
       });
 
       // Find claimable challenger rewards (excluding free cases)
       const claimableChallengerDisputes = allUserDisputes.filter(item => {
         const challengerRecord = challengerRecords[item.dispute.publicKey.toBase58()];
-        const isResolved = item.dispute.account.status.resolved;
-        const hasRecord = !!challengerRecord;
-        const notClaimed = challengerRecord && !challengerRecord.rewardClaimed;
-        const notFree = hasRewards(item);
-        console.log("[BatchClaim] Challenger check:", item.dispute.publicKey.toBase58().slice(0,8), { isResolved, hasRecord, notClaimed, notFree });
-        return hasRecord && isResolved && notClaimed && notFree;
+        return challengerRecord && item.dispute.account.status.resolved && !challengerRecord.rewardClaimed && hasRewards(item);
       });
 
       // Find claimable defender rewards (excluding free cases)
       const claimableDefenderDisputes = allUserDisputes.filter(item => {
         const defenderRecord = defenderRecords[item.subject.publicKey.toBase58()];
-        const isResolved = item.dispute.account.status.resolved;
-        const hasRecord = !!defenderRecord;
-        const notClaimed = defenderRecord && !defenderRecord.rewardClaimed;
-        const notFree = hasRewards(item);
-        console.log("[BatchClaim] Defender check:", item.subject.publicKey.toBase58().slice(0,8), { isResolved, hasRecord, notClaimed, notFree });
-        return hasRecord && isResolved && notClaimed && notFree;
+        return defenderRecord && item.dispute.account.status.resolved && !defenderRecord.rewardClaimed && hasRewards(item);
       });
 
       const totalClaims = claimableJurorDisputes.length + claimableChallengerDisputes.length + claimableDefenderDisputes.length;
-      console.log("[BatchClaim] Claimable counts:", {
-        juror: claimableJurorDisputes.length,
-        challenger: claimableChallengerDisputes.length,
-        defender: claimableDefenderDisputes.length,
-        total: totalClaims,
-      });
 
       if (totalClaims === 0) {
         setError("No rewards to claim");
@@ -1107,47 +1063,25 @@ export default function JurorPage() {
       if (claimableJurorDisputes.length > 0) {
         batchParams.jurorClaims = claimableJurorDisputes.map(item => {
           const [voteRecordPda] = getVoteRecordPDA(item.dispute.publicKey, publicKey);
-          console.log("[BatchClaim] Juror claim:", item.dispute.publicKey.toBase58().slice(0,8), "voteRecord:", voteRecordPda.toBase58().slice(0,8));
-          return {
-            dispute: item.dispute.publicKey,
-            subject: item.subject.publicKey,
-            voteRecord: voteRecordPda,
-          };
+          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, voteRecord: voteRecordPda };
         });
       }
 
       if (claimableChallengerDisputes.length > 0) {
         batchParams.challengerClaims = claimableChallengerDisputes.map(item => {
           const [challengerRecordPda] = getChallengerRecordPDA(item.dispute.publicKey, publicKey);
-          console.log("[BatchClaim] Challenger claim:", item.dispute.publicKey.toBase58().slice(0,8), "challengerRecord:", challengerRecordPda.toBase58().slice(0,8));
-          return {
-            dispute: item.dispute.publicKey,
-            subject: item.subject.publicKey,
-            challengerRecord: challengerRecordPda,
-          };
+          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, challengerRecord: challengerRecordPda };
         });
       }
 
       if (claimableDefenderDisputes.length > 0) {
         batchParams.defenderClaims = claimableDefenderDisputes.map(item => {
           const [defenderRecordPda] = getDefenderRecordPDA(item.subject.publicKey, publicKey);
-          console.log("[BatchClaim] Defender claim:", item.subject.publicKey.toBase58().slice(0,8), "defenderRecord:", defenderRecordPda.toBase58().slice(0,8));
-          return {
-            dispute: item.dispute.publicKey,
-            subject: item.subject.publicKey,
-            defenderRecord: defenderRecordPda,
-          };
+          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, defenderRecord: defenderRecordPda };
         });
       }
 
-      console.log("[BatchClaim] Sending batchClaimRewards with:", {
-        jurorClaims: batchParams.jurorClaims?.length || 0,
-        challengerClaims: batchParams.challengerClaims?.length || 0,
-        defenderClaims: batchParams.defenderClaims?.length || 0,
-      });
-
       await batchClaimRewards(batchParams);
-      console.log("[BatchClaim] Success!");
 
       const parts = [];
       if (claimableJurorDisputes.length > 0) parts.push(`${claimableJurorDisputes.length} juror`);
