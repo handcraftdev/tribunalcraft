@@ -1,6 +1,6 @@
 "use client";
 
-import { FC, ReactNode, useMemo } from "react";
+import { FC, ReactNode, useMemo, useState, useEffect } from "react";
 import {
   ConnectionProvider,
   WalletProvider as SolanaWalletProvider,
@@ -15,10 +15,21 @@ interface Props {
 }
 
 export const WalletProvider: FC<Props> = ({ children }) => {
-  const endpoint = useMemo(
-    () => process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("devnet"),
-    []
-  );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Use RPC proxy to keep API key server-side (client-side only)
+  // Falls back to public devnet during SSR/build
+  const endpoint = useMemo(() => {
+    if (mounted && typeof window !== "undefined") {
+      return `${window.location.origin}/api/rpc`;
+    }
+    // Fallback for SSR - won't actually be used since client will remount
+    return clusterApiUrl("devnet");
+  }, [mounted]);
 
   // Modern wallets (Phantom, Solflare, etc.) auto-register via Standard Wallet interface
   const wallets = useMemo(() => [], []);
