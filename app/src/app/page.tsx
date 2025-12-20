@@ -143,7 +143,7 @@ export default function Dashboard() {
     const totalJurorStake = jurors.reduce((sum, j) => sum + j.account.totalStake.toNumber(), 0);
     const totalVotes = jurors.reduce((sum, j) => sum + j.account.votesCast.toNumber(), 0);
     const avgReputation = jurors.length > 0
-      ? jurors.reduce((sum, j) => sum + j.account.reputation, 0) / jurors.length
+      ? jurors.reduce((sum, j) => sum + (j.account.reputation?.toNumber?.() ?? j.account.reputation ?? 0), 0) / jurors.length
       : 50_000_000;
 
     // Pool calculations
