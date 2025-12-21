@@ -6,6 +6,7 @@ pub mod challenger;
 pub mod vote;
 pub mod resolve;
 pub mod restore;
+pub mod cleanup;
 
 pub use config::*;
 pub use defender_pool::*;
@@ -15,3 +16,4 @@ pub use challenger::*;
 pub use vote::*;
 pub use resolve::*;
 pub use restore::*;
+pub use cleanup::*;

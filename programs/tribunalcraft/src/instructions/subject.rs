@@ -1,94 +1,14 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
-use crate::constants::{SUBJECT_SEED, DEFENDER_RECORD_SEED, DEFENDER_POOL_SEED, PROTOCOL_CONFIG_SEED, TOTAL_FEE_BPS, PLATFORM_SHARE_BPS};
+use crate::constants::{SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED};
 use crate::errors::TribunalCraftError;
+use crate::events::*;
 
-/// Create a subject linked to owner's defender pool
-/// Pool is auto-created with 0 stake if it doesn't exist
+/// Create a subject with all persistent PDAs (Subject + Dispute + Escrow)
+/// Creator becomes first defender if they have a DefenderPool with balance
 #[derive(Accounts)]
 #[instruction(subject_id: Pubkey)]
-pub struct CreateLinkedSubject<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    #[account(
-        init_if_needed,
-        payer = owner,
-        space = DefenderPool::LEN,
-        seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
-        bump
-    )]
-    pub defender_pool: Account<'info, DefenderPool>,
-
-    #[account(
-        init,
-        payer = owner,
-        space = Subject::LEN,
-        seeds = [SUBJECT_SEED, subject_id.as_ref()],
-        bump
-    )]
-    pub subject: Account<'info, Subject>,
-
-    pub system_program: Program<'info, System>,
-}
-
-pub fn create_linked_subject(
-    ctx: Context<CreateLinkedSubject>,
-    subject_id: Pubkey,
-    details_cid: String,
-    max_stake: u64,
-    match_mode: bool,
-    free_case: bool,
-    voting_period: i64,
-) -> Result<()> {
-    let defender_pool = &mut ctx.accounts.defender_pool;
-    let subject = &mut ctx.accounts.subject;
-    let clock = Clock::get()?;
-
-    require!(voting_period > 0, TribunalCraftError::InvalidConfig);
-
-    // Initialize pool if newly created (created_at will be 0 for new accounts)
-    if defender_pool.created_at == 0 {
-        defender_pool.owner = ctx.accounts.owner.key();
-        defender_pool.total_stake = 0;
-        defender_pool.available = 0;
-        defender_pool.held = 0;
-        defender_pool.subject_count = 0;
-        defender_pool.pending_disputes = 0;
-        defender_pool.bump = ctx.bumps.defender_pool;
-        defender_pool.created_at = clock.unix_timestamp;
-        msg!("Auto-created defender pool for owner");
-    }
-
-    // Initialize subject (linked mode)
-    subject.subject_id = subject_id;
-    subject.defender_pool = defender_pool.key(); // linked
-    subject.details_cid = details_cid;
-    subject.status = SubjectStatus::Valid;
-    subject.available_stake = 0; // can be added by direct stakers
-    subject.max_stake = max_stake;
-    subject.voting_period = voting_period;
-    subject.defender_count = 0;
-    subject.dispute_count = 0;
-    subject.match_mode = match_mode;
-    subject.free_case = free_case;
-    subject.dispute = Pubkey::default();
-    subject.bump = ctx.bumps.subject;
-    subject.created_at = clock.unix_timestamp;
-    subject.updated_at = clock.unix_timestamp;
-
-    // Update pool
-    defender_pool.subject_count += 1;
-    defender_pool.updated_at = clock.unix_timestamp;
-
-    msg!("Linked subject created: {} (free_case: {})", subject_id, free_case);
-    Ok(())
-}
-
-/// Create a free subject (no stake, no staker record - just Subject)
-#[derive(Accounts)]
-#[instruction(subject_id: Pubkey)]
-pub struct CreateFreeSubject<'info> {
+pub struct CreateSubject<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
 
@@ -101,212 +21,374 @@ pub struct CreateFreeSubject<'info> {
     )]
     pub subject: Account<'info, Subject>,
 
+    #[account(
+        init,
+        payer = creator,
+        space = Dispute::LEN,
+        seeds = [DISPUTE_SEED, subject_id.as_ref()],
+        bump
+    )]
+    pub dispute: Account<'info, Dispute>,
+
+    #[account(
+        init,
+        payer = creator,
+        space = Escrow::size_for_rounds(0),
+        seeds = [ESCROW_SEED, subject_id.as_ref()],
+        bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+
     pub system_program: Program<'info, System>,
 }
 
-pub fn create_free_subject(
-    ctx: Context<CreateFreeSubject>,
+pub fn create_subject(
+    ctx: Context<CreateSubject>,
     subject_id: Pubkey,
     details_cid: String,
+    match_mode: bool,
     voting_period: i64,
 ) -> Result<()> {
     let subject = &mut ctx.accounts.subject;
+    let dispute = &mut ctx.accounts.dispute;
+    let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
 
     require!(voting_period > 0, TribunalCraftError::InvalidConfig);
+    require!(details_cid.len() <= Subject::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
 
-    // Initialize free subject (no stake, no records)
+    // Initialize Subject
     subject.subject_id = subject_id;
-    subject.defender_pool = Pubkey::default();
+    subject.creator = ctx.accounts.creator.key();
     subject.details_cid = details_cid;
-    subject.status = SubjectStatus::Valid;
-    subject.available_stake = 0;
-    subject.max_stake = 0;
-    subject.voting_period = voting_period;
+    subject.round = 0;
+    subject.available_bond = 0;
     subject.defender_count = 0;
-    subject.dispute_count = 0;
-    subject.match_mode = false;
-    subject.free_case = true;
-    subject.dispute = Pubkey::default();
+    subject.status = SubjectStatus::Dormant;
+    subject.match_mode = match_mode;
+    subject.voting_period = voting_period;
+    subject.dispute = dispute.key();
     subject.bump = ctx.bumps.subject;
     subject.created_at = clock.unix_timestamp;
     subject.updated_at = clock.unix_timestamp;
+    subject.last_dispute_total = 0;
+    subject.last_voting_period = voting_period;
 
-    msg!("Free subject created: {}", subject_id);
+    // Initialize Dispute (empty, status = None)
+    dispute.subject_id = subject_id;
+    dispute.round = 0;
+    dispute.status = DisputeStatus::None;
+    dispute.dispute_type = DisputeType::Other;
+    dispute.total_stake = 0;
+    dispute.challenger_count = 0;
+    dispute.bond_at_risk = 0;
+    dispute.defender_count = 0;
+    dispute.votes_for_challenger = 0;
+    dispute.votes_for_defender = 0;
+    dispute.vote_count = 0;
+    dispute.voting_starts_at = 0;
+    dispute.voting_ends_at = 0;
+    dispute.outcome = ResolutionOutcome::None;
+    dispute.resolved_at = 0;
+    dispute.is_restore = false;
+    dispute.restore_stake = 0;
+    dispute.restorer = Pubkey::default();
+    dispute.bump = ctx.bumps.dispute;
+    dispute.created_at = clock.unix_timestamp;
+
+    // Initialize Escrow
+    escrow.subject_id = subject_id;
+    escrow.balance = 0;
+    escrow.rounds = Vec::new();
+    escrow.bump = ctx.bumps.escrow;
+
+    emit!(SubjectCreatedEvent {
+        subject_id,
+        creator: ctx.accounts.creator.key(),
+        match_mode,
+        voting_period,
+        timestamp: clock.unix_timestamp,
+    });
+
+    msg!("Subject created: {} (match_mode: {})", subject_id, match_mode);
     Ok(())
 }
 
-/// Add stake to subject - no escrow, all funds managed on subject
-/// If subject has active dispute in proportional mode, fees are deducted and stake is tracked as at risk
+/// Add bond to a subject (from wallet directly)
+/// Creates DefenderRecord for the current round
 #[derive(Accounts)]
-pub struct AddToStake<'info> {
+/// Add bond directly to a subject
+/// Also creates DefenderPool if it doesn't exist
+pub struct AddBondDirect<'info> {
     #[account(mut)]
-    pub staker: Signer<'info>,
+    pub defender: Signer<'info>,
 
     #[account(
         mut,
-        constraint = subject.can_stake() @ TribunalCraftError::SubjectCannotBeStaked,
-        constraint = !subject.free_case @ TribunalCraftError::InvalidConfig, // Free subjects don't accept stake
+        constraint = subject.can_bond() @ TribunalCraftError::SubjectCannotBeStaked,
     )]
     pub subject: Account<'info, Subject>,
 
     #[account(
         init_if_needed,
-        payer = staker,
+        payer = defender,
         space = DefenderRecord::LEN,
-        seeds = [DEFENDER_RECORD_SEED, subject.key().as_ref(), staker.key().as_ref()],
+        seeds = [
+            DEFENDER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            defender.key().as_ref(),
+            &subject.round.to_le_bytes()
+        ],
         bump
     )]
     pub defender_record: Account<'info, DefenderRecord>,
 
-    /// Optional: Active dispute (required if subject has active dispute in proportional mode)
-    #[account(mut)]
-    pub dispute: Option<Account<'info, Dispute>>,
-
-    /// Protocol config for treasury address (required if proportional dispute)
+    /// Defender's pool - created if doesn't exist
     #[account(
-        seeds = [PROTOCOL_CONFIG_SEED],
-        bump = protocol_config.bump
+        init_if_needed,
+        payer = defender,
+        space = DefenderPool::LEN,
+        seeds = [DEFENDER_POOL_SEED, defender.key().as_ref()],
+        bump
     )]
-    pub protocol_config: Option<Account<'info, ProtocolConfig>>,
+    pub defender_pool: Account<'info, DefenderPool>,
 
-    /// Treasury receives fees (required if proportional dispute)
-    /// CHECK: Validated against protocol_config.treasury
-    #[account(mut)]
-    pub treasury: Option<AccountInfo<'info>>,
+    /// Optional: Active dispute (for updating bond_at_risk during dispute)
+    #[account(
+        mut,
+        seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
+        bump = dispute.bump,
+    )]
+    pub dispute: Option<Account<'info, Dispute>>,
 
     pub system_program: Program<'info, System>,
 }
 
-pub fn add_to_stake(ctx: Context<AddToStake>, stake: u64) -> Result<()> {
+pub fn add_bond_direct(ctx: Context<AddBondDirect>, amount: u64) -> Result<()> {
     let subject = &mut ctx.accounts.subject;
     let defender_record = &mut ctx.accounts.defender_record;
+    let defender_pool = &mut ctx.accounts.defender_pool;
     let clock = Clock::get()?;
 
-    require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
-
-    // Check if there's an active dispute
-    let has_active_dispute = subject.has_active_dispute();
-    let is_match_mode = subject.match_mode;
-
-    // If there's an active dispute, check voting hasn't ended
-    if has_active_dispute {
-        if let Some(dispute) = ctx.accounts.dispute.as_ref() {
-            require!(
-                !dispute.is_voting_ended(clock.unix_timestamp),
-                TribunalCraftError::VotingEnded
-            );
-        }
+    // Initialize defender pool if newly created
+    if defender_pool.owner == Pubkey::default() {
+        defender_pool.owner = ctx.accounts.defender.key();
+        defender_pool.balance = 0;
+        defender_pool.max_bond = u64::MAX; // No limit by default
+        defender_pool.bump = ctx.bumps.defender_pool;
+        defender_pool.created_at = clock.unix_timestamp;
+        defender_pool.updated_at = clock.unix_timestamp;
     }
 
-    // In the no-escrow model, all stake always goes to subject
-    // In proportional mode during dispute, fees are deducted first
-    let is_proportional_during_dispute = has_active_dispute && !is_match_mode;
+    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
 
-    // Calculate platform fee (1%) for proportional mode during dispute
-    // Only platform fee goes to treasury; remaining 19% juror share stays on subject
-    let (fee_amount, net_stake) = if is_proportional_during_dispute {
-        let platform_fee = (stake as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
-        (platform_fee, stake.saturating_sub(platform_fee))
+    // Transfer bond to subject PDA
+    let cpi_context = CpiContext::new(
+        ctx.accounts.system_program.to_account_info(),
+        anchor_lang::system_program::Transfer {
+            from: ctx.accounts.defender.to_account_info(),
+            to: subject.to_account_info(),
+        },
+    );
+    anchor_lang::system_program::transfer(cpi_context, amount)?;
+
+    // Check if this is a new defender for this round
+    let is_new_defender = defender_record.bonded_at == 0;
+
+    if is_new_defender {
+        // Initialize new defender record
+        defender_record.subject_id = subject.subject_id;
+        defender_record.defender = ctx.accounts.defender.key();
+        defender_record.round = subject.round;
+        defender_record.bond = amount;
+        defender_record.source = BondSource::Direct;
+        defender_record.reward_claimed = false;
+        defender_record.bump = ctx.bumps.defender_record;
+        defender_record.bonded_at = clock.unix_timestamp;
+
+        subject.defender_count += 1;
+        msg!("New defender added for round {}: {} lamports", subject.round, amount);
     } else {
-        // No dispute or match mode: no fees
-        (0, stake)
-    };
-
-    // Transfer fee to treasury (if proportional during dispute)
-    if fee_amount > 0 {
-        let protocol_config = ctx.accounts.protocol_config.as_ref()
-            .ok_or(TribunalCraftError::InvalidConfig)?;
-        let treasury = ctx.accounts.treasury.as_ref()
-            .ok_or(TribunalCraftError::InvalidConfig)?;
-
-        // Validate treasury
-        require!(
-            treasury.key() == protocol_config.treasury,
-            TribunalCraftError::InvalidConfig
-        );
-
-        let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.staker.to_account_info(),
-                to: treasury.to_account_info(),
-            },
-        );
-        anchor_lang::system_program::transfer(cpi_context, fee_amount)?;
+        // Add to existing bond
+        defender_record.bond += amount;
+        msg!("Added to existing bond: {} lamports (total: {})", amount, defender_record.bond);
     }
 
-    // Transfer net stake to subject
-    if net_stake > 0 {
-        let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.staker.to_account_info(),
-                to: subject.to_account_info(),
-            },
-        );
-        anchor_lang::system_program::transfer(cpi_context, net_stake)?;
-    }
+    // Update subject
+    subject.available_bond += amount;
+    subject.updated_at = clock.unix_timestamp;
 
-    // Update subject stake with GROSS amount for consistent accounting
-    // available_stake tracks GROSS values for resolution calculations
-    subject.available_stake += stake;
-
-    // Revive dormant subject when stake is added
-    if subject.status == SubjectStatus::Dormant && subject.available_stake > 0 {
+    // If dormant and now has bond, become valid
+    if subject.status == SubjectStatus::Dormant && subject.available_bond > 0 {
         subject.status = SubjectStatus::Valid;
         msg!("Subject revived from dormant to valid");
     }
 
-    // If proportional mode during dispute, update dispute tracking
-    if is_proportional_during_dispute {
-        let dispute = ctx.accounts.dispute.as_mut()
-            .ok_or(TribunalCraftError::DisputeNotFound)?;
+    // If there's an active dispute, update bond_at_risk based on mode
+    if subject.status == SubjectStatus::Disputed {
+        if let Some(dispute) = ctx.accounts.dispute.as_mut() {
+            if subject.match_mode {
+                // Match mode: bond_at_risk = min(total_stake, available_bond)
+                dispute.bond_at_risk = dispute.total_stake.min(subject.available_bond);
+            } else {
+                // Prop mode: bond_at_risk = available_bond
+                dispute.bond_at_risk = subject.available_bond;
+            }
 
-        // Validate dispute matches subject's active dispute
-        require!(
-            dispute.key() == subject.dispute,
-            TribunalCraftError::InvalidConfig
-        );
-        require!(
-            dispute.status == DisputeStatus::Pending,
-            TribunalCraftError::DisputeAlreadyResolved
-        );
-
-        // Update dispute tracking with GROSS amounts
-        dispute.direct_stake_held += stake;
-        dispute.snapshot_total_stake += stake;
-
-        msg!("Stake added during proportional dispute: {} gross, {} net (fee: {})",
-            stake, net_stake, fee_amount);
-    } else if has_active_dispute {
-        msg!("Stake added during match mode dispute: {} lamports (available for matching)", stake);
-    } else {
-        msg!("Stake added to subject: {} lamports", stake);
+            // Update defender count for this dispute
+            if is_new_defender {
+                dispute.defender_count += 1;
+            }
+        }
     }
 
-    subject.updated_at = clock.unix_timestamp;
+    emit!(BondAddedEvent {
+        subject_id: subject.subject_id,
+        defender: ctx.accounts.defender.key(),
+        round: subject.round,
+        amount,
+        source: BondSource::Direct,
+        timestamp: clock.unix_timestamp,
+    });
 
-    // Check if this is a new staker or adding more to existing
-    let is_new_staker = defender_record.staked_at == 0;
+    Ok(())
+}
 
-    if is_new_staker {
-        // Initialize new staker record with GROSS stake
-        defender_record.subject = subject.key();
-        defender_record.defender = ctx.accounts.staker.key();
-        defender_record.stake = stake;
+/// Add bond from DefenderPool
+#[derive(Accounts)]
+pub struct AddBondFromPool<'info> {
+    #[account(mut)]
+    pub defender: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = subject.can_bond() @ TribunalCraftError::SubjectCannotBeStaked,
+    )]
+    pub subject: Account<'info, Subject>,
+
+    #[account(
+        mut,
+        seeds = [DEFENDER_POOL_SEED, defender.key().as_ref()],
+        bump = defender_pool.bump,
+        constraint = defender_pool.owner == defender.key() @ TribunalCraftError::InvalidConfig,
+    )]
+    pub defender_pool: Account<'info, DefenderPool>,
+
+    #[account(
+        init_if_needed,
+        payer = defender,
+        space = DefenderRecord::LEN,
+        seeds = [
+            DEFENDER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            defender.key().as_ref(),
+            &subject.round.to_le_bytes()
+        ],
+        bump
+    )]
+    pub defender_record: Account<'info, DefenderRecord>,
+
+    /// Optional: Active dispute (for updating bond_at_risk during dispute)
+    #[account(
+        mut,
+        seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
+        bump = dispute.bump,
+    )]
+    pub dispute: Option<Account<'info, Dispute>>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn add_bond_from_pool(ctx: Context<AddBondFromPool>, amount: u64) -> Result<()> {
+    let subject = &mut ctx.accounts.subject;
+    let defender_pool = &mut ctx.accounts.defender_pool;
+    let defender_record = &mut ctx.accounts.defender_record;
+    let clock = Clock::get()?;
+
+    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+
+    // Cap amount to max_bond setting
+    let capped_amount = amount.min(defender_pool.max_bond);
+    require!(capped_amount > 0, TribunalCraftError::StakeBelowMinimum);
+
+    // Deduct from pool balance
+    defender_pool.use_for_bond(capped_amount)?;
+
+    // Transfer from pool PDA to subject PDA
+    let owner_key = defender_pool.owner;
+    let seeds = &[
+        DEFENDER_POOL_SEED,
+        owner_key.as_ref(),
+        &[defender_pool.bump],
+    ];
+    let signer = &[&seeds[..]];
+
+    let cpi_context = CpiContext::new_with_signer(
+        ctx.accounts.system_program.to_account_info(),
+        anchor_lang::system_program::Transfer {
+            from: defender_pool.to_account_info(),
+            to: subject.to_account_info(),
+        },
+        signer,
+    );
+    anchor_lang::system_program::transfer(cpi_context, capped_amount)?;
+
+    // Check if this is a new defender for this round
+    let is_new_defender = defender_record.bonded_at == 0;
+
+    if is_new_defender {
+        // Initialize new defender record
+        defender_record.subject_id = subject.subject_id;
+        defender_record.defender = ctx.accounts.defender.key();
+        defender_record.round = subject.round;
+        defender_record.bond = capped_amount;
+        defender_record.source = BondSource::Pool;
         defender_record.reward_claimed = false;
         defender_record.bump = ctx.bumps.defender_record;
-        defender_record.staked_at = clock.unix_timestamp;
-        defender_record.stake_in_escrow = 0; // No escrow in new model
+        defender_record.bonded_at = clock.unix_timestamp;
 
         subject.defender_count += 1;
-        msg!("New defender added: {} lamports (gross)", stake);
+        msg!("New defender added from pool for round {}: {} lamports", subject.round, capped_amount);
     } else {
-        // Add to existing stake (don't increment counts)
-        defender_record.stake += stake;
-        msg!("Added to existing stake: {} lamports (total: {})", stake, defender_record.stake);
+        // Add to existing bond
+        defender_record.bond += capped_amount;
+        msg!("Added to existing pool bond: {} lamports (total: {})", capped_amount, defender_record.bond);
     }
+
+    // Update subject
+    subject.available_bond += capped_amount;
+    subject.updated_at = clock.unix_timestamp;
+    defender_pool.updated_at = clock.unix_timestamp;
+
+    // If dormant and now has bond, become valid
+    if subject.status == SubjectStatus::Dormant && subject.available_bond > 0 {
+        subject.status = SubjectStatus::Valid;
+        msg!("Subject revived from dormant to valid");
+    }
+
+    // If there's an active dispute, update bond_at_risk based on mode
+    if subject.status == SubjectStatus::Disputed {
+        if let Some(dispute) = ctx.accounts.dispute.as_mut() {
+            if subject.match_mode {
+                dispute.bond_at_risk = dispute.total_stake.min(subject.available_bond);
+            } else {
+                dispute.bond_at_risk = subject.available_bond;
+            }
+
+            if is_new_defender {
+                dispute.defender_count += 1;
+            }
+        }
+    }
+
+    emit!(BondAddedEvent {
+        subject_id: subject.subject_id,
+        defender: ctx.accounts.defender.key(),
+        round: subject.round,
+        amount: capped_amount,
+        source: BondSource::Pool,
+        timestamp: clock.unix_timestamp,
+    });
 
     Ok(())
 }

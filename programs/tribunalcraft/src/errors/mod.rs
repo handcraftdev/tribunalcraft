@@ -95,6 +95,9 @@ pub enum TribunalCraftError {
     #[msg("Reward already claimed")]
     RewardAlreadyClaimed,
 
+    #[msg("Reward not yet claimed")]
+    RewardNotClaimed,
+
     #[msg("Not eligible for reward")]
     NotEligibleForReward,
 

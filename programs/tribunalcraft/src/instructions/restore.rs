@@ -1,12 +1,15 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
-use crate::constants::{DISPUTE_SEED, PROTOCOL_CONFIG_SEED, TOTAL_FEE_BPS, PLATFORM_SHARE_BPS};
+use crate::constants::{
+    SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, CHALLENGER_RECORD_SEED,
+};
 use crate::errors::TribunalCraftError;
+use crate::events::RestoreSubmittedEvent;
 
 /// Submit a restoration request for an invalidated subject
 /// Restoration allows community to reverse previous invalidation decisions
 /// Restorer stakes (no bond required), voting period is 2x previous
-/// Platform fee (1%) is collected upfront to treasury
+/// Fees are collected during resolution from total pool
 #[derive(Accounts)]
 pub struct SubmitRestore<'info> {
     #[account(mut)]
@@ -14,34 +17,41 @@ pub struct SubmitRestore<'info> {
 
     #[account(
         mut,
+        seeds = [SUBJECT_SEED, subject.subject_id.as_ref()],
+        bump = subject.bump,
         constraint = subject.can_restore() @ TribunalCraftError::SubjectCannotBeRestored,
-        constraint = !subject.has_active_dispute() @ TribunalCraftError::DisputeAlreadyExists,
     )]
     pub subject: Account<'info, Subject>,
 
     #[account(
-        init,
-        payer = restorer,
-        space = Dispute::LEN,
-        seeds = [DISPUTE_SEED, subject.key().as_ref(), &subject.dispute_count.to_le_bytes()],
-        bump
+        mut,
+        seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
+        bump = dispute.bump,
+        constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeAlreadyExists,
     )]
     pub dispute: Account<'info, Dispute>,
 
-    /// Protocol config for treasury address
-    #[account(
-        seeds = [PROTOCOL_CONFIG_SEED],
-        bump = protocol_config.bump
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-
-    /// Treasury receives platform fee
-    /// CHECK: Validated against protocol_config.treasury
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+        seeds = [ESCROW_SEED, subject.subject_id.as_ref()],
+        bump = escrow.bump,
     )]
-    pub treasury: AccountInfo<'info>,
+    pub escrow: Account<'info, Escrow>,
+
+    /// Challenger record for the restorer (acts as first challenger)
+    #[account(
+        init,
+        payer = restorer,
+        space = ChallengerRecord::LEN,
+        seeds = [
+            CHALLENGER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            restorer.key().as_ref(),
+            &(subject.round + 1).to_le_bytes()  // Next round
+        ],
+        bump
+    )]
+    pub challenger_record: Account<'info, ChallengerRecord>,
 
     pub system_program: Program<'info, System>,
 }
@@ -52,8 +62,12 @@ pub fn submit_restore(
     details_cid: String,
     stake_amount: u64,
 ) -> Result<()> {
+    require!(details_cid.len() <= Dispute::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+
     let subject = &mut ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
+    let escrow = &mut ctx.accounts.escrow;
+    let challenger_record = &mut ctx.accounts.challenger_record;
     let clock = Clock::get()?;
 
     // Validate stake meets minimum requirement (previous dispute's stake + bond)
@@ -62,80 +76,94 @@ pub fn submit_restore(
         TribunalCraftError::RestoreStakeBelowMinimum
     );
 
-    // Calculate platform fee (1% of total = TOTAL_FEE_BPS * PLATFORM_SHARE_BPS / 10000 / 10000)
-    let platform_fee = (stake_amount as u128 * TOTAL_FEE_BPS as u128 * PLATFORM_SHARE_BPS as u128 / 10000 / 10000) as u64;
-    let stake_after_fee = stake_amount.saturating_sub(platform_fee);
+    // Transfer full stake to subject PDA (fees taken during resolution)
+    let cpi_context = CpiContext::new(
+        ctx.accounts.system_program.to_account_info(),
+        anchor_lang::system_program::Transfer {
+            from: ctx.accounts.restorer.to_account_info(),
+            to: subject.to_account_info(),
+        },
+    );
+    anchor_lang::system_program::transfer(cpi_context, stake_amount)?;
 
-    // Transfer platform fee to treasury
-    if platform_fee > 0 {
-        let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.restorer.to_account_info(),
-                to: ctx.accounts.treasury.to_account_info(),
-            },
-        );
-        anchor_lang::system_program::transfer(cpi_context, platform_fee)?;
-        msg!("Platform fee transferred to treasury: {} lamports", platform_fee);
-    }
-
-    // Transfer remaining stake to dispute account
-    if stake_after_fee > 0 {
-        let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.restorer.to_account_info(),
-                to: dispute.to_account_info(),
-            },
-        );
-        anchor_lang::system_program::transfer(cpi_context, stake_after_fee)?;
-    }
-
-    // Update subject status
+    // Increment round for restoration
+    let new_round = subject.round + 1;
+    subject.round = new_round;
     subject.status = SubjectStatus::Restoring;
-    subject.dispute = dispute.key();
-    subject.dispute_count += 1;
     subject.updated_at = clock.unix_timestamp;
 
-    // Initialize dispute as a restoration request
-    dispute.subject = subject.key();
-    dispute.dispute_type = dispute_type;
-    dispute.total_bond = 0; // Restorations don't have bonds
-    dispute.stake_held = 0;
-    dispute.direct_stake_held = 0;
-    dispute.challenger_count = 0; // No challengers in restorations
+    // Realloc escrow for new round
+    let new_size = Escrow::size_for_rounds(escrow.rounds.len() + 1);
+    escrow.to_account_info().resize(new_size)?;
+
+    // Add new round result slot
+    escrow.rounds.push(RoundResult {
+        round: new_round,
+        creator: subject.creator,
+        resolved_at: 0,
+        outcome: ResolutionOutcome::None,
+        total_stake: stake_amount,
+        bond_at_risk: 0, // No bond at risk for restoration
+        safe_bond: 0,    // No safe bond for restoration
+        total_vote_weight: 0,
+        winner_pool: 0,
+        juror_pool: 0,
+        defender_count: 0,
+        challenger_count: 1,
+        juror_count: 0,
+        defender_claims: 0,
+        challenger_claims: 0,
+        juror_claims: 0,
+    });
+
+    // Reset dispute for restoration
+    dispute.round = new_round;
     dispute.status = DisputeStatus::Pending;
-    dispute.outcome = ResolutionOutcome::None;
-    dispute.votes_favor_weight = 0;
-    dispute.votes_against_weight = 0;
+    dispute.dispute_type = dispute_type;
+    dispute.total_stake = stake_amount;
+    dispute.bond_at_risk = 0; // No bond at risk
+    dispute.defender_count = 0;
+    dispute.challenger_count = 1;
+    dispute.votes_for_challenger = 0;
+    dispute.votes_for_defender = 0;
     dispute.vote_count = 0;
+    dispute.outcome = ResolutionOutcome::None;
     dispute.resolved_at = 0;
-    dispute.bump = ctx.bumps.dispute;
-    dispute.created_at = clock.unix_timestamp;
-    dispute.pool_reward_claimed = false;
-
-    // Snapshot state for historical record (likely 0 after invalidation)
-    dispute.snapshot_total_stake = subject.available_stake;
-    dispute.snapshot_defender_count = subject.defender_count;
-    dispute.challengers_claimed = 0;
-    dispute.defenders_claimed = 0;
-
-    // Restoration-specific fields
+    dispute.details_cid = details_cid.clone();
     dispute.is_restore = true;
     dispute.restore_stake = stake_amount;
     dispute.restorer = ctx.accounts.restorer.key();
-    dispute.details_cid = details_cid.clone();
 
     // Voting starts immediately with 2x previous voting period
     let restore_voting_period = subject.restore_voting_period();
     dispute.start_voting(clock.unix_timestamp, restore_voting_period);
 
+    // Initialize challenger record for restorer
+    challenger_record.subject_id = subject.subject_id;
+    challenger_record.challenger = ctx.accounts.restorer.key();
+    challenger_record.round = new_round;
+    challenger_record.stake = stake_amount;
+    challenger_record.reward_claimed = false;
+    challenger_record.bump = ctx.bumps.challenger_record;
+    challenger_record.challenged_at = clock.unix_timestamp;
+    challenger_record.details_cid = details_cid.clone();
+
+    emit!(RestoreSubmittedEvent {
+        subject_id: subject.subject_id,
+        round: new_round,
+        restorer: ctx.accounts.restorer.key(),
+        stake: stake_amount,
+        details_cid,
+        voting_period: restore_voting_period,
+        timestamp: clock.unix_timestamp,
+    });
+
     msg!(
-        "Restoration submitted with {} lamports stake (voting period: {} seconds)",
+        "Restoration submitted for round {} with {} lamports stake (voting period: {} seconds)",
+        new_round,
         stake_amount,
         restore_voting_period
     );
-    msg!("Details CID: {}", details_cid);
 
     Ok(())
 }

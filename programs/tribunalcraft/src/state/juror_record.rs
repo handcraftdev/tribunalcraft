@@ -1,33 +1,36 @@
 use anchor_lang::prelude::*;
+use crate::state::dispute::ResolutionOutcome;
 
-/// Vote choice for regular disputes
+/// Vote choice for disputes
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum VoteChoice {
     #[default]
-    ForChallenger,  // Vote for the challenger (dispute is valid, subject should be invalidated)
-    ForDefender,    // Vote for the defender (dispute is invalid, subject stays active)
+    ForChallenger,  // Vote for the challenger (dispute is valid)
+    ForDefender,    // Vote for the defender (dispute is invalid)
 }
 
-/// Vote choice for restorations (separate enum for clearer semantics)
+/// Vote choice for restorations
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum RestoreVoteChoice {
     #[default]
     ForRestoration,    // Vote to restore subject to Valid status
-    AgainstRestoration, // Vote to keep subject Invalidated
+    AgainstRestoration, // Vote to keep subject Invalid
 }
 
-/// Juror's vote on a dispute
+/// Juror's vote record for a specific subject round
+/// Seeds: [JUROR_RECORD_SEED, subject_id, juror, round]
+/// Created per round, closed after claim
 #[account]
 #[derive(Default)]
-pub struct VoteRecord {
-    /// The dispute being voted on
-    pub dispute: Pubkey,
+pub struct JurorRecord {
+    /// The subject_id this record belongs to
+    pub subject_id: Pubkey,
 
     /// Juror who cast the vote
     pub juror: Pubkey,
 
-    /// Juror account PDA
-    pub juror_account: Pubkey,
+    /// Which round this vote is for
+    pub round: u32,
 
     /// Vote choice for regular disputes
     pub choice: VoteChoice,
@@ -38,22 +41,16 @@ pub struct VoteRecord {
     /// Whether this is a restoration vote
     pub is_restore_vote: bool,
 
-    /// Stake allocated to this vote
-    pub stake_allocated: u64,
-
-    /// Calculated voting power (scaled by WEIGHT_PRECISION)
+    /// Calculated voting power
     pub voting_power: u64,
 
-    /// When the stake unlocks
-    pub unlock_at: i64,
-
-    /// Whether reputation has been processed after resolution
-    pub reputation_processed: bool,
+    /// Stake allocated (locked from juror pool)
+    pub stake_allocation: u64,
 
     /// Whether reward has been claimed
     pub reward_claimed: bool,
 
-    /// Whether stake has been unlocked/returned
+    /// Whether stake has been unlocked (7 days after voting ends)
     pub stake_unlocked: bool,
 
     /// Bump seed for PDA
@@ -66,37 +63,26 @@ pub struct VoteRecord {
     pub rationale_cid: String,
 }
 
-impl VoteRecord {
+impl JurorRecord {
     pub const MAX_CID_LEN: usize = 64;
 
     pub const LEN: usize = 8 +  // discriminator
-        32 +    // dispute
+        32 +    // subject_id
         32 +    // juror
-        32 +    // juror_account
+        4 +     // round
         1 +     // choice
         1 +     // restore_choice
         1 +     // is_restore_vote
-        8 +     // stake_allocated
         8 +     // voting_power
-        8 +     // unlock_at
-        1 +     // reputation_processed
+        8 +     // stake_allocation
         1 +     // reward_claimed
         1 +     // stake_unlocked
         1 +     // bump
         8 +     // voted_at
-        4 + Self::MAX_CID_LEN;  // rationale_cid (4 bytes length + string)
-
-    /// Check if stake can be unlocked
-    pub fn can_unlock(&self, current_time: i64) -> bool {
-        current_time >= self.unlock_at && !self.stake_unlocked
-    }
+        4 + Self::MAX_CID_LEN;  // rationale_cid
 
     /// Check if vote was correct based on outcome
-    /// For regular disputes: ForChallenger wins if ChallengerWins, ForDefender wins if DefenderWins
-    /// For restorations: ForRestoration wins if ChallengerWins (subject restored), AgainstRestoration wins if DefenderWins
-    pub fn is_correct(&self, outcome: crate::state::dispute::ResolutionOutcome) -> Option<bool> {
-        use crate::state::dispute::ResolutionOutcome;
-
+    pub fn is_correct(&self, outcome: ResolutionOutcome) -> Option<bool> {
         if self.is_restore_vote {
             // Restoration vote logic
             match (self.restore_choice, outcome) {
@@ -118,5 +104,13 @@ impl VoteRecord {
                 (_, ResolutionOutcome::None) => None,
             }
         }
+    }
+
+    /// Calculate juror's share of reward based on voting power
+    pub fn calculate_reward_share(&self, total_reward: u64, total_vote_weight: u64) -> u64 {
+        if total_vote_weight == 0 {
+            return 0;
+        }
+        (total_reward as u128 * self.voting_power as u128 / total_vote_weight as u128) as u64
     }
 }

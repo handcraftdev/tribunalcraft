@@ -4,50 +4,44 @@ use anchor_lang::prelude::*;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubjectStatus {
     #[default]
-    Valid,       // Has stake, can be disputed
+    Dormant,     // No bond, waiting for defenders
+    Valid,       // Has bond, can be disputed
     Disputed,    // Currently has an active dispute
-    Invalid,     // Dispute upheld, challengers won (terminal)
-    Dormant,     // No stake backing, needs defender stake to revive
+    Invalid,     // Dispute upheld, challengers won
     Restoring,   // Currently has an active restoration request
 }
 
-/// Subject that defenders back - global (identified by subject_id)
+/// Subject that defenders back - identified by subject_id
+/// Persistent PDA - created once, reused across rounds
 #[account]
 #[derive(Default)]
 pub struct Subject {
     /// Subject identifier (could be PDA from external program)
     pub subject_id: Pubkey,
 
-    /// Optional defender pool (default = standalone mode, set = linked to pool)
-    pub defender_pool: Pubkey,
+    /// Creator of this subject (for auto-bond on reset)
+    pub creator: Pubkey,
 
-    /// Details/metadata CID (IPFS/Arweave) - context provided by first staker
+    /// Content CID (IPFS hash for subject details)
     pub details_cid: String,
+
+    /// Current round counter (0, 1, 2, ...)
+    pub round: u32,
+
+    /// Total bond available for current round
+    pub available_bond: u64,
+
+    /// Number of defenders in current round
+    pub defender_count: u16,
 
     /// Current status
     pub status: SubjectStatus,
 
-    /// Available stake for disputes (direct stakes + pool contribution when disputed)
-    /// Updated at resolution: available_stake -= stake_at_risk
-    pub available_stake: u64,
-
-    /// Max stake at risk per dispute (for match mode)
-    pub max_stake: u64,
+    /// Match mode: true = bond_at_risk matches stake, false = proportionate (all bond at risk)
+    pub match_mode: bool,
 
     /// Voting period in seconds for this subject's disputes
     pub voting_period: i64,
-
-    /// Number of defenders (standalone mode only)
-    pub defender_count: u16,
-
-    /// Number of disputes (for sequential dispute PDAs)
-    pub dispute_count: u32,
-
-    /// Match mode: true = bond must match stake, false = proportionate
-    pub match_mode: bool,
-
-    /// Free case mode: no stake/bond required, no rewards, no reputation impact
-    pub free_case: bool,
 
     /// Current active dispute (if any)
     pub dispute: Pubkey,
@@ -73,18 +67,18 @@ pub struct Subject {
 }
 
 impl Subject {
+    pub const MAX_CID_LEN: usize = 64; // IPFS CID v1 is typically 59 chars
+
     pub const LEN: usize = 8 +  // discriminator
         32 +    // subject_id
-        32 +    // defender_pool
-        (4 + 64) + // details_cid (String: 4 byte length + 64 byte content)
-        1 +     // status
-        8 +     // available_stake
-        8 +     // max_stake
-        8 +     // voting_period
+        32 +    // creator
+        4 + Self::MAX_CID_LEN + // details_cid (string with length prefix)
+        4 +     // round
+        8 +     // available_bond
         2 +     // defender_count
-        4 +     // dispute_count
+        1 +     // status
         1 +     // match_mode
-        1 +     // free_case
+        8 +     // voting_period
         32 +    // dispute
         1 +     // bump
         8 +     // created_at
@@ -92,22 +86,17 @@ impl Subject {
         8 +     // last_dispute_total
         8;      // last_voting_period
 
-    /// Check if subject is linked to a pool (vs standalone)
-    pub fn is_linked(&self) -> bool {
-        self.defender_pool != Pubkey::default()
-    }
-
-    /// Check if subject can accept new stakes (both standalone and linked)
-    /// Invalid is terminal - no more staking allowed
-    /// Dormant can be revived by staking
-    /// Disputed allows proportional staking
-    /// Restoring doesn't accept stakes (subject is Invalid being restored)
-    pub fn can_stake(&self) -> bool {
+    /// Check if subject can accept new bonds
+    /// Invalid is terminal - no more bonding allowed
+    /// Dormant can be revived by bonding
+    /// Disputed allows proportional bonding
+    /// Restoring doesn't accept bonds
+    pub fn can_bond(&self) -> bool {
         matches!(self.status, SubjectStatus::Valid | SubjectStatus::Disputed | SubjectStatus::Dormant)
     }
 
-    /// Check if subject can be disputed (only valid subjects with stake)
-    /// Dormant subjects cannot be disputed - need stake first
+    /// Check if subject can be disputed (only valid subjects with bond)
+    /// Dormant subjects cannot be disputed - need bond first
     pub fn can_dispute(&self) -> bool {
         self.status == SubjectStatus::Valid
     }
@@ -130,5 +119,14 @@ impl Subject {
     /// Get minimum stake required for restoration
     pub fn min_restore_stake(&self) -> u64 {
         self.last_dispute_total
+    }
+
+    /// Reset subject for next round (called during resolution)
+    pub fn reset_for_next_round(&mut self) {
+        self.round += 1;
+        self.available_bond = 0;
+        self.defender_count = 0;
+        self.status = SubjectStatus::Dormant;
+        self.dispute = Pubkey::default();
     }
 }

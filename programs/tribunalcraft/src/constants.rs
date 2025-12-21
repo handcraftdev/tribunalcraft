@@ -71,14 +71,27 @@ pub const WINNER_SHARE_BPS: u16 = 8000;
 
 pub const PROTOCOL_CONFIG_SEED: &[u8] = b"protocol_config";
 pub const DEFENDER_POOL_SEED: &[u8] = b"defender_pool";
+pub const CHALLENGER_POOL_SEED: &[u8] = b"challenger_pool";
+pub const JUROR_POOL_SEED: &[u8] = b"juror_pool";
 pub const SUBJECT_SEED: &[u8] = b"subject";
-pub const JUROR_ACCOUNT_SEED: &[u8] = b"juror";
-pub const CHALLENGER_ACCOUNT_SEED: &[u8] = b"challenger";
 pub const DISPUTE_SEED: &[u8] = b"dispute";
-pub const DISPUTE_ESCROW_SEED: &[u8] = b"escrow";
+pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const CHALLENGER_RECORD_SEED: &[u8] = b"challenger_record";
 pub const DEFENDER_RECORD_SEED: &[u8] = b"defender_record";
-pub const VOTE_RECORD_SEED: &[u8] = b"vote";
+pub const JUROR_RECORD_SEED: &[u8] = b"juror_record";
+
+// =============================================================================
+// CLAIM AND SWEEP CONSTANTS
+// =============================================================================
+
+/// Grace period before creator can sweep (30 days in seconds)
+pub const CLAIM_GRACE_PERIOD: i64 = 30 * 24 * 60 * 60;
+
+/// Period after which anyone can sweep (90 days in seconds)
+pub const TREASURY_SWEEP_PERIOD: i64 = 90 * 24 * 60 * 60;
+
+/// Bot reward for treasury sweep (1% = 100 basis points)
+pub const BOT_REWARD_BPS: u64 = 100;
 
 // =============================================================================
 // STACKED SIGMOID SYSTEM

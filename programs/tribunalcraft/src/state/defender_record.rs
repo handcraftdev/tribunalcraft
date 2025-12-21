@@ -1,22 +1,33 @@
 use anchor_lang::prelude::*;
 
-/// Individual defender's contribution to backing a subject
-/// Supports cumulative staking where multiple defenders back a subject
+/// Source of bond funds
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BondSource {
+    #[default]
+    Direct,    // From wallet directly
+    Pool,      // From DefenderPool
+}
+
+/// Individual defender's bond for a specific subject round
+/// Seeds: [DEFENDER_RECORD_SEED, subject_id, defender, round]
+/// Created per round, closed after claim
 #[account]
 #[derive(Default)]
 pub struct DefenderRecord {
-    /// The subject this record belongs to
-    pub subject: Pubkey,
+    /// The subject_id this record belongs to
+    pub subject_id: Pubkey,
 
     /// Defender's wallet address
     pub defender: Pubkey,
 
-    /// Total amount staked to back the subject (on subject account)
-    pub stake: u64,
+    /// Which round this bond is for
+    pub round: u32,
 
-    /// Amount of stake currently at risk in escrow (during active dispute)
-    /// This is the amount that will be used for claim calculations
-    pub stake_in_escrow: u64,
+    /// Bond amount backing the subject
+    pub bond: u64,
+
+    /// Source of bond funds
+    pub source: BondSource,
 
     /// Whether reward has been claimed
     pub reward_claimed: bool,
@@ -24,26 +35,27 @@ pub struct DefenderRecord {
     /// Bump seed for PDA
     pub bump: u8,
 
-    /// Timestamp when this defender joined
-    pub staked_at: i64,
+    /// Timestamp when this defender bonded
+    pub bonded_at: i64,
 }
 
 impl DefenderRecord {
     pub const LEN: usize = 8 +  // discriminator
-        32 +    // subject
+        32 +    // subject_id
         32 +    // defender
-        8 +     // stake
-        8 +     // stake_in_escrow
+        4 +     // round
+        8 +     // bond
+        1 +     // source
         1 +     // reward_claimed
         1 +     // bump
-        8;      // staked_at
+        8;      // bonded_at
 
-    /// Calculate defender's share of reward based on stake in escrow
-    /// reward = total_reward * (this_stake_in_escrow / total_stakes_in_escrow)
-    pub fn calculate_reward_share(&self, total_reward: u64, total_stake_in_escrow: u64) -> u64 {
-        if total_stake_in_escrow == 0 {
+    /// Calculate defender's share of reward based on bond
+    /// reward = total_reward * (this_bond / total_bond)
+    pub fn calculate_reward_share(&self, total_reward: u64, total_bond: u64) -> u64 {
+        if total_bond == 0 {
             return 0;
         }
-        (total_reward as u128 * self.stake_in_escrow as u128 / total_stake_in_escrow as u128) as u64
+        (total_reward as u128 * self.bond as u128 / total_bond as u128) as u64
     }
 }

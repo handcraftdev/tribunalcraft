@@ -2,15 +2,17 @@ use anchor_lang::prelude::*;
 
 pub mod constants;
 pub mod errors;
+pub mod events;
 pub mod state;
 pub mod instructions;
 
 pub use constants::*;
 pub use errors::*;
+pub use events::*;
 pub use state::*;
 pub use instructions::*;
 
-declare_id!("4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC");
+declare_id!("FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q");
 
 #[program]
 pub mod tribunalcraft {
@@ -34,24 +36,25 @@ pub mod tribunalcraft {
     // Defender Pool Instructions
     // =========================================================================
 
-    /// Create a defender pool with initial stake
-    pub fn create_pool(
+    /// Create a defender pool
+    pub fn create_defender_pool(
         ctx: Context<CreatePool>,
-        initial_stake: u64,
+        initial_amount: u64,
+        max_bond: u64,
     ) -> Result<()> {
-        instructions::create_pool(ctx, initial_stake)
+        instructions::create_pool(ctx, initial_amount, max_bond)
     }
 
-    /// Add stake to an existing pool
-    pub fn stake_pool(
+    /// Deposit to defender pool
+    pub fn deposit_defender_pool(
         ctx: Context<StakePool>,
         amount: u64,
     ) -> Result<()> {
         instructions::stake_pool(ctx, amount)
     }
 
-    /// Withdraw available stake from pool
-    pub fn withdraw_pool(
+    /// Withdraw from defender pool
+    pub fn withdraw_defender_pool(
         ctx: Context<WithdrawPool>,
         amount: u64,
     ) -> Result<()> {
@@ -62,42 +65,38 @@ pub mod tribunalcraft {
     // Subject Instructions
     // =========================================================================
 
-    /// Create a subject linked to a defender pool
-    pub fn create_linked_subject(
-        ctx: Context<CreateLinkedSubject>,
+    /// Create a subject with Subject + Dispute + Escrow PDAs
+    pub fn create_subject(
+        ctx: Context<CreateSubject>,
         subject_id: Pubkey,
         details_cid: String,
-        max_stake: u64,
         match_mode: bool,
-        free_case: bool,
         voting_period: i64,
     ) -> Result<()> {
-        instructions::create_linked_subject(ctx, subject_id, details_cid, max_stake, match_mode, free_case, voting_period)
+        instructions::create_subject(ctx, subject_id, details_cid, match_mode, voting_period)
     }
 
-    /// Create a free subject (no stake required, just Subject account)
-    pub fn create_free_subject(
-        ctx: Context<CreateFreeSubject>,
-        subject_id: Pubkey,
-        details_cid: String,
-        voting_period: i64,
+    /// Add bond directly from wallet
+    pub fn add_bond_direct(
+        ctx: Context<AddBondDirect>,
+        amount: u64,
     ) -> Result<()> {
-        instructions::create_free_subject(ctx, subject_id, details_cid, voting_period)
+        instructions::add_bond_direct(ctx, amount)
     }
 
-    /// Add stake to a standalone subject
-    pub fn add_to_stake(
-        ctx: Context<AddToStake>,
-        stake: u64,
+    /// Add bond from defender pool
+    pub fn add_bond_from_pool(
+        ctx: Context<AddBondFromPool>,
+        amount: u64,
     ) -> Result<()> {
-        instructions::add_to_stake(ctx, stake)
+        instructions::add_bond_from_pool(ctx, amount)
     }
 
     // =========================================================================
     // Juror Instructions
     // =========================================================================
 
-    /// Register as a juror with initial stake
+    /// Register as a juror
     pub fn register_juror(
         ctx: Context<RegisterJuror>,
         stake_amount: u64,
@@ -105,7 +104,7 @@ pub mod tribunalcraft {
         instructions::register_juror(ctx, stake_amount)
     }
 
-    /// Add more stake to juror account
+    /// Add stake to juror pool
     pub fn add_juror_stake(
         ctx: Context<AddJurorStake>,
         amount: u64,
@@ -113,7 +112,7 @@ pub mod tribunalcraft {
         instructions::add_juror_stake(ctx, amount)
     }
 
-    /// Withdraw available stake (with reputation-based slashing)
+    /// Withdraw from juror pool
     pub fn withdraw_juror_stake(
         ctx: Context<WithdrawJurorStake>,
         amount: u64,
@@ -121,7 +120,7 @@ pub mod tribunalcraft {
         instructions::withdraw_juror_stake(ctx, amount)
     }
 
-    /// Unregister juror and withdraw all available stake
+    /// Unregister juror
     pub fn unregister_juror(
         ctx: Context<UnregisterJuror>,
     ) -> Result<()> {
@@ -129,58 +128,61 @@ pub mod tribunalcraft {
     }
 
     // =========================================================================
+    // Challenger Pool Instructions
+    // =========================================================================
+
+    /// Register as a challenger
+    pub fn register_challenger(
+        ctx: Context<RegisterChallenger>,
+        stake_amount: u64,
+    ) -> Result<()> {
+        instructions::register_challenger(ctx, stake_amount)
+    }
+
+    /// Add stake to challenger pool
+    pub fn add_challenger_stake(
+        ctx: Context<AddChallengerStake>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::add_challenger_stake(ctx, amount)
+    }
+
+    /// Withdraw from challenger pool
+    pub fn withdraw_challenger_stake(
+        ctx: Context<WithdrawChallengerStake>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::withdraw_challenger_stake(ctx, amount)
+    }
+
+    // =========================================================================
     // Challenger Instructions
     // =========================================================================
 
-    /// Submit a new dispute against a subject (first challenger)
-    pub fn submit_dispute(
-        ctx: Context<SubmitDispute>,
+    /// Create a dispute against a subject
+    pub fn create_dispute(
+        ctx: Context<CreateDispute>,
         dispute_type: DisputeType,
         details_cid: String,
-        bond: u64,
+        stake: u64,
     ) -> Result<()> {
-        instructions::submit_dispute(ctx, dispute_type, details_cid, bond)
+        instructions::create_dispute(ctx, dispute_type, details_cid, stake)
     }
 
-    /// Add to existing dispute (additional challengers)
-    pub fn add_to_dispute(
-        ctx: Context<AddToDispute>,
+    /// Join existing dispute as additional challenger
+    pub fn join_challengers(
+        ctx: Context<JoinChallengers>,
         details_cid: String,
-        bond: u64,
+        stake: u64,
     ) -> Result<()> {
-        instructions::add_to_dispute(ctx, details_cid, bond)
-    }
-
-    /// Submit a free dispute (no bond required, just Dispute account)
-    pub fn submit_free_dispute(
-        ctx: Context<SubmitFreeDispute>,
-        dispute_type: DisputeType,
-        details_cid: String,
-    ) -> Result<()> {
-        instructions::submit_free_dispute(ctx, dispute_type, details_cid)
-    }
-
-    // =========================================================================
-    // Restore Instructions
-    // =========================================================================
-
-    /// Submit a restoration request against an invalidated subject
-    /// Restorations allow community to reverse previous invalidation decisions
-    /// Restorer stakes (no bond required), voting period is 2x previous
-    pub fn submit_restore(
-        ctx: Context<SubmitRestore>,
-        dispute_type: DisputeType,
-        details_cid: String,
-        stake_amount: u64,
-    ) -> Result<()> {
-        instructions::submit_restore(ctx, dispute_type, details_cid, stake_amount)
+        instructions::join_challengers(ctx, details_cid, stake)
     }
 
     // =========================================================================
     // Voting Instructions
     // =========================================================================
 
-    /// Vote on a dispute with stake allocation
+    /// Vote on a dispute
     pub fn vote_on_dispute(
         ctx: Context<VoteOnDispute>,
         choice: VoteChoice,
@@ -190,9 +192,7 @@ pub mod tribunalcraft {
         instructions::vote_on_dispute(ctx, choice, stake_allocation, rationale_cid)
     }
 
-    /// Vote on a restoration with stake allocation
-    /// ForRestoration = vote to restore subject to Valid
-    /// AgainstRestoration = vote to keep subject Invalidated
+    /// Vote on a restoration
     pub fn vote_on_restore(
         ctx: Context<VoteOnRestore>,
         choice: RestoreVoteChoice,
@@ -200,14 +200,6 @@ pub mod tribunalcraft {
         rationale_cid: String,
     ) -> Result<()> {
         instructions::vote_on_restore(ctx, choice, stake_allocation, rationale_cid)
-    }
-
-    /// Add more stake to an existing vote
-    pub fn add_to_vote(
-        ctx: Context<AddToVote>,
-        additional_stake: u64,
-    ) -> Result<()> {
-        instructions::add_to_vote(ctx, additional_stake)
     }
 
     // =========================================================================
@@ -221,40 +213,90 @@ pub mod tribunalcraft {
         instructions::resolve_dispute(ctx)
     }
 
-    /// Unlock juror stake after 7-day buffer
+    // =========================================================================
+    // Restoration Instructions
+    // =========================================================================
+
+    /// Submit a restoration request for an invalidated subject
+    pub fn submit_restore(
+        ctx: Context<SubmitRestore>,
+        dispute_type: DisputeType,
+        details_cid: String,
+        stake_amount: u64,
+    ) -> Result<()> {
+        instructions::submit_restore(ctx, dispute_type, details_cid, stake_amount)
+    }
+
+    // =========================================================================
+    // Claim Instructions
+    // =========================================================================
+
+    /// Claim defender reward
+    pub fn claim_defender(
+        ctx: Context<ClaimDefender>,
+        round: u32,
+    ) -> Result<()> {
+        instructions::claim_defender(ctx, round)
+    }
+
+    /// Claim challenger reward
+    pub fn claim_challenger(
+        ctx: Context<ClaimChallenger>,
+        round: u32,
+    ) -> Result<()> {
+        instructions::claim_challenger(ctx, round)
+    }
+
+    /// Claim juror reward
+    pub fn claim_juror(
+        ctx: Context<ClaimJuror>,
+        round: u32,
+    ) -> Result<()> {
+        instructions::claim_juror(ctx, round)
+    }
+
+    // =========================================================================
+    // Unlock Instructions
+    // =========================================================================
+
+    /// Unlock juror stake (7 days after resolution)
     pub fn unlock_juror_stake(
         ctx: Context<UnlockJurorStake>,
+        round: u32,
     ) -> Result<()> {
-        instructions::unlock_juror_stake(ctx)
+        instructions::unlock_juror_stake(ctx, round)
     }
 
-    /// Claim juror reward for correct vote
-    pub fn claim_juror_reward(
-        ctx: Context<ClaimJurorReward>,
-    ) -> Result<()> {
-        instructions::claim_juror_reward(ctx)
+    // =========================================================================
+    // Cleanup Instructions
+    // =========================================================================
+
+    /// Close defender record
+    pub fn close_defender_record(ctx: Context<CloseDefenderRecord>, round: u32) -> Result<()> {
+        instructions::close_defender_record(ctx, round)
     }
 
-    /// Claim challenger reward (if dispute upheld)
-    pub fn claim_challenger_reward(
-        ctx: Context<ClaimChallengerReward>,
-    ) -> Result<()> {
-        instructions::claim_challenger_reward(ctx)
+    /// Close challenger record
+    pub fn close_challenger_record(ctx: Context<CloseChallengerRecord>, round: u32) -> Result<()> {
+        instructions::close_challenger_record(ctx, round)
     }
 
-    /// Claim defender reward (if dispute dismissed)
-    pub fn claim_defender_reward(
-        ctx: Context<ClaimDefenderReward>,
-    ) -> Result<()> {
-        instructions::claim_defender_reward(ctx)
+    /// Close juror record
+    pub fn close_juror_record(ctx: Context<CloseJurorRecord>, round: u32) -> Result<()> {
+        instructions::close_juror_record(ctx, round)
     }
 
-    /// Claim restorer refund for failed restoration request
-    pub fn claim_restorer_refund(
-        ctx: Context<ClaimRestorerRefund>,
-    ) -> Result<()> {
-        instructions::claim_restorer_refund(ctx)
+    // =========================================================================
+    // Sweep Instructions
+    // =========================================================================
+
+    /// Creator sweep unclaimed funds (after 30 days)
+    pub fn sweep_round_creator(ctx: Context<SweepRoundCreator>, round: u32) -> Result<()> {
+        instructions::sweep_round_creator(ctx, round)
     }
 
-    // NOTE: close_escrow removed - no escrow in simplified model
+    /// Treasury sweep unclaimed funds (after 90 days)
+    pub fn sweep_round_treasury(ctx: Context<SweepRoundTreasury>, round: u32) -> Result<()> {
+        instructions::sweep_round_treasury(ctx, round)
+    }
 }

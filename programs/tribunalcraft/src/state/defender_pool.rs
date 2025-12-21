@@ -1,26 +1,19 @@
 use anchor_lang::prelude::*;
 
-/// Defender's pool that can back multiple subjects - global per wallet
+/// Defender's pool for holding bond funds
+/// Seeds: [DEFENDER_POOL_SEED, owner]
+/// One per user, persistent
 #[account]
 #[derive(Default)]
 pub struct DefenderPool {
     /// Pool owner's wallet address
     pub owner: Pubkey,
 
-    /// Total stake deposited
-    pub total_stake: u64,
+    /// Available balance (not locked in active bonds)
+    pub balance: u64,
 
-    /// Available stake (not held by disputes)
-    pub available: u64,
-
-    /// Held stake (locked by pending disputes)
-    pub held: u64,
-
-    /// Number of subjects linked to this pool
-    pub subject_count: u32,
-
-    /// Number of pending disputes against subjects in this pool
-    pub pending_disputes: u32,
+    /// Max bond per subject (for auto-allocation)
+    pub max_bond: u64,
 
     /// Bump seed for PDA
     pub bump: u8,
@@ -35,47 +28,44 @@ pub struct DefenderPool {
 impl DefenderPool {
     pub const LEN: usize = 8 +  // discriminator
         32 +    // owner
-        8 +     // total_stake
-        8 +     // available
-        8 +     // held
-        4 +     // subject_count
-        4 +     // pending_disputes
+        8 +     // balance
+        8 +     // max_bond
         1 +     // bump
         8 +     // created_at
         8;      // updated_at
 
-    /// Hold stake for a dispute (match mode)
-    pub fn hold_stake(&mut self, amount: u64) -> Result<()> {
-        require!(self.available >= amount, DefenderPoolError::InsufficientAvailable);
-        self.available -= amount;
-        self.held += amount;
-        self.pending_disputes += 1;
+    /// Deposit funds to pool
+    pub fn deposit(&mut self, amount: u64) {
+        self.balance = self.balance.saturating_add(amount);
+    }
+
+    /// Withdraw funds from pool
+    pub fn withdraw(&mut self, amount: u64) -> Result<()> {
+        require!(self.balance >= amount, DefenderPoolError::InsufficientBalance);
+        self.balance = self.balance.saturating_sub(amount);
         Ok(())
     }
 
-    /// Release held stake (dispute dismissed or no participation)
-    pub fn release_stake(&mut self, amount: u64) -> Result<()> {
-        require!(self.held >= amount, DefenderPoolError::InsufficientHeld);
-        self.held -= amount;
-        self.available += amount;
-        self.pending_disputes = self.pending_disputes.saturating_sub(1);
+    /// Use balance for bonding (reduces available balance)
+    pub fn use_for_bond(&mut self, amount: u64) -> Result<()> {
+        require!(self.balance >= amount, DefenderPoolError::InsufficientBalance);
+        self.balance = self.balance.saturating_sub(amount);
         Ok(())
     }
 
-    /// Slash stake (dispute upheld)
-    pub fn slash_stake(&mut self, amount: u64) -> Result<()> {
-        require!(self.held >= amount, DefenderPoolError::InsufficientHeld);
-        self.held -= amount;
-        self.total_stake -= amount;
-        self.pending_disputes = self.pending_disputes.saturating_sub(1);
-        Ok(())
+    /// Add reward to balance
+    pub fn add_reward(&mut self, amount: u64) {
+        self.balance = self.balance.saturating_add(amount);
+    }
+
+    /// Calculate auto-bond amount (capped by max_bond and balance)
+    pub fn auto_bond_amount(&self) -> u64 {
+        self.balance.min(self.max_bond)
     }
 }
 
 #[error_code]
 pub enum DefenderPoolError {
-    #[msg("Insufficient available stake")]
-    InsufficientAvailable,
-    #[msg("Insufficient held stake")]
-    InsufficientHeld,
+    #[msg("Insufficient balance in defender pool")]
+    InsufficientBalance,
 }
