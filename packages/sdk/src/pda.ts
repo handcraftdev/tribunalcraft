@@ -3,17 +3,19 @@ import {
   PROGRAM_ID,
   PROTOCOL_CONFIG_SEED,
   DEFENDER_POOL_SEED,
+  CHALLENGER_POOL_SEED,
+  JUROR_POOL_SEED,
   SUBJECT_SEED,
-  JUROR_SEED,
   DISPUTE_SEED,
-  CHALLENGER_SEED,
-  CHALLENGER_RECORD_SEED,
+  ESCROW_SEED,
   DEFENDER_RECORD_SEED,
-  VOTE_RECORD_SEED,
+  CHALLENGER_RECORD_SEED,
+  JUROR_RECORD_SEED,
 } from "./constants";
 
 /**
  * PDA derivation helpers for TribunalCraft accounts
+ * Updated for V2 round-based design
  */
 export class PDA {
   constructor(private programId: PublicKey = PROGRAM_ID) {}
@@ -28,8 +30,13 @@ export class PDA {
     );
   }
 
+  // =========================================================================
+  // Pool PDAs (persistent per user)
+  // =========================================================================
+
   /**
    * Derive Defender Pool PDA for an owner
+   * Seeds: [defender_pool, owner]
    */
   defenderPool(owner: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
@@ -39,7 +46,34 @@ export class PDA {
   }
 
   /**
+   * Derive Challenger Pool PDA for an owner
+   * Seeds: [challenger_pool, owner]
+   */
+  challengerPool(owner: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [CHALLENGER_POOL_SEED, owner.toBuffer()],
+      this.programId
+    );
+  }
+
+  /**
+   * Derive Juror Pool PDA for a juror
+   * Seeds: [juror_pool, owner]
+   */
+  jurorPool(owner: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [JUROR_POOL_SEED, owner.toBuffer()],
+      this.programId
+    );
+  }
+
+  // =========================================================================
+  // Subject PDAs (persistent per subject_id)
+  // =========================================================================
+
+  /**
    * Derive Subject PDA for a subject ID
+   * Seeds: [subject, subject_id]
    */
   subject(subjectId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
@@ -49,68 +83,80 @@ export class PDA {
   }
 
   /**
-   * Derive Juror Account PDA for a juror
+   * Derive Dispute PDA for a subject
+   * Seeds: [dispute, subject_id]
+   * Note: In V2, there's one Dispute per subject (persistent, reset per round)
    */
-  jurorAccount(juror: PublicKey): [PublicKey, number] {
+  dispute(subjectId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
-      [JUROR_SEED, juror.toBuffer()],
+      [DISPUTE_SEED, subjectId.toBuffer()],
       this.programId
     );
   }
 
   /**
-   * Derive Dispute PDA for a subject and dispute count
+   * Derive Escrow PDA for a subject
+   * Seeds: [escrow, subject_id]
+   * Holds funds and RoundResult history for claims
    */
-  dispute(subject: PublicKey, disputeCount: number): [PublicKey, number] {
-    const countBuffer = Buffer.alloc(4);
-    countBuffer.writeUInt32LE(disputeCount);
+  escrow(subjectId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
-      [DISPUTE_SEED, subject.toBuffer(), countBuffer],
+      [ESCROW_SEED, subjectId.toBuffer()],
       this.programId
     );
   }
 
-  // NOTE: escrow PDA removed - no escrow in simplified model
+  // =========================================================================
+  // Round-specific Record PDAs
+  // =========================================================================
 
   /**
-   * Derive Challenger Account PDA
+   * Derive Defender Record PDA for a specific round
+   * Seeds: [defender_record, subject_id, defender, round]
    */
-  challengerAccount(challenger: PublicKey): [PublicKey, number] {
+  defenderRecord(
+    subjectId: PublicKey,
+    defender: PublicKey,
+    round: number
+  ): [PublicKey, number] {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey.findProgramAddressSync(
-      [CHALLENGER_SEED, challenger.toBuffer()],
+      [DEFENDER_RECORD_SEED, subjectId.toBuffer(), defender.toBuffer(), roundBuffer],
       this.programId
     );
   }
 
   /**
-   * Derive Challenger Record PDA for a dispute
+   * Derive Challenger Record PDA for a specific round
+   * Seeds: [challenger_record, subject_id, challenger, round]
    */
   challengerRecord(
-    dispute: PublicKey,
-    challenger: PublicKey
+    subjectId: PublicKey,
+    challenger: PublicKey,
+    round: number
   ): [PublicKey, number] {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey.findProgramAddressSync(
-      [CHALLENGER_RECORD_SEED, dispute.toBuffer(), challenger.toBuffer()],
+      [CHALLENGER_RECORD_SEED, subjectId.toBuffer(), challenger.toBuffer(), roundBuffer],
       this.programId
     );
   }
 
   /**
-   * Derive Defender Record PDA for a subject
+   * Derive Juror Record PDA for a specific round
+   * Seeds: [juror_record, subject_id, juror, round]
    */
-  defenderRecord(subject: PublicKey, defender: PublicKey): [PublicKey, number] {
+  jurorRecord(
+    subjectId: PublicKey,
+    juror: PublicKey,
+    round: number
+  ): [PublicKey, number] {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey.findProgramAddressSync(
-      [DEFENDER_RECORD_SEED, subject.toBuffer(), defender.toBuffer()],
-      this.programId
-    );
-  }
-
-  /**
-   * Derive Vote Record PDA for a dispute
-   */
-  voteRecord(dispute: PublicKey, juror: PublicKey): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [VOTE_RECORD_SEED, dispute.toBuffer(), juror.toBuffer()],
+      [JUROR_RECORD_SEED, subjectId.toBuffer(), juror.toBuffer(), roundBuffer],
       this.programId
     );
   }

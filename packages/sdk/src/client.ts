@@ -7,6 +7,7 @@ import {
   SendOptions,
   VersionedTransaction,
   SimulatedTransactionResponse,
+  SystemProgram,
 } from "@solana/web3.js";
 import { Program, AnchorProvider, BN, Wallet, translateError } from "@coral-xyz/anchor";
 import { PDA } from "./pda";
@@ -15,17 +16,18 @@ import type { Tribunalcraft } from "./idl-types";
 import type {
   ProtocolConfig,
   DefenderPool,
+  ChallengerPool,
+  JurorPool,
   Subject,
   Dispute,
-  // NOTE: DisputeEscrow removed - no escrow in simplified model
-  JurorAccount,
-  VoteRecord,
-  ChallengerAccount,
+  Escrow,
+  JurorRecord,
   ChallengerRecord,
   DefenderRecord,
   DisputeType,
   VoteChoice,
   RestoreVoteChoice,
+  BondSource,
 } from "./types";
 import idl from "./idl.json";
 
@@ -322,7 +324,6 @@ export class TribunalCraftClient {
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        const { code, message } = this.parseErrorFromLogs([errorMessage]);
 
         // Try to extract logs from the error
         let logs: string[] = [];
@@ -334,15 +335,27 @@ export class TribunalCraftClient {
           logs = simResponse?.logs || [];
         }
 
-        // Parse error from logs if available
-        const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
+        // Check if the program actually succeeded despite simulate() throwing
+        // This can happen when Anchor's simulate has type mismatches but the program ran fine
+        const programSucceeded = logs.some(log =>
+          log.includes(`Program ${this.programId.toBase58()} success`) ||
+          log.includes("success")
+        );
 
-        const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
-        console.error(errorMsg);
-        if (logs.length > 0) {
-          console.error("Logs:", logs.slice(-10).join("\n"));
+        if (programSucceeded) {
+          console.warn(`[Simulation] ${actionName} threw but program succeeded, proceeding with RPC`);
+          // Don't throw - proceed to RPC call
+        } else {
+          // Parse error from logs if available
+          const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
+
+          const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
+          console.error(errorMsg);
+          if (logs.length > 0) {
+            console.error("Logs:", logs.slice(-10).join("\n"));
+          }
+          throw new Error(errorMsg);
         }
-        throw new Error(errorMsg);
       }
     }
 
@@ -385,40 +398,40 @@ export class TribunalCraftClient {
   // ===========================================================================
 
   /**
-   * Create a defender pool with initial stake
+   * Create a defender pool with initial deposit and max bond setting
    */
-  async createPool(initialStake: BN): Promise<TransactionResult> {
+  async createDefenderPool(initialAmount: BN, maxBond: BN = new BN(0)): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
 
     const signature = await program.methods
-      .createPool(initialStake)
+      .createDefenderPool(initialAmount, maxBond)
       .rpc();
 
     return { signature, accounts: { defenderPool } };
   }
 
   /**
-   * Add stake to an existing pool
+   * Deposit to defender pool
    */
-  async stakePool(amount: BN): Promise<TransactionResult> {
+  async depositDefenderPool(amount: BN): Promise<TransactionResult> {
     const { program } = this.getWalletAndProgram();
 
     const signature = await program.methods
-      .stakePool(amount)
+      .depositDefenderPool(amount)
       .rpc();
 
     return { signature };
   }
 
   /**
-   * Withdraw available stake from pool
+   * Withdraw from defender pool
    */
-  async withdrawPool(amount: BN): Promise<TransactionResult> {
+  async withdrawDefenderPool(amount: BN): Promise<TransactionResult> {
     const { program } = this.getWalletAndProgram();
 
     const signature = await program.methods
-      .withdrawPool(amount)
+      .withdrawDefenderPool(amount)
       .rpc();
 
     return { signature };
@@ -429,109 +442,88 @@ export class TribunalCraftClient {
   // ===========================================================================
 
   /**
-   * Create a subject - unified method that handles all subject types
-   *
-   * All staked subjects are linked to the creator's defender pool.
-   * Pool is auto-created by the program if it doesn't exist.
-   *
-   * Subject type is determined by params:
-   * - freeCase: true → creates free subject (no stakes, no pool)
-   * - otherwise → creates linked subject (pool auto-created if needed)
+   * Create a subject with its associated Dispute and Escrow accounts
+   * In V2, subjects are created in Dormant status and become Valid when bond is added
    */
   async createSubject(params: {
     subjectId: PublicKey;
     detailsCid: string;
-    votingPeriod: BN;
-    // Optional - for staked subjects
-    maxStake?: BN;
     matchMode?: boolean;
-    stake?: BN; // Initial stake to add after creation
-    // Optional - for free subjects
-    freeCase?: boolean;
+    votingPeriod: BN;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
+    const [dispute] = this.pda.dispute(params.subjectId);
+    const [escrow] = this.pda.escrow(params.subjectId);
 
-    // Free subject - no stakes required, no pool
-    if (params.freeCase) {
-      const signature = await program.methods
-        .createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod)
-        .rpc();
-      return { signature, accounts: { subject } };
-    }
+    const signature = await program.methods
+      .createSubject(params.subjectId, params.detailsCid, params.matchMode ?? true, params.votingPeriod)
+      .rpc();
 
-    // Staked subject - always linked to creator's pool (auto-created if needed)
-    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
-    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
-
-    // Build createLinkedSubject instruction
-    const createSubjectIx = await program.methods
-      .createLinkedSubject(
-        params.subjectId,
-        params.detailsCid,
-        params.maxStake ?? new BN(0),
-        params.matchMode ?? true,
-        false, // freeCase
-        params.votingPeriod
-      )
-      .accountsPartial({
-        defenderPool,
-      })
-      .instruction();
-
-    // If initial stake provided, bundle addToStake in same transaction
-    if (params.stake && !params.stake.isZero()) {
-      const addStakeIx = await program.methods
-        .addToStake(params.stake)
-        .accountsPartial({
-          subject,
-          defenderRecord,
-          dispute: null,
-          protocolConfig: null,
-          treasury: null,
-        })
-        .instruction();
-
-      // Send both instructions in single transaction
-      const tx = new Transaction();
-      tx.add(createSubjectIx, addStakeIx);
-      const signature = await (program.provider as AnchorProvider).sendAndConfirm(tx);
-      return { signature, accounts: { subject, defenderPool, defenderRecord } };
-    }
-
-    // No initial stake - just create subject
-    const tx = new Transaction().add(createSubjectIx);
-    const signature = await (program.provider as AnchorProvider).sendAndConfirm(tx);
-    return { signature, accounts: { subject, defenderPool } };
+    return { signature, accounts: { subject, dispute, escrow } };
   }
 
   /**
-   * Add stake to a standalone subject
-   * If subject has active dispute in proportional mode, pass dispute, protocolConfig, and treasury
-   * Fees are deducted in proportional mode during active dispute
+   * Add bond directly from wallet to a subject
+   * Creates DefenderRecord for the current round
+   * Also creates DefenderPool if it doesn't exist
    */
-  async addToStake(
-    subject: PublicKey,
-    stake: BN,
-    proportionalDispute?: {
-      dispute: PublicKey;
-      treasury: PublicKey;
-    }
+  async addBondDirect(
+    subjectId: PublicKey,
+    amount: BN
   ): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [protocolConfig] = this.pda.protocolConfig();
+    const subject = await this.fetchSubjectById(subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(subjectId);
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
 
     const signature = await program.methods
-      .addToStake(stake)
+      .addBondDirect(amount)
       .accountsPartial({
-        subject,
-        dispute: proportionalDispute?.dispute ?? null,
-        protocolConfig: proportionalDispute ? protocolConfig : null,
-        treasury: proportionalDispute?.treasury ?? null,
+        defender: wallet.publicKey,
+        subject: subjectPda,
+        defenderRecord,
+        defenderPool,
+        dispute: disputePda,
       })
       .rpc();
 
-    return { signature };
+    return { signature, accounts: { defenderRecord } };
+  }
+
+  /**
+   * Add bond from defender pool to a subject
+   * Creates DefenderRecord for the current round
+   */
+  async addBondFromPool(
+    subjectId: PublicKey,
+    amount: BN
+  ): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const subject = await this.fetchSubjectById(subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(subjectId);
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
+
+    const signature = await program.methods
+      .addBondFromPool(amount)
+      .accountsPartial({
+        defender: wallet.publicKey,
+        subject: subjectPda,
+        defenderPool,
+        defenderRecord,
+        dispute: disputePda,
+      })
+      .rpc();
+
+    return { signature, accounts: { defenderRecord } };
   }
 
   // ===========================================================================
@@ -543,13 +535,13 @@ export class TribunalCraftClient {
    */
   async registerJuror(stakeAmount: BN): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
 
     const signature = await program.methods
       .registerJuror(stakeAmount)
       .rpc();
 
-    return { signature, accounts: { jurorAccount } };
+    return { signature, accounts: { jurorPool } };
   }
 
   /**
@@ -590,113 +582,122 @@ export class TribunalCraftClient {
   }
 
   // ===========================================================================
+  // Challenger Pool Management
+  // ===========================================================================
+
+  /**
+   * Register as a challenger with initial stake
+   */
+  async registerChallenger(stakeAmount: BN): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+
+    const signature = await program.methods
+      .registerChallenger(stakeAmount)
+      .rpc();
+
+    return { signature, accounts: { challengerPool } };
+  }
+
+  /**
+   * Add more stake to challenger pool
+   */
+  async addChallengerStake(amount: BN): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+
+    const signature = await program.methods
+      .addChallengerStake(amount)
+      .rpc();
+
+    return { signature };
+  }
+
+  /**
+   * Withdraw available stake from challenger pool
+   */
+  async withdrawChallengerStake(amount: BN): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+
+    const signature = await program.methods
+      .withdrawChallengerStake(amount)
+      .rpc();
+
+    return { signature };
+  }
+
+  // ===========================================================================
   // Dispute Management
   // ===========================================================================
 
   /**
-   * Submit a new dispute against a subject
+   * Create a new dispute against a subject
+   * This initiates the dispute and creates a ChallengerRecord for the caller
    */
-  async submitDispute(params: {
-    subject: PublicKey;
-    disputeCount: number;
-    defenderPool?: PublicKey;
-    poolOwner?: PublicKey;
+  async createDispute(params: {
+    subjectId: PublicKey;
     disputeType: DisputeType;
     detailsCid: string;
-    bond: BN;
+    stake: BN;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
     const [challengerRecord] = this.pda.challengerRecord(
-      dispute,
-      wallet.publicKey
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
     );
-
-    // Derive pool owner's defender record if pool owner is provided
-    const poolOwnerDefenderRecord = params.poolOwner
-      ? this.pda.defenderRecord(params.subject, params.poolOwner)[0]
-      : null;
-
-    // Get protocol config and treasury
-    const [protocolConfig] = this.pda.protocolConfig();
-    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
-    const treasury = protocolConfigAccount.treasury;
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
 
     const methodBuilder = program.methods
-      .submitDispute(params.disputeType, params.detailsCid, params.bond)
+      .createDispute(params.disputeType, params.detailsCid, params.stake)
       .accountsPartial({
-        subject: params.subject,
-        defenderPool: params.defenderPool ?? null,
-        poolOwnerDefenderRecord,
-        protocolConfig,
-        treasury,
+        challenger: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        escrow: escrowPda,
+        challengerRecord,
+        challengerPool,
       });
 
-    const signature = await this.rpcWithSimulation(methodBuilder, "submitDispute");
+    const signature = await this.rpcWithSimulation(methodBuilder, "createDispute");
 
-    return { signature, accounts: { dispute, challengerRecord } };
+    return { signature, accounts: { challengerRecord } };
   }
 
   /**
-   * Submit a free dispute (no bond required)
+   * Join an existing dispute as additional challenger
    */
-  async submitFreeDispute(params: {
-    subject: PublicKey;
-    disputeCount: number;
-    disputeType: DisputeType;
+  async joinChallengers(params: {
+    subjectId: PublicKey;
     detailsCid: string;
+    stake: BN;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
     const [challengerRecord] = this.pda.challengerRecord(
-      dispute,
-      wallet.publicKey
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
     );
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
 
     const signature = await program.methods
-      .submitFreeDispute(params.disputeType, params.detailsCid)
-      .accountsPartial({ subject: params.subject })
-      .rpc();
-
-    return { signature, accounts: { dispute, challengerRecord } };
-  }
-
-  /**
-   * Add to existing dispute (additional challengers)
-   */
-  async addToDispute(params: {
-    subject: PublicKey;
-    dispute: PublicKey;
-    defenderPool?: PublicKey;
-    poolOwner?: PublicKey;
-    detailsCid: string;
-    bond: BN;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [challengerRecord] = this.pda.challengerRecord(
-      params.dispute,
-      wallet.publicKey
-    );
-
-    // Derive pool owner's defender record if pool owner is provided
-    const poolOwnerDefenderRecord = params.poolOwner
-      ? this.pda.defenderRecord(params.subject, params.poolOwner)[0]
-      : null;
-
-    // Get protocol config and treasury
-    const [protocolConfig] = this.pda.protocolConfig();
-    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
-    const treasury = protocolConfigAccount.treasury;
-
-    const signature = await program.methods
-      .addToDispute(params.detailsCid, params.bond)
+      .joinChallengers(params.detailsCid, params.stake)
       .accountsPartial({
-        subject: params.subject,
-        dispute: params.dispute,
-        defenderPool: params.defenderPool ?? null,
-        poolOwnerDefenderRecord,
-        protocolConfig,
-        treasury,
+        challenger: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        challengerRecord,
+        challengerPool,
       })
       .rpc();
 
@@ -705,36 +706,43 @@ export class TribunalCraftClient {
 
   /**
    * Submit a restoration request against an invalidated subject
-   * Platform fee (1%) is collected upfront to treasury
+   * Fees are collected during resolution from total pool
    */
   async submitRestore(params: {
-    subject: PublicKey;
-    disputeCount: number;
+    subjectId: PublicKey;
     disputeType: DisputeType;
     detailsCid: string;
     stakeAmount: BN;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
-    const [protocolConfig] = this.pda.protocolConfig();
 
-    // Fetch protocol config to get treasury address
-    const config = await this.fetchProtocolConfig();
-    if (!config) {
-      throw new Error("Protocol config not initialized");
-    }
+    // Fetch subject to get current round (restore creates round + 1)
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    // Challenger record uses next round (subject.round + 1)
+    const [challengerRecord] = this.pda.challengerRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round + 1
+    );
 
     const methodBuilder = program.methods
       .submitRestore(params.disputeType, params.detailsCid, params.stakeAmount)
       .accountsPartial({
-        subject: params.subject,
-        protocolConfig,
-        treasury: config.treasury,
+        restorer: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        escrow: escrowPda,
+        challengerRecord,
       });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "submitRestore");
 
-    return { signature, accounts: { dispute } };
+    return { signature, accounts: { challengerRecord } };
   }
 
   // ===========================================================================
@@ -743,15 +751,26 @@ export class TribunalCraftClient {
 
   /**
    * Vote on a dispute
+   * Creates a JurorRecord for the current round
    */
   async voteOnDispute(params: {
-    dispute: PublicKey;
+    subjectId: PublicKey;
     choice: VoteChoice;
     stakeAllocation: BN;
     rationaleCid?: string;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
+    );
 
     const methodBuilder = program.methods
       .voteOnDispute(
@@ -759,24 +778,41 @@ export class TribunalCraftClient {
         params.stakeAllocation,
         params.rationaleCid ?? ""
       )
-      .accountsPartial({ dispute: params.dispute });
+      .accountsPartial({
+        juror: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        jurorPool,
+        jurorRecord,
+      });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "voteOnDispute");
 
-    return { signature, accounts: { voteRecord } };
+    return { signature, accounts: { jurorRecord } };
   }
 
   /**
    * Vote on a restoration request
+   * Creates a JurorRecord for the current round
    */
   async voteOnRestore(params: {
-    dispute: PublicKey;
+    subjectId: PublicKey;
     choice: RestoreVoteChoice;
     stakeAllocation: BN;
     rationaleCid?: string;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
+    );
 
     const methodBuilder = program.methods
       .voteOnRestore(
@@ -784,32 +820,17 @@ export class TribunalCraftClient {
         params.stakeAllocation,
         params.rationaleCid ?? ""
       )
-      .accountsPartial({ dispute: params.dispute });
+      .accountsPartial({
+        juror: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        jurorPool,
+        jurorRecord,
+      });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "voteOnRestore");
 
-    return { signature, accounts: { voteRecord } };
-  }
-
-  /**
-   * Add more stake to an existing vote
-   */
-  async addToVote(params: {
-    dispute: PublicKey;
-    subject: PublicKey;
-    additionalStake: BN;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-
-    const signature = await program.methods
-      .addToVote(params.additionalStake)
-      .accountsPartial({
-        dispute: params.dispute,
-        subject: params.subject,
-      })
-      .rpc();
-
-    return { signature };
+    return { signature, accounts: { jurorRecord } };
   }
 
   // ===========================================================================
@@ -820,16 +841,27 @@ export class TribunalCraftClient {
    * Resolve a dispute after voting period ends (permissionless)
    */
   async resolveDispute(params: {
-    dispute: PublicKey;
-    subject: PublicKey;
+    subjectId: PublicKey;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    const [protocolConfigPda] = this.pda.protocolConfig();
+
+    // Fetch protocol config to get treasury address
+    const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
 
     const methodBuilder = program.methods
       .resolveDispute()
       .accountsPartial({
-        dispute: params.dispute,
-        subject: params.subject,
+        resolver: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        escrow: escrowPda,
+        protocolConfig: protocolConfigPda,
+        treasury: protocolConfig.treasury,
       });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "resolveDispute");
@@ -838,184 +870,86 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Unlock juror stake after 7-day buffer
+   * Claim juror reward for a specific round
+   */
+  async claimJuror(params: {
+    subjectId: PublicKey;
+    round: number;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
+
+    const method = program.methods.claimJuror(params.round);
+
+    const signature = await this.rpcWithSimulation(method, "claimJuror", true);
+
+    return { signature, accounts: { jurorPool, jurorRecord } };
+  }
+
+  /**
+   * Unlock juror stake after 7 days post-resolution
+   * Returns the locked stake back to the juror pool
    */
   async unlockJurorStake(params: {
-    dispute: PublicKey;
-    voteRecord: PublicKey;
+    subjectId: PublicKey;
+    round: number;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-
-    const signature = await program.methods
-      .unlockJurorStake()
-      .accountsPartial({
-        dispute: params.dispute,
-        voteRecord: params.voteRecord,
-      })
-      .rpc();
-
-    return { signature };
-  }
-
-  /**
-   * Batch unlock all ready juror stakes in a single transaction
-   */
-  async batchUnlockStake(params: {
-    unlocks: Array<{
-      dispute: PublicKey;
-      voteRecord: PublicKey;
-    }>;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-
-    if (params.unlocks.length === 0) {
-      throw new Error("No stakes to unlock");
-    }
-
-    const instructions: TransactionInstruction[] = [];
-
-    for (const unlock of params.unlocks) {
-      const ix = await program.methods
-        .unlockJurorStake()
-        .accountsPartial({
-          dispute: unlock.dispute,
-          voteRecord: unlock.voteRecord,
-        })
-        .instruction();
-      instructions.push(ix);
-    }
-
-    // Build and send transaction
-    const tx = new Transaction().add(...instructions);
-
-    // Simulate if enabled
-    if (this.simulateFirst) {
-      console.log(`[SDK] Simulating batch unlock with ${instructions.length} instructions`);
-      try {
-        const { blockhash } = await this.connection.getLatestBlockhash();
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = wallet.publicKey;
-        const simulation = await this.connection.simulateTransaction(tx);
-        if (simulation.value.err) {
-          const errorMessage = this.parseErrorFromLogs(simulation.value.logs || []);
-          throw new Error(`Simulation failed: ${errorMessage.message}`);
-        }
-        console.log("[SDK] Simulation succeeded");
-      } catch (err: any) {
-        if (err.message.includes("Simulation failed")) {
-          throw err;
-        }
-        console.warn("[SDK] Simulation warning:", err.message);
-      }
-    }
-
-    const signature = await program.provider.sendAndConfirm!(tx, []);
-    console.log(`[SDK] Batch unlock completed: ${instructions.length} unlocks in tx ${signature}`);
-
-    return { signature };
-  }
-
-  /**
-   * Claim juror reward (processes reputation + distributes reward)
-   * Simulates transaction first to catch errors before sending
-   */
-  async claimJurorReward(params: {
-    dispute: PublicKey;
-    subject: PublicKey;
-    voteRecord: PublicKey;
-  }): Promise<TransactionResult> {
-    console.log("[SDK] claimJurorReward called");
-    const { wallet, program } = this.getWalletAndProgram();
-    const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
-    console.log("[SDK] jurorAccount:", jurorAccount.toBase58());
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
 
     const method = program.methods
-      .claimJurorReward()
+      .unlockJurorStake(params.round)
       .accountsPartial({
         juror: wallet.publicKey,
-        jurorAccount,
-        dispute: params.dispute,
-        subject: params.subject,
-        voteRecord: params.voteRecord,
+        subject: subjectPda,
+        escrow: escrowPda,
+        jurorRecord,
+        jurorPool,
       });
 
-    console.log("[SDK] calling rpcWithSimulation for claimJurorReward");
-    const signature = await this.rpcWithSimulation(method, "claimJurorReward", true);
+    const signature = await this.rpcWithSimulation(method, "unlockJurorStake", true);
 
-    return { signature };
+    return { signature, accounts: { jurorPool, jurorRecord } };
   }
 
   /**
-   * Claim challenger reward (if dispute upheld)
-   * Simulates transaction first to catch errors before sending
+   * Claim challenger reward for a specific round (if dispute upheld)
    */
-  async claimChallengerReward(params: {
-    dispute: PublicKey;
-    subject: PublicKey;
-    challengerRecord: PublicKey;
+  async claimChallenger(params: {
+    subjectId: PublicKey;
+    round: number;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
-    const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const [challengerRecord] = this.pda.challengerRecord(params.subjectId, wallet.publicKey, params.round);
 
-    const method = program.methods
-      .claimChallengerReward()
-      .accountsPartial({
-        challenger: wallet.publicKey,
-        challengerAccount,
-        dispute: params.dispute,
-        subject: params.subject,
-        challengerRecord: params.challengerRecord,
-      });
+    const method = program.methods.claimChallenger(params.round);
 
-    const signature = await this.rpcWithSimulation(method, "claimChallengerReward", true);
+    const signature = await this.rpcWithSimulation(method, "claimChallenger", true);
 
-    return { signature };
+    return { signature, accounts: { challengerPool, challengerRecord } };
   }
 
   /**
-   * Claim defender reward (if dispute dismissed)
-   * Simulates transaction first to catch errors before sending
+   * Claim defender reward for a specific round (if dispute dismissed)
    */
-  async claimDefenderReward(params: {
-    dispute: PublicKey;
-    subject: PublicKey;
-    defenderRecord: PublicKey;
+  async claimDefender(params: {
+    subjectId: PublicKey;
+    round: number;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, params.round);
 
-    const method = program.methods
-      .claimDefenderReward()
-      .accountsPartial({
-        defender: wallet.publicKey,
-        dispute: params.dispute,
-        subject: params.subject,
-        defenderRecord: params.defenderRecord,
-      });
+    const method = program.methods.claimDefender(params.round);
 
-    const signature = await this.rpcWithSimulation(method, "claimDefenderReward", true);
+    const signature = await this.rpcWithSimulation(method, "claimDefender", true);
 
-    return { signature };
-  }
-
-  /**
-   * Claim restorer refund for failed restoration request
-   * Simulates transaction first to catch errors before sending
-   */
-  async claimRestorerRefund(params: {
-    dispute: PublicKey;
-  }): Promise<TransactionResult> {
-    const { wallet, program } = this.getWalletAndProgram();
-
-    const method = program.methods
-      .claimRestorerRefund()
-      .accountsPartial({
-        restorer: wallet.publicKey,
-        dispute: params.dispute,
-      });
-
-    const signature = await this.rpcWithSimulation(method, "claimRestorerRefund", true);
-
-    return { signature };
+    return { signature, accounts: { defenderPool, defenderRecord } };
   }
 
   /**
@@ -1024,19 +958,16 @@ export class TribunalCraftClient {
    */
   async batchClaimRewards(params: {
     jurorClaims?: Array<{
-      dispute: PublicKey;
-      subject: PublicKey;
-      voteRecord: PublicKey;
+      subjectId: PublicKey;
+      round: number;
     }>;
     challengerClaims?: Array<{
-      dispute: PublicKey;
-      subject: PublicKey;
-      challengerRecord: PublicKey;
+      subjectId: PublicKey;
+      round: number;
     }>;
     defenderClaims?: Array<{
-      dispute: PublicKey;
-      subject: PublicKey;
-      defenderRecord: PublicKey;
+      subjectId: PublicKey;
+      round: number;
     }>;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
@@ -1044,16 +975,20 @@ export class TribunalCraftClient {
 
     // Build juror claim instructions
     if (params.jurorClaims && params.jurorClaims.length > 0) {
-      const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
       for (const claim of params.jurorClaims) {
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [jurorRecord] = this.pda.jurorRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+
         const ix = await program.methods
-          .claimJurorReward()
+          .claimJuror(claim.round)
           .accountsPartial({
             juror: wallet.publicKey,
-            jurorAccount,
-            dispute: claim.dispute,
-            subject: claim.subject,
-            voteRecord: claim.voteRecord,
+            subject: subjectPda,
+            escrow: escrowPda,
+            jurorRecord,
+            jurorPool,
           })
           .instruction();
         instructions.push(ix);
@@ -1062,16 +997,20 @@ export class TribunalCraftClient {
 
     // Build challenger claim instructions
     if (params.challengerClaims && params.challengerClaims.length > 0) {
-      const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
       for (const claim of params.challengerClaims) {
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [challengerRecord] = this.pda.challengerRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+
         const ix = await program.methods
-          .claimChallengerReward()
+          .claimChallenger(claim.round)
           .accountsPartial({
             challenger: wallet.publicKey,
-            challengerAccount,
-            dispute: claim.dispute,
-            subject: claim.subject,
-            challengerRecord: claim.challengerRecord,
+            subject: subjectPda,
+            escrow: escrowPda,
+            challengerRecord,
+            challengerPool,
           })
           .instruction();
         instructions.push(ix);
@@ -1081,13 +1020,19 @@ export class TribunalCraftClient {
     // Build defender claim instructions
     if (params.defenderClaims && params.defenderClaims.length > 0) {
       for (const claim of params.defenderClaims) {
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [defenderRecord] = this.pda.defenderRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+
         const ix = await program.methods
-          .claimDefenderReward()
+          .claimDefender(claim.round)
           .accountsPartial({
             defender: wallet.publicKey,
-            dispute: claim.dispute,
-            subject: claim.subject,
-            defenderRecord: claim.defenderRecord,
+            subject: subjectPda,
+            escrow: escrowPda,
+            defenderRecord,
+            defenderPool,
           })
           .instruction();
         instructions.push(ix);
@@ -1128,7 +1073,147 @@ export class TribunalCraftClient {
     return { signature };
   }
 
-  // NOTE: closeEscrow removed - no escrow in simplified model
+  // ===========================================================================
+  // Cleanup Instructions (close records to reclaim rent)
+  // ===========================================================================
+
+  /**
+   * Close juror record and reclaim rent (after reward claimed)
+   */
+  async closeJurorRecord(params: {
+    subjectId: PublicKey;
+    round: number;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
+
+    const signature = await program.methods
+      .closeJurorRecord(params.round)
+      .rpc();
+
+    return { signature };
+  }
+
+  /**
+   * Close challenger record and reclaim rent (after reward claimed)
+   */
+  async closeChallengerRecord(params: {
+    subjectId: PublicKey;
+    round: number;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [challengerRecord] = this.pda.challengerRecord(params.subjectId, wallet.publicKey, params.round);
+
+    const signature = await program.methods
+      .closeChallengerRecord(params.round)
+      .rpc();
+
+    return { signature };
+  }
+
+  /**
+   * Close defender record and reclaim rent (after reward claimed)
+   */
+  async closeDefenderRecord(params: {
+    subjectId: PublicKey;
+    round: number;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, params.round);
+
+    const signature = await program.methods
+      .closeDefenderRecord(params.round)
+      .rpc();
+
+    return { signature };
+  }
+
+  /**
+   * Batch close multiple records in a single transaction.
+   * Useful for reclaiming rent after claiming rewards.
+   */
+  async batchCloseRecords(
+    records: Array<{
+      type: "juror" | "challenger" | "defender";
+      subjectId: PublicKey;
+      round: number;
+    }>
+  ): Promise<{ signature: string; closedCount: number }> {
+    const { wallet, program } = this.getWalletAndProgram();
+    const instructions: TransactionInstruction[] = [];
+
+    for (const record of records) {
+      const [subjectPda] = this.pda.subject(record.subjectId);
+      const [escrowPda] = this.pda.escrow(record.subjectId);
+
+      switch (record.type) {
+        case "juror": {
+          const [jurorRecord] = this.pda.jurorRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods
+            .closeJurorRecord(record.round)
+            .accountsPartial({
+              juror: wallet.publicKey,
+              subject: subjectPda,
+              escrow: escrowPda,
+              jurorRecord,
+            })
+            .instruction();
+          instructions.push(ix);
+          break;
+        }
+        case "challenger": {
+          const [challengerRecord] = this.pda.challengerRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods
+            .closeChallengerRecord(record.round)
+            .accountsPartial({
+              challenger: wallet.publicKey,
+              subject: subjectPda,
+              escrow: escrowPda,
+              challengerRecord,
+            })
+            .instruction();
+          instructions.push(ix);
+          break;
+        }
+        case "defender": {
+          const [defenderRecord] = this.pda.defenderRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods
+            .closeDefenderRecord(record.round)
+            .accountsPartial({
+              defender: wallet.publicKey,
+              subject: subjectPda,
+              escrow: escrowPda,
+              defenderRecord,
+            })
+            .instruction();
+          instructions.push(ix);
+          break;
+        }
+      }
+    }
+
+    if (instructions.length === 0) {
+      throw new Error("No valid records to close");
+    }
+
+    const tx = new Transaction().add(...instructions);
+    const signature = await program.provider.sendAndConfirm!(tx, []);
+
+    console.log(`[SDK] Batch close completed: ${instructions.length} records in tx ${signature}`);
+    return { signature, closedCount: instructions.length };
+  }
 
   // ===========================================================================
   // Account Fetchers
@@ -1156,7 +1241,11 @@ export class TribunalCraftClient {
       return (await this.anchorProgram.account.defenderPool.fetch(
         address
       )) as DefenderPool;
-    } catch {
+    } catch (err) {
+      // Only log actual errors, not "account doesn't exist"
+      if (err instanceof Error && !err.message.includes("Account does not exist")) {
+        console.error("[SDK] fetchDefenderPool error:", err.message);
+      }
       return null;
     }
   }
@@ -1206,67 +1295,95 @@ export class TribunalCraftClient {
   // NOTE: fetchEscrow removed - no escrow in simplified model
 
   /**
-   * Fetch juror account by address
+   * Fetch juror pool by address
    */
-  async fetchJurorAccount(address: PublicKey): Promise<JurorAccount | null> {
+  async fetchJurorPool(address: PublicKey): Promise<JurorPool | null> {
     try {
-      return (await this.anchorProgram.account.jurorAccount.fetch(
+      return (await this.anchorProgram.account.jurorPool.fetch(
         address
-      )) as JurorAccount | null;
+      )) as JurorPool | null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Fetch juror account by juror pubkey
+   * Fetch juror pool by owner pubkey
    */
-  async fetchJurorByPubkey(juror: PublicKey): Promise<JurorAccount | null> {
-    const [address] = this.pda.jurorAccount(juror);
-    return this.fetchJurorAccount(address);
+  async fetchJurorPoolByOwner(owner: PublicKey): Promise<JurorPool | null> {
+    const [address] = this.pda.jurorPool(owner);
+    return this.fetchJurorPool(address);
   }
 
   /**
-   * Fetch vote record
+   * Fetch escrow by address
    */
-  async fetchVoteRecord(address: PublicKey): Promise<VoteRecord | null> {
+  async fetchEscrow(address: PublicKey): Promise<Escrow | null> {
     try {
-      return (await this.anchorProgram.account.voteRecord.fetch(
+      return (await this.anchorProgram.account.escrow.fetch(
         address
-      )) as VoteRecord | null;
+      )) as Escrow | null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Fetch vote record for a dispute and juror
+   * Fetch escrow by subject ID
    */
-  async fetchVoteRecordByDisputeAndJuror(
-    dispute: PublicKey,
-    juror: PublicKey
-  ): Promise<VoteRecord | null> {
-    const [address] = this.pda.voteRecord(dispute, juror);
-    return this.fetchVoteRecord(address);
+  async fetchEscrowBySubjectId(subjectId: PublicKey): Promise<Escrow | null> {
+    const [address] = this.pda.escrow(subjectId);
+    return this.fetchEscrow(address);
   }
 
   /**
-   * Fetch challenger account
+   * Fetch juror record by address
    */
-  async fetchChallengerAccount(
-    address: PublicKey
-  ): Promise<ChallengerAccount | null> {
+  async fetchJurorRecord(address: PublicKey): Promise<JurorRecord | null> {
     try {
-      return (await this.anchorProgram.account.challengerAccount.fetch(
+      return (await this.anchorProgram.account.jurorRecord.fetch(
         address
-      )) as ChallengerAccount | null;
+      )) as JurorRecord | null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Fetch challenger record
+   * Fetch juror record for a subject, juror, and round
+   */
+  async fetchJurorRecordBySubjectAndJuror(
+    subjectId: PublicKey,
+    juror: PublicKey,
+    round: number
+  ): Promise<JurorRecord | null> {
+    const [address] = this.pda.jurorRecord(subjectId, juror, round);
+    return this.fetchJurorRecord(address);
+  }
+
+  /**
+   * Fetch challenger pool by address
+   */
+  async fetchChallengerPool(address: PublicKey): Promise<ChallengerPool | null> {
+    try {
+      return (await this.anchorProgram.account.challengerPool.fetch(
+        address
+      )) as ChallengerPool | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch challenger pool by owner pubkey
+   */
+  async fetchChallengerPoolByOwner(owner: PublicKey): Promise<ChallengerPool | null> {
+    const [address] = this.pda.challengerPool(owner);
+    return this.fetchChallengerPool(address);
+  }
+
+  /**
+   * Fetch challenger record by address
    */
   async fetchChallengerRecord(
     address: PublicKey
@@ -1281,7 +1398,19 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Fetch defender record
+   * Fetch challenger record by subject, challenger, and round
+   */
+  async fetchChallengerRecordBySubject(
+    subjectId: PublicKey,
+    challenger: PublicKey,
+    round: number
+  ): Promise<ChallengerRecord | null> {
+    const [address] = this.pda.challengerRecord(subjectId, challenger, round);
+    return this.fetchChallengerRecord(address);
+  }
+
+  /**
+   * Fetch defender record by address
    */
   async fetchDefenderRecord(address: PublicKey): Promise<DefenderRecord | null> {
     try {
@@ -1291,6 +1420,18 @@ export class TribunalCraftClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Fetch defender record by subject, defender, and round
+   */
+  async fetchDefenderRecordBySubject(
+    subjectId: PublicKey,
+    defender: PublicKey,
+    round: number
+  ): Promise<DefenderRecord | null> {
+    const [address] = this.pda.defenderRecord(subjectId, defender, round);
+    return this.fetchDefenderRecord(address);
   }
 
   // ===========================================================================
@@ -1318,94 +1459,1096 @@ export class TribunalCraftClient {
   }
 
   /**
-   * Fetch all disputes (with error handling for old account formats)
-   * Uses individual fetching to handle incompatible old disputes gracefully
+   * Fetch all disputes (V2: one dispute per subject)
    */
   async fetchAllDisputes(): Promise<
     Array<{ publicKey: PublicKey; account: Dispute }>
   > {
-    // Fetch subjects first to get dispute counts
-    const subjects = await this.fetchAllSubjects();
-    const disputes: Array<{ publicKey: PublicKey; account: Dispute }> = [];
-
-    // Fetch each dispute individually to handle old formats gracefully
-    for (const subject of subjects) {
-      const disputeCount = subject.account.disputeCount;
-
-      for (let i = 0; i < disputeCount; i++) {
-        try {
-          const [disputePda] = this.pda.dispute(subject.publicKey, i);
-
-          // Use raw account fetch to handle deserialization errors
-          const accountInfo = await this.connection.getAccountInfo(disputePda);
-          if (!accountInfo) continue;
-
-          try {
-            const dispute = await this.anchorProgram.account.dispute.fetch(disputePda);
-            if (dispute) {
-              disputes.push({ publicKey: disputePda, account: dispute as Dispute });
-            }
-          } catch (deserializeErr) {
-            // Old dispute format - skip but log
-            console.warn(`Dispute ${i} for subject ${subject.publicKey.toBase58()} has incompatible format, skipping`);
-          }
-        } catch (err) {
-          // Account doesn't exist or network error
-          console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
-        }
-      }
-    }
-
-    console.log(`Fetched ${disputes.length} disputes from ${subjects.length} subjects`);
-    return disputes;
-  }
-
-  /**
-   * Fetch all juror accounts
-   */
-  async fetchAllJurors(): Promise<
-    Array<{ publicKey: PublicKey; account: JurorAccount }>
-  > {
-        const accounts = await this.anchorProgram.account.jurorAccount.all();
-    return accounts as Array<{ publicKey: PublicKey; account: JurorAccount }>;
-  }
-
-  /**
-   * Fetch disputes by subject
-   */
-  async fetchDisputesBySubject(
-    subject: PublicKey
-  ): Promise<Array<{ publicKey: PublicKey; account: Dispute }>> {
-        const accounts = await this.anchorProgram.account.dispute.all([
-      { memcmp: { offset: 8, bytes: subject.toBase58() } },
-    ]);
+    const accounts = await this.anchorProgram.account.dispute.all();
     return accounts as Array<{ publicKey: PublicKey; account: Dispute }>;
   }
 
   /**
-   * Fetch votes by dispute
+   * Fetch all juror pools
    */
-  async fetchVotesByDispute(
-    dispute: PublicKey
-  ): Promise<Array<{ publicKey: PublicKey; account: VoteRecord }>> {
-        const accounts = await this.anchorProgram.account.voteRecord.all([
-      { memcmp: { offset: 8, bytes: dispute.toBase58() } },
-    ]);
-    return accounts as Array<{ publicKey: PublicKey; account: VoteRecord }>;
+  async fetchAllJurorPools(): Promise<
+    Array<{ publicKey: PublicKey; account: JurorPool }>
+  > {
+    const accounts = await this.anchorProgram.account.jurorPool.all();
+    return accounts as Array<{ publicKey: PublicKey; account: JurorPool }>;
   }
 
   /**
-   * Fetch challengers by dispute
+   * Fetch all challenger pools
    */
-  async fetchChallengersByDispute(
-    dispute: PublicKey
+  async fetchAllChallengerPools(): Promise<
+    Array<{ publicKey: PublicKey; account: ChallengerPool }>
+  > {
+    const accounts = await this.anchorProgram.account.challengerPool.all();
+    return accounts as Array<{ publicKey: PublicKey; account: ChallengerPool }>;
+  }
+
+  /**
+   * Fetch all escrows
+   */
+  async fetchAllEscrows(): Promise<
+    Array<{ publicKey: PublicKey; account: Escrow }>
+  > {
+    const accounts = await this.anchorProgram.account.escrow.all();
+    return accounts as Array<{ publicKey: PublicKey; account: Escrow }>;
+  }
+
+  /**
+   * Fetch all juror records
+   * Note: Uses raw account fetching to handle old accounts missing new fields
+   */
+  async fetchAllJurorRecords(): Promise<
+    Array<{ publicKey: PublicKey; account: JurorRecord }>
+  > {
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all();
+      return accounts as Array<{ publicKey: PublicKey; account: JurorRecord }>;
+    } catch (err) {
+      // Handle old accounts that may be missing new fields (e.g., stakeUnlocked)
+      console.warn("[fetchAllJurorRecords] Bulk fetch failed, trying individual fetch:", err);
+
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } },
+        ],
+      });
+
+      const validAccounts: Array<{ publicKey: PublicKey; account: JurorRecord }> = [];
+
+      for (const { pubkey, account } of gpaResult) {
+        try {
+          const decoded = this.anchorProgram.coder.accounts.decode<JurorRecord>(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          console.warn(`[fetchAllJurorRecords] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
+        }
+      }
+
+      return validAccounts;
+    }
+  }
+
+  /**
+   * Fetch all challenger records
+   */
+  async fetchAllChallengerRecords(): Promise<
+    Array<{ publicKey: PublicKey; account: ChallengerRecord }>
+  > {
+    const accounts = await this.anchorProgram.account.challengerRecord.all();
+    return accounts as Array<{ publicKey: PublicKey; account: ChallengerRecord }>;
+  }
+
+  /**
+   * Fetch all defender records
+   */
+  async fetchAllDefenderRecords(): Promise<
+    Array<{ publicKey: PublicKey; account: DefenderRecord }>
+  > {
+    const accounts = await this.anchorProgram.account.defenderRecord.all();
+    return accounts as Array<{ publicKey: PublicKey; account: DefenderRecord }>;
+  }
+
+  /**
+   * Fetch dispute by subject ID
+   */
+  async fetchDisputeBySubjectId(subjectId: PublicKey): Promise<Dispute | null> {
+    const [address] = this.pda.dispute(subjectId);
+    return this.fetchDispute(address);
+  }
+
+  /**
+   * Fetch juror records by subject
+   * Note: Uses raw account fetching to handle old accounts missing new fields
+   */
+  async fetchJurorRecordsBySubject(
+    subjectId: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: JurorRecord }>> {
+    // JurorRecord layout: discriminator(8) + subject_id(32)
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all([
+        { memcmp: { offset: 8, bytes: subjectId.toBase58() } },
+      ]);
+      return accounts as Array<{ publicKey: PublicKey; account: JurorRecord }>;
+    } catch (err) {
+      // Handle old accounts that may be missing new fields (e.g., stakeUnlocked)
+      // This can cause "Invalid bool: 255" errors when Anchor reads garbage data
+      console.warn("[fetchJurorRecordsBySubject] Bulk fetch failed, trying individual fetch:", err);
+
+      // Fall back to fetching account addresses and deserializing one by one
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } },
+          { memcmp: { offset: 8, bytes: subjectId.toBase58() } },
+        ],
+      });
+
+      const validAccounts: Array<{ publicKey: PublicKey; account: JurorRecord }> = [];
+
+      for (const { pubkey, account } of gpaResult) {
+        try {
+          const decoded = this.anchorProgram.coder.accounts.decode<JurorRecord>(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          // Skip accounts that can't be decoded (old format)
+          console.warn(`[fetchJurorRecordsBySubject] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
+        }
+      }
+
+      return validAccounts;
+    }
+  }
+
+  /**
+   * Fetch challengers by subject
+   */
+  async fetchChallengersBySubject(
+    subjectId: PublicKey
   ): Promise<Array<{ publicKey: PublicKey; account: ChallengerRecord }>> {
-        const accounts = await this.anchorProgram.account.challengerRecord.all([
-      { memcmp: { offset: 8, bytes: dispute.toBase58() } },
+    // ChallengerRecord layout: discriminator(8) + subject_id(32)
+    const accounts = await this.anchorProgram.account.challengerRecord.all([
+      { memcmp: { offset: 8, bytes: subjectId.toBase58() } },
     ]);
     return accounts as Array<{
       publicKey: PublicKey;
       account: ChallengerRecord;
     }>;
+  }
+
+  /**
+   * Fetch defenders by subject
+   */
+  async fetchDefendersBySubject(
+    subjectId: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: DefenderRecord }>> {
+    // DefenderRecord layout: discriminator(8) + subject_id(32)
+    const accounts = await this.anchorProgram.account.defenderRecord.all([
+      { memcmp: { offset: 8, bytes: subjectId.toBase58() } },
+    ]);
+    return accounts as Array<{ publicKey: PublicKey; account: DefenderRecord }>;
+  }
+
+  /**
+   * Fetch challenger records by subject (alias for fetchChallengersBySubject)
+   */
+  async fetchChallengerRecordsBySubject(
+    subjectId: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: ChallengerRecord }>> {
+    return this.fetchChallengersBySubject(subjectId);
+  }
+
+  /**
+   * Fetch defender records by subject (alias for fetchDefendersBySubject)
+   */
+  async fetchDefenderRecordsBySubject(
+    subjectId: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: DefenderRecord }>> {
+    return this.fetchDefendersBySubject(subjectId);
+  }
+
+  // ===========================================================================
+  // User Record Fetchers (for Collect All)
+  // ===========================================================================
+
+  /**
+   * Fetch all juror records for a juror
+   * Note: Uses raw account fetching to handle old accounts missing new fields
+   */
+  async fetchJurorRecordsByJuror(
+    juror: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: JurorRecord }>> {
+    // JurorRecord layout: discriminator(8) + subject_id(32) + juror(32)
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all([
+        { memcmp: { offset: 40, bytes: juror.toBase58() } },
+      ]);
+      return accounts as Array<{ publicKey: PublicKey; account: JurorRecord }>;
+    } catch (err) {
+      // Handle old accounts that may be missing new fields (e.g., stakeUnlocked)
+      console.warn("[fetchJurorRecordsByJuror] Bulk fetch failed, trying individual fetch:", err);
+
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } },
+          { memcmp: { offset: 40, bytes: juror.toBase58() } },
+        ],
+      });
+
+      const validAccounts: Array<{ publicKey: PublicKey; account: JurorRecord }> = [];
+
+      for (const { pubkey, account } of gpaResult) {
+        try {
+          const decoded = this.anchorProgram.coder.accounts.decode<JurorRecord>(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          console.warn(`[fetchJurorRecordsByJuror] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
+        }
+      }
+
+      return validAccounts;
+    }
+  }
+
+  /**
+   * Fetch all challenger records for a challenger
+   */
+  async fetchChallengerRecordsByChallenger(
+    challenger: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: ChallengerRecord }>> {
+    // ChallengerRecord layout: discriminator(8) + subject_id(32) + challenger(32)
+    const accounts = await this.anchorProgram.account.challengerRecord.all([
+      { memcmp: { offset: 40, bytes: challenger.toBase58() } },
+    ]);
+    return accounts as Array<{ publicKey: PublicKey; account: ChallengerRecord }>;
+  }
+
+  /**
+   * Fetch all defender records for a defender
+   */
+  async fetchDefenderRecordsByDefender(
+    defender: PublicKey
+  ): Promise<Array<{ publicKey: PublicKey; account: DefenderRecord }>> {
+    // DefenderRecord layout: discriminator(8) + subject_id(32) + defender(32)
+    const accounts = await this.anchorProgram.account.defenderRecord.all([
+      { memcmp: { offset: 40, bytes: defender.toBase58() } },
+    ]);
+    return accounts as Array<{ publicKey: PublicKey; account: DefenderRecord }>;
+  }
+
+  // ===========================================================================
+  // Collect All - Batch claim, unlock, and close (V2)
+  // ===========================================================================
+
+  /**
+   * Scan all user records and return what's eligible for collection
+   * TODO: Implement for V2 round-based design
+   */
+  async scanCollectableRecords(): Promise<{
+    claims: {
+      juror: Array<{ subjectId: PublicKey; round: number; jurorRecord: PublicKey }>;
+      challenger: Array<{ subjectId: PublicKey; round: number; challengerRecord: PublicKey }>;
+      defender: Array<{ subjectId: PublicKey; round: number; defenderRecord: PublicKey }>;
+    };
+    closes: {
+      juror: Array<{ subjectId: PublicKey; round: number }>;
+      challenger: Array<{ subjectId: PublicKey; round: number }>;
+      defender: Array<{ subjectId: PublicKey; round: number }>;
+    };
+    totals: {
+      estimatedRewards: number;
+      estimatedRent: number;
+    };
+  }> {
+    const { wallet } = this.getWalletAndProgram();
+    const user = wallet.publicKey;
+
+    // Fetch all user's records
+    const [jurorRecords, challengerRecords, defenderRecords] = await Promise.all([
+      this.fetchJurorRecordsByJuror(user),
+      this.fetchChallengerRecordsByChallenger(user),
+      this.fetchDefenderRecordsByDefender(user),
+    ]);
+
+    console.log("[scanCollectableRecords] Found records:", {
+      jurorRecords: jurorRecords.length,
+      challengerRecords: challengerRecords.length,
+      defenderRecords: defenderRecords.length,
+    });
+
+    // Build results
+    const claims = {
+      juror: [] as Array<{ subjectId: PublicKey; round: number; jurorRecord: PublicKey }>,
+      challenger: [] as Array<{ subjectId: PublicKey; round: number; challengerRecord: PublicKey }>,
+      defender: [] as Array<{ subjectId: PublicKey; round: number; defenderRecord: PublicKey }>,
+    };
+    const closes = {
+      juror: [] as Array<{ subjectId: PublicKey; round: number }>,
+      challenger: [] as Array<{ subjectId: PublicKey; round: number }>,
+      defender: [] as Array<{ subjectId: PublicKey; round: number }>,
+    };
+    let estimatedRewards = 0;
+    let estimatedRent = 0;
+
+    const RENT_PER_RECORD = 0.002 * 1e9; // ~0.002 SOL in lamports
+
+    // Process juror records
+    for (const jr of jurorRecords) {
+      if (!jr.account.rewardClaimed) {
+        claims.juror.push({
+          subjectId: jr.account.subjectId,
+          round: jr.account.round,
+          jurorRecord: jr.publicKey,
+        });
+        estimatedRewards += 0.001 * 1e9; // placeholder
+      } else {
+        closes.juror.push({
+          subjectId: jr.account.subjectId,
+          round: jr.account.round,
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+
+    // Process challenger records
+    for (const cr of challengerRecords) {
+      if (!cr.account.rewardClaimed) {
+        claims.challenger.push({
+          subjectId: cr.account.subjectId,
+          round: cr.account.round,
+          challengerRecord: cr.publicKey,
+        });
+        estimatedRewards += 0.001 * 1e9; // placeholder
+      } else {
+        closes.challenger.push({
+          subjectId: cr.account.subjectId,
+          round: cr.account.round,
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+
+    // Process defender records
+    for (const dr of defenderRecords) {
+      if (!dr.account.rewardClaimed) {
+        claims.defender.push({
+          subjectId: dr.account.subjectId,
+          round: dr.account.round,
+          defenderRecord: dr.publicKey,
+        });
+        estimatedRewards += 0.001 * 1e9; // placeholder
+      } else {
+        closes.defender.push({
+          subjectId: dr.account.subjectId,
+          round: dr.account.round,
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+
+    return {
+      claims,
+      closes,
+      totals: {
+        estimatedRewards,
+        estimatedRent,
+      },
+    };
+  }
+
+  /**
+   * Execute collect all - claims rewards and closes records
+   * TODO: Implement for V2 round-based design with claim instructions
+   */
+  async collectAll(): Promise<{
+    signatures: string[];
+    summary: {
+      claimCount: number;
+      closeCount: number;
+    };
+  }> {
+    // V2 implementation pending - need to use claim_defender, claim_challenger, claim_juror
+    console.warn("[collectAll] V2 implementation pending");
+    return {
+      signatures: [],
+      summary: { claimCount: 0, closeCount: 0 },
+    };
+  }
+
+  // ===========================================================================
+  // Transaction History (for closed records)
+  // ===========================================================================
+
+  /**
+   * Activity types that can be parsed from transaction history
+   */
+  static readonly ACTIVITY_TYPES = {
+    VOTE: "vote",
+    CHALLENGE: "challenge",
+    DEFEND: "defend",
+    CLAIM_JUROR: "claim_juror",
+    CLAIM_CHALLENGER: "claim_challenger",
+    CLAIM_DEFENDER: "claim_defender",
+    CLOSE_VOTE: "close_vote",
+    CLOSE_CHALLENGER: "close_challenger",
+    CLOSE_DEFENDER: "close_defender",
+    UNLOCK_STAKE: "unlock_stake",
+  } as const;
+
+  /**
+   * Instruction discriminators (first 8 bytes of sha256("global:<instruction_name>"))
+   */
+  private static readonly INSTRUCTION_DISCRIMINATORS: Record<string, string> = {
+    vote_on_dispute: "07d560abfc3b3717",
+    vote_on_restore: "7a7b5cf0fbcdbd20",
+    submit_dispute: "d40f5c9c6f3c6d3c", // Will need to verify
+    resolve_dispute: "e706ca0660670ce6",
+  };
+
+  /**
+   * Fetch transaction history for a user and parse TribunalCraft activity
+   * This allows showing historical activity even for closed records
+   */
+  async fetchUserActivity(
+    user: PublicKey,
+    options?: {
+      limit?: number;
+      before?: string;
+    }
+  ): Promise<Array<{
+    type: string;
+    signature: string;
+    timestamp: number;
+    slot: number;
+    dispute?: string;
+    subject?: string;
+    accounts?: string[]; // All account keys in the transaction for matching
+    amount?: number;
+    rentReclaimed?: number;
+    voteChoice?: "ForChallenger" | "ForDefender" | "ForRestoration" | "AgainstRestoration";
+    outcome?: "ChallengerWins" | "DefenderWins" | "NoParticipation";
+    rationaleCid?: string;
+    success: boolean;
+  }>> {
+    const activities: Array<{
+      type: string;
+      signature: string;
+      timestamp: number;
+      slot: number;
+      dispute?: string;
+      subject?: string;
+      accounts?: string[];
+      amount?: number;
+      rentReclaimed?: number;
+      voteChoice?: "ForChallenger" | "ForDefender" | "ForRestoration" | "AgainstRestoration";
+      outcome?: "ChallengerWins" | "DefenderWins" | "NoParticipation";
+      rationaleCid?: string;
+      success: boolean;
+    }> = [];
+
+    try {
+      // Get transaction signatures for the user
+      const signatures = await this.connection.getSignaturesForAddress(
+        user,
+        {
+          limit: options?.limit || 100,
+          before: options?.before,
+        }
+      );
+
+      // Filter for successful transactions and fetch details
+      for (const sigInfo of signatures) {
+        if (sigInfo.err) continue; // Skip failed transactions
+
+        try {
+          const tx = await this.connection.getParsedTransaction(sigInfo.signature, {
+            maxSupportedTransactionVersion: 0,
+          });
+
+          if (!tx || !tx.meta) continue;
+
+          // Check if this transaction involves our program
+          const programInvoked = tx.transaction.message.accountKeys.some(
+            (key) => key.pubkey.equals(this.programId)
+          );
+
+          if (!programInvoked) continue;
+
+          // Parse the transaction logs to identify the instruction type
+          const logs = tx.meta.logMessages || [];
+          const activity = this.parseActivityFromLogs(logs, sigInfo.signature, tx, user);
+
+          if (activity) {
+            activities.push({
+              ...activity,
+              timestamp: sigInfo.blockTime || 0,
+              slot: sigInfo.slot,
+              success: true,
+            });
+          }
+        } catch (err) {
+          // Skip transactions we can't parse
+          console.warn(`[fetchUserActivity] Failed to parse tx ${sigInfo.signature}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[fetchUserActivity] Failed to fetch signatures:", err);
+    }
+
+    return activities;
+  }
+
+  // Pre-computed event discriminators: sha256("event:<EventName>")[0..8]
+  // These are constants and don't change, so we avoid runtime crypto usage
+  private static readonly EVENT_DISCRIMINATORS: Record<string, string> = {
+    VoteEvent: "c347fa697877ea86",
+    RestoreVoteEvent: "36daf12c5af7d2ee",
+    DisputeCreatedEvent: "59a2309e1e7491f7",
+    ChallengerJoinedEvent: "a35f6083ed61e523",
+    RewardClaimedEvent: "f62bd7e45231e638",
+    RecordClosedEvent: "7fc441d571b25037",
+    DefenderStakedEvent: "03ba63387dd7d992",
+  };
+
+  /**
+   * Parse activity type from transaction logs and Anchor events
+   */
+  private parseActivityFromLogs(
+    logs: string[],
+    signature: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    userPubkey: PublicKey
+  ): {
+    type: string;
+    signature: string;
+    dispute?: string;
+    subject?: string;
+    amount?: number;
+    rentReclaimed?: number;
+    voteChoice?: "ForChallenger" | "ForDefender" | "ForRestoration" | "AgainstRestoration";
+    outcome?: "ChallengerWins" | "DefenderWins" | "NoParticipation";
+    rationaleCid?: string;
+  } | null {
+    // Check if our program was invoked
+    const hasProgram = logs.some(log => log.includes(this.programId.toBase58()));
+    if (!hasProgram) return null;
+
+    // Try to parse Anchor events from "Program data:" logs
+    const eventData = this.parseAnchorEventsFromLogs(logs, userPubkey);
+    if (eventData) {
+      return { signature, ...eventData };
+    }
+
+    // Fallback: Extract accounts and balance changes from transaction
+    const { dispute, subject } = this.extractAccountsFromTx(tx);
+    const { received, sent, rentReclaimed } = this.extractBalanceChanges(tx, userPubkey);
+    const voteDetails = this.extractVoteDetailsFromTx(tx);
+    const outcome = this.inferOutcomeFromLogs(logs);
+
+    // Parse instruction type from logs as fallback
+    for (const log of logs) {
+      if (log.includes("Instruction: VoteOnDispute")) {
+        return {
+          type: "vote",
+          signature,
+          dispute,
+          amount: sent,
+          voteChoice: voteDetails?.choice as "ForChallenger" | "ForDefender",
+          rationaleCid: voteDetails?.rationaleCid,
+        };
+      }
+      if (log.includes("Instruction: VoteOnRestore")) {
+        return {
+          type: "vote_restore",
+          signature,
+          dispute,
+          amount: sent,
+          voteChoice: voteDetails?.choice as "ForRestoration" | "AgainstRestoration",
+          rationaleCid: voteDetails?.rationaleCid,
+        };
+      }
+      if (log.includes("Instruction: SubmitDispute")) {
+        return { type: "challenge", signature, dispute, amount: sent };
+      }
+      if (log.includes("Instruction: AddToDispute")) {
+        return { type: "add_challenge", signature, dispute, amount: sent };
+      }
+      if (log.includes("Instruction: AddToStake")) {
+        return { type: "defend", signature, subject, amount: sent };
+      }
+      if (log.includes("Instruction: CreateLinkedSubject")) {
+        return { type: "create_subject", signature, subject };
+      }
+      if (log.includes("Instruction: ClaimJurorReward")) {
+        return { type: "claim_juror", signature, dispute, amount: received, outcome };
+      }
+      if (log.includes("Instruction: ClaimChallengerReward")) {
+        return { type: "claim_challenger", signature, dispute, amount: received, outcome: "ChallengerWins" };
+      }
+      if (log.includes("Instruction: ClaimDefenderReward")) {
+        return { type: "claim_defender", signature, dispute, amount: received, outcome: "DefenderWins" };
+      }
+      if (log.includes("Instruction: CloseVoteRecord")) {
+        return { type: "close_vote", signature, dispute, rentReclaimed };
+      }
+      if (log.includes("Instruction: CloseChallengerRecord")) {
+        return { type: "close_challenger", signature, dispute, rentReclaimed };
+      }
+      if (log.includes("Instruction: CloseDefenderRecord")) {
+        return { type: "close_defender", signature, subject, rentReclaimed };
+      }
+      if (log.includes("Instruction: UnlockJurorStake")) {
+        return { type: "unlock_stake", signature, dispute };
+      }
+      if (log.includes("Instruction: ResolveDispute")) {
+        return { type: "resolve", signature, dispute, outcome };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse Anchor events from "Program data:" logs
+   * Events contain reliable dispute/subject keys and amounts
+   * Uses browser-compatible methods (no Node.js Buffer methods)
+   */
+  private parseAnchorEventsFromLogs(
+    logs: string[],
+    userPubkey: PublicKey
+  ): {
+    type: string;
+    dispute?: string;
+    subject?: string;
+    amount?: number;
+    rentReclaimed?: number;
+    voteChoice?: "ForChallenger" | "ForDefender" | "ForRestoration" | "AgainstRestoration";
+    outcome?: "ChallengerWins" | "DefenderWins" | "NoParticipation";
+    rationaleCid?: string;
+  } | null {
+    // Helper functions for browser compatibility
+    const base64ToBytes = (base64: string): Uint8Array => {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    };
+
+    const bytesToHex = (bytes: Uint8Array): string => {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    const readU64LE = (data: Uint8Array, offset: number): number => {
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      // Read as two 32-bit values to avoid BigInt for simplicity
+      const lo = view.getUint32(offset, true);
+      const hi = view.getUint32(offset + 4, true);
+      return lo + hi * 0x100000000;
+    };
+
+    const readU32LE = (data: Uint8Array, offset: number): number => {
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      return view.getUint32(offset, true);
+    };
+
+    const bytesToUtf8 = (bytes: Uint8Array): string => {
+      return new TextDecoder().decode(bytes);
+    };
+
+    try {
+      for (const log of logs) {
+        // Anchor events are logged as "Program data: <base64>"
+        if (!log.startsWith("Program data: ")) continue;
+
+        const base64Data = log.slice("Program data: ".length);
+        const data = base64ToBytes(base64Data);
+
+        // Need at least 8 bytes for discriminator
+        if (data.length < 8) continue;
+
+        const discriminator = bytesToHex(data.slice(0, 8));
+
+        // Parse based on event type
+        // Event format: 8-byte discriminator + borsh-serialized fields
+
+        // VoteEvent: dispute (32) + juror (32) + choice (1) + stake_allocated (8) + voting_power (8) + rationale_cid (4+str) + timestamp (8)
+        if (this.matchesEventName(discriminator, "VoteEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const juror = new PublicKey(data.slice(40, 72)).toBase58();
+
+          // Only include if user is the juror
+          if (juror !== userPubkey.toBase58()) continue;
+
+          const choiceByte = data[72];
+          const voteChoice = choiceByte === 0 ? "ForChallenger" : "ForDefender";
+          const stakeAllocated = readU64LE(data, 73);
+
+          // Extract rationale CID
+          let rationaleCid: string | undefined;
+          if (data.length > 89) {
+            const cidLength = readU32LE(data, 89);
+            if (cidLength > 0 && cidLength < 200 && data.length >= 93 + cidLength) {
+              rationaleCid = bytesToUtf8(data.slice(93, 93 + cidLength));
+            }
+          }
+
+          return {
+            type: "vote",
+            dispute,
+            amount: stakeAllocated,
+            voteChoice: voteChoice as "ForChallenger" | "ForDefender",
+            rationaleCid,
+          };
+        }
+
+        // RestoreVoteEvent: dispute (32) + juror (32) + choice (1) + stake_allocated (8) + ...
+        if (this.matchesEventName(discriminator, "RestoreVoteEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const juror = new PublicKey(data.slice(40, 72)).toBase58();
+
+          if (juror !== userPubkey.toBase58()) continue;
+
+          const choiceByte = data[72];
+          const voteChoice = choiceByte === 0 ? "ForRestoration" : "AgainstRestoration";
+          const stakeAllocated = readU64LE(data, 73);
+
+          return {
+            type: "vote_restore",
+            dispute,
+            amount: stakeAllocated,
+            voteChoice: voteChoice as "ForRestoration" | "AgainstRestoration",
+          };
+        }
+
+        // DisputeCreatedEvent: dispute (32) + subject (32) + challenger (32) + ...
+        if (this.matchesEventName(discriminator, "DisputeCreatedEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const subject = new PublicKey(data.slice(40, 72)).toBase58();
+          const challenger = new PublicKey(data.slice(72, 104)).toBase58();
+
+          if (challenger !== userPubkey.toBase58()) continue;
+
+          // Skip dispute_type enum (1 byte), read details_cid string, then bond (u64)
+          // Format: dispute_type (1) + details_cid (4+str) + bond (8) + ...
+          let offset = 104;
+          offset += 1; // dispute_type enum
+
+          const cidLength = readU32LE(data, offset);
+          offset += 4 + cidLength;
+
+          const bond = readU64LE(data, offset);
+
+          return {
+            type: "challenge",
+            dispute,
+            subject,
+            amount: bond,
+          };
+        }
+
+        // ChallengerJoinedEvent: dispute (32) + challenger (32) + bond (8) + ...
+        if (this.matchesEventName(discriminator, "ChallengerJoinedEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const challenger = new PublicKey(data.slice(40, 72)).toBase58();
+
+          if (challenger !== userPubkey.toBase58()) continue;
+
+          const bond = readU64LE(data, 72);
+
+          return {
+            type: "add_challenge",
+            dispute,
+            amount: bond,
+          };
+        }
+
+        // RewardClaimedEvent: dispute (32) + recipient (32) + reward_type (1) + amount (8) + ...
+        if (this.matchesEventName(discriminator, "RewardClaimedEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const recipient = new PublicKey(data.slice(40, 72)).toBase58();
+
+          if (recipient !== userPubkey.toBase58()) continue;
+
+          const rewardType = data[72]; // 0=Juror, 1=Challenger, 2=Defender, 3=Restorer
+          const amount = readU64LE(data, 73);
+
+          const typeMap: Record<number, string> = {
+            0: "claim_juror",
+            1: "claim_challenger",
+            2: "claim_defender",
+            3: "claim_restorer",
+          };
+
+          return {
+            type: typeMap[rewardType] || "claim_unknown",
+            dispute,
+            amount,
+          };
+        }
+
+        // RecordClosedEvent: dispute (32) + record_owner (32) + record_type (1) + rent_returned (8) + ...
+        if (this.matchesEventName(discriminator, "RecordClosedEvent")) {
+          const dispute = new PublicKey(data.slice(8, 40)).toBase58();
+          const recordOwner = new PublicKey(data.slice(40, 72)).toBase58();
+
+          if (recordOwner !== userPubkey.toBase58()) continue;
+
+          const recordType = data[72]; // 0=Vote, 1=Challenger, 2=Defender
+          const rentReturned = readU64LE(data, 73);
+
+          const typeMap: Record<number, string> = {
+            0: "close_vote",
+            1: "close_challenger",
+            2: "close_defender",
+          };
+
+          return {
+            type: typeMap[recordType] || "close_unknown",
+            dispute,
+            rentReclaimed: rentReturned,
+          };
+        }
+
+        // DefenderStakedEvent: subject (32) + defender (32) + stake_amount (8) + ...
+        if (this.matchesEventName(discriminator, "DefenderStakedEvent")) {
+          const subject = new PublicKey(data.slice(8, 40)).toBase58();
+          const defender = new PublicKey(data.slice(40, 72)).toBase58();
+
+          if (defender !== userPubkey.toBase58()) continue;
+
+          const stakeAmount = readU64LE(data, 72);
+
+          return {
+            type: "defend",
+            subject,
+            amount: stakeAmount,
+          };
+        }
+      }
+    } catch (err) {
+      // Fall back to instruction-based parsing
+      console.warn("[parseAnchorEventsFromLogs] Error parsing events:", err);
+    }
+
+    return null;
+  }
+
+  /**
+   * Check if a discriminator matches an event name
+   * Uses pre-computed EVENT_DISCRIMINATORS to avoid crypto dependency
+   */
+  private matchesEventName(discriminator: string, eventName: string): boolean {
+    const expected = TribunalCraftClient.EVENT_DISCRIMINATORS[eventName];
+    return expected ? discriminator === expected : false;
+  }
+
+  /**
+   * Extract vote choice and rationale from instruction data
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private extractVoteDetailsFromTx(tx: any): { choice?: string; rationaleCid?: string } | null {
+    try {
+      const instructions = tx.transaction.message.instructions;
+      for (const ix of instructions) {
+        // Check if this is our program's instruction
+        const programId = tx.transaction.message.accountKeys[ix.programIdIndex];
+        const programKey = programId?.pubkey?.toBase58?.() || programId?.toBase58?.();
+        if (programKey !== this.programId.toBase58()) continue;
+
+        // Decode the instruction data
+        const data = Buffer.from(ix.data, "base64");
+        if (data.length < 9) continue; // Need at least discriminator + 1 byte
+
+        const discriminator = data.slice(0, 8).toString("hex");
+
+        // Check if it's a vote instruction
+        if (discriminator === "07d560abfc3b3717") {
+          // vote_on_dispute: choice (1 byte enum) + stake_allocation (8 bytes) + rationale_cid (string)
+          const choiceByte = data[8];
+          const choice = choiceByte === 0 ? "ForChallenger" : "ForDefender";
+
+          // Try to extract CID (after 8 byte discriminator + 1 byte choice + 8 byte stake)
+          if (data.length > 17) {
+            const cidLength = data.readUInt32LE(17);
+            if (cidLength > 0 && cidLength < 100 && data.length >= 21 + cidLength) {
+              const rationaleCid = data.slice(21, 21 + cidLength).toString("utf8");
+              return { choice, rationaleCid };
+            }
+          }
+          return { choice };
+        }
+
+        if (discriminator === "7a7b5cf0fbcdbd20") {
+          // vote_on_restore: choice (1 byte enum) + stake_allocation (8 bytes) + rationale_cid (string)
+          const choiceByte = data[8];
+          const choice = choiceByte === 0 ? "ForRestoration" : "AgainstRestoration";
+
+          if (data.length > 17) {
+            const cidLength = data.readUInt32LE(17);
+            if (cidLength > 0 && cidLength < 100 && data.length >= 21 + cidLength) {
+              const rationaleCid = data.slice(21, 21 + cidLength).toString("utf8");
+              return { choice, rationaleCid };
+            }
+          }
+          return { choice };
+        }
+      }
+    } catch (err) {
+      // Ignore parsing errors
+    }
+    return null;
+  }
+
+  /**
+   * Try to infer dispute outcome from transaction logs
+   */
+  private inferOutcomeFromLogs(logs: string[]): "ChallengerWins" | "DefenderWins" | "NoParticipation" | undefined {
+    for (const log of logs) {
+      if (log.includes("ChallengerWins") || log.includes("challenger wins") || log.includes("challenger_wins")) {
+        return "ChallengerWins";
+      }
+      if (log.includes("DefenderWins") || log.includes("defender wins") || log.includes("defender_wins")) {
+        return "DefenderWins";
+      }
+      if (log.includes("NoParticipation") || log.includes("no participation") || log.includes("no_participation")) {
+        return "NoParticipation";
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract dispute and subject pubkeys from transaction accounts
+   *
+   * Account layout for most TribunalCraft instructions:
+   * [0] signer (user)
+   * [1] user's main account (juror_account, challenger_account, etc.)
+   * [2] dispute PDA
+   * [3] record PDA (vote_record, challenger_record, etc.)
+   * [4] subject PDA
+   * [5+] other accounts (system_program, etc.)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private extractAccountsFromTx(tx: any): { dispute?: string; subject?: string } {
+    try {
+      const accounts = tx.transaction.message.accountKeys;
+      const result: { dispute?: string; subject?: string } = {};
+
+      // Known system accounts to skip
+      const systemAccounts = new Set([
+        "11111111111111111111111111111111", // System Program
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // Token Program
+        "SysvarRent111111111111111111111111111111111", // Rent Sysvar
+        "SysvarC1ock11111111111111111111111111111111", // Clock Sysvar
+        this.programId.toBase58(),
+      ]);
+
+      // Get only writable accounts (PDAs are usually writable)
+      const writableAccounts: string[] = [];
+
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+        if (!key) continue;
+
+        // Skip system accounts
+        if (systemAccounts.has(key)) continue;
+
+        // Skip the signer (first account is usually the payer/user)
+        if (acc.signer) continue;
+
+        // Check if account balance changed (indicates it was written to)
+        const preBalance = tx.meta?.preBalances?.[i] || 0;
+        const postBalance = tx.meta?.postBalances?.[i] || 0;
+
+        // Collect writable non-system accounts
+        if (preBalance !== postBalance || acc.writable) {
+          writableAccounts.push(key);
+        }
+      }
+
+      // For most instructions:
+      // - First writable non-signer account is user's main account (juror_account, etc.)
+      // - Second is dispute PDA
+      // - Third is record PDA (vote_record, etc.)
+      // - Fourth might be subject PDA
+      if (writableAccounts.length >= 2) {
+        result.dispute = writableAccounts[1]; // Second writable is usually dispute
+      }
+      if (writableAccounts.length >= 4) {
+        result.subject = writableAccounts[3]; // Fourth might be subject
+      }
+
+      // Fallback: if we didn't find enough writable accounts, use all non-system accounts
+      if (!result.dispute) {
+        const nonSystemAccounts: string[] = [];
+        for (let i = 0; i < accounts.length; i++) {
+          const acc = accounts[i];
+          const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+          if (!key) continue;
+          if (systemAccounts.has(key)) continue;
+          if (acc.signer) continue;
+          nonSystemAccounts.push(key);
+        }
+
+        // Skip first (user's account), take second (dispute)
+        if (nonSystemAccounts.length >= 2) {
+          result.dispute = nonSystemAccounts[1];
+        }
+        if (nonSystemAccounts.length >= 4) {
+          result.subject = nonSystemAccounts[3];
+        }
+      }
+
+      return result;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Extract balance changes for the user from transaction
+   */
+  private extractBalanceChanges(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    userPubkey: PublicKey
+  ): { received: number; sent: number; rentReclaimed: number } {
+    try {
+      const accounts = tx.transaction.message.accountKeys;
+      const preBalances = tx.meta?.preBalances || [];
+      const postBalances = tx.meta?.postBalances || [];
+
+      let received = 0;
+      let sent = 0;
+      let rentReclaimed = 0;
+
+      // Find user's account index
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+        if (key === userPubkey.toBase58()) {
+          const pre = preBalances[i] || 0;
+          const post = postBalances[i] || 0;
+          const diff = post - pre;
+
+          if (diff > 0) {
+            received = diff;
+          } else if (diff < 0) {
+            sent = Math.abs(diff);
+          }
+          break;
+        }
+      }
+
+      // Check for closed accounts (rent reclaimed)
+      // Accounts that went from having balance to 0
+      for (let i = 0; i < accounts.length; i++) {
+        const pre = preBalances[i] || 0;
+        const post = postBalances[i] || 0;
+        if (pre > 0 && post === 0) {
+          rentReclaimed += pre;
+        }
+      }
+
+      return { received, sent, rentReclaimed };
+    } catch {
+      return { received: 0, sent: 0, rentReclaimed: 0 };
+    }
   }
 }

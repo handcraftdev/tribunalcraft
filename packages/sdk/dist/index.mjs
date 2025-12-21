@@ -1,5 +1,6 @@
 // src/client.ts
 import {
+  PublicKey as PublicKey3,
   Transaction
 } from "@solana/web3.js";
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
@@ -10,21 +11,25 @@ import { PublicKey as PublicKey2 } from "@solana/web3.js";
 // src/constants.ts
 import { PublicKey } from "@solana/web3.js";
 var PROGRAM_ID = new PublicKey(
-  "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC"
+  "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q"
 );
 var PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 var DEFENDER_POOL_SEED = Buffer.from("defender_pool");
+var CHALLENGER_POOL_SEED = Buffer.from("challenger_pool");
+var JUROR_POOL_SEED = Buffer.from("juror_pool");
 var SUBJECT_SEED = Buffer.from("subject");
-var JUROR_SEED = Buffer.from("juror");
 var DISPUTE_SEED = Buffer.from("dispute");
-var CHALLENGER_SEED = Buffer.from("challenger");
-var CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
+var ESCROW_SEED = Buffer.from("escrow");
 var DEFENDER_RECORD_SEED = Buffer.from("defender_record");
-var VOTE_RECORD_SEED = Buffer.from("vote");
+var CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
+var JUROR_RECORD_SEED = Buffer.from("juror_record");
 var TOTAL_FEE_BPS = 2e3;
 var PLATFORM_SHARE_BPS = 500;
 var JUROR_SHARE_BPS = 9500;
 var WINNER_SHARE_BPS = 8e3;
+var CLAIM_GRACE_PERIOD = 30 * 24 * 60 * 60;
+var TREASURY_SWEEP_PERIOD = 90 * 24 * 60 * 60;
+var BOT_REWARD_BPS = 100;
 var MIN_JUROR_STAKE = 1e8;
 var MIN_CHALLENGER_BOND = 1e8;
 var MIN_DEFENDER_STAKE = 1e8;
@@ -77,8 +82,12 @@ var PDA = class {
       this.programId
     );
   }
+  // =========================================================================
+  // Pool PDAs (persistent per user)
+  // =========================================================================
   /**
    * Derive Defender Pool PDA for an owner
+   * Seeds: [defender_pool, owner]
    */
   defenderPool(owner) {
     return PublicKey2.findProgramAddressSync(
@@ -87,7 +96,31 @@ var PDA = class {
     );
   }
   /**
+   * Derive Challenger Pool PDA for an owner
+   * Seeds: [challenger_pool, owner]
+   */
+  challengerPool(owner) {
+    return PublicKey2.findProgramAddressSync(
+      [CHALLENGER_POOL_SEED, owner.toBuffer()],
+      this.programId
+    );
+  }
+  /**
+   * Derive Juror Pool PDA for a juror
+   * Seeds: [juror_pool, owner]
+   */
+  jurorPool(owner) {
+    return PublicKey2.findProgramAddressSync(
+      [JUROR_POOL_SEED, owner.toBuffer()],
+      this.programId
+    );
+  }
+  // =========================================================================
+  // Subject PDAs (persistent per subject_id)
+  // =========================================================================
+  /**
    * Derive Subject PDA for a subject ID
+   * Seeds: [subject, subject_id]
    */
   subject(subjectId) {
     return PublicKey2.findProgramAddressSync(
@@ -96,59 +129,63 @@ var PDA = class {
     );
   }
   /**
-   * Derive Juror Account PDA for a juror
+   * Derive Dispute PDA for a subject
+   * Seeds: [dispute, subject_id]
+   * Note: In V2, there's one Dispute per subject (persistent, reset per round)
    */
-  jurorAccount(juror) {
+  dispute(subjectId) {
     return PublicKey2.findProgramAddressSync(
-      [JUROR_SEED, juror.toBuffer()],
+      [DISPUTE_SEED, subjectId.toBuffer()],
       this.programId
     );
   }
   /**
-   * Derive Dispute PDA for a subject and dispute count
+   * Derive Escrow PDA for a subject
+   * Seeds: [escrow, subject_id]
+   * Holds funds and RoundResult history for claims
    */
-  dispute(subject, disputeCount) {
-    const countBuffer = Buffer.alloc(4);
-    countBuffer.writeUInt32LE(disputeCount);
+  escrow(subjectId) {
     return PublicKey2.findProgramAddressSync(
-      [DISPUTE_SEED, subject.toBuffer(), countBuffer],
+      [ESCROW_SEED, subjectId.toBuffer()],
       this.programId
     );
   }
-  // NOTE: escrow PDA removed - no escrow in simplified model
+  // =========================================================================
+  // Round-specific Record PDAs
+  // =========================================================================
   /**
-   * Derive Challenger Account PDA
+   * Derive Defender Record PDA for a specific round
+   * Seeds: [defender_record, subject_id, defender, round]
    */
-  challengerAccount(challenger) {
+  defenderRecord(subjectId, defender, round) {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey2.findProgramAddressSync(
-      [CHALLENGER_SEED, challenger.toBuffer()],
-      this.programId
-    );
-  }
-  /**
-   * Derive Challenger Record PDA for a dispute
-   */
-  challengerRecord(dispute, challenger) {
-    return PublicKey2.findProgramAddressSync(
-      [CHALLENGER_RECORD_SEED, dispute.toBuffer(), challenger.toBuffer()],
+      [DEFENDER_RECORD_SEED, subjectId.toBuffer(), defender.toBuffer(), roundBuffer],
       this.programId
     );
   }
   /**
-   * Derive Defender Record PDA for a subject
+   * Derive Challenger Record PDA for a specific round
+   * Seeds: [challenger_record, subject_id, challenger, round]
    */
-  defenderRecord(subject, defender) {
+  challengerRecord(subjectId, challenger, round) {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey2.findProgramAddressSync(
-      [DEFENDER_RECORD_SEED, subject.toBuffer(), defender.toBuffer()],
+      [CHALLENGER_RECORD_SEED, subjectId.toBuffer(), challenger.toBuffer(), roundBuffer],
       this.programId
     );
   }
   /**
-   * Derive Vote Record PDA for a dispute
+   * Derive Juror Record PDA for a specific round
+   * Seeds: [juror_record, subject_id, juror, round]
    */
-  voteRecord(dispute, juror) {
+  jurorRecord(subjectId, juror, round) {
+    const roundBuffer = Buffer.alloc(4);
+    roundBuffer.writeUInt32LE(round);
     return PublicKey2.findProgramAddressSync(
-      [VOTE_RECORD_SEED, dispute.toBuffer(), juror.toBuffer()],
+      [JUROR_RECORD_SEED, subjectId.toBuffer(), juror.toBuffer(), roundBuffer],
       this.programId
     );
   }
@@ -157,7 +194,7 @@ var pda = new PDA();
 
 // src/idl.json
 var idl_default = {
-  address: "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC",
+  address: "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q",
   metadata: {
     name: "tribunalcraft",
     version: "0.1.0",
@@ -166,9 +203,353 @@ var idl_default = {
   },
   instructions: [
     {
+      name: "add_bond_direct",
+      docs: [
+        "Add bond directly from wallet"
+      ],
+      discriminator: [
+        2,
+        240,
+        206,
+        50,
+        106,
+        238,
+        109,
+        254
+      ],
+      accounts: [
+        {
+          name: "defender",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true
+        },
+        {
+          name: "defender_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "defender"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "defender_pool",
+          docs: [
+            "Defender's pool - created if doesn't exist"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "defender"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          docs: [
+            "Optional: Active dispute (for updating bond_at_risk during dispute)"
+          ],
+          writable: true,
+          optional: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "add_bond_from_pool",
+      docs: [
+        "Add bond from defender pool"
+      ],
+      discriminator: [
+        127,
+        107,
+        194,
+        189,
+        87,
+        53,
+        213,
+        211
+      ],
+      accounts: [
+        {
+          name: "defender",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true
+        },
+        {
+          name: "defender_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "defender"
+              }
+            ]
+          }
+        },
+        {
+          name: "defender_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "defender"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          docs: [
+            "Optional: Active dispute (for updating bond_at_risk during dispute)"
+          ],
+          writable: true,
+          optional: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "add_challenger_stake",
+      docs: [
+        "Add stake to challenger pool"
+      ],
+      discriminator: [
+        240,
+        11,
+        100,
+        179,
+        24,
+        255,
+        67,
+        234
+      ],
+      accounts: [
+        {
+          name: "challenger",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "challenger_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
       name: "add_juror_stake",
       docs: [
-        "Add more stake to juror account"
+        "Add stake to juror pool"
       ],
       discriminator: [
         42,
@@ -184,13 +565,10 @@ var idl_default = {
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "juror_pool",
           writable: true,
           pda: {
             seeds: [
@@ -201,7 +579,12 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -224,19 +607,19 @@ var idl_default = {
       ]
     },
     {
-      name: "add_to_dispute",
+      name: "claim_challenger",
       docs: [
-        "Add to existing dispute (additional challengers)"
+        "Claim challenger reward"
       ],
       discriminator: [
-        110,
-        2,
-        131,
-        29,
-        204,
-        133,
-        164,
-        234
+        148,
+        51,
+        9,
+        223,
+        64,
+        230,
+        123,
+        189
       ],
       accounts: [
         {
@@ -246,392 +629,54 @@ var idl_default = {
         },
         {
           name: "subject",
-          writable: true,
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "defender_pool",
-          docs: [
-            "Optional: defender pool if subject is linked"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "pool_owner_defender_record",
-          docs: [
-            "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "challenger_account",
-          writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  99,
-                  104,
-                  97,
-                  108,
-                  108,
-                  101,
-                  110,
-                  103,
-                  101,
-                  114
-                ]
-              },
-              {
-                kind: "account",
-                path: "challenger"
-              }
-            ]
-          }
-        },
-        {
-          name: "dispute",
-          writable: true
-        },
-        {
-          name: "challenger_record",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  99,
-                  104,
-                  97,
-                  108,
-                  108,
-                  101,
-                  110,
-                  103,
-                  101,
-                  114,
-                  95,
-                  114,
-                  101,
-                  99,
-                  111,
-                  114,
-                  100
-                ]
-              },
-              {
-                kind: "account",
-                path: "dispute"
-              },
-              {
-                kind: "account",
-                path: "challenger"
-              }
-            ]
-          }
-        },
-        {
-          name: "protocol_config",
-          docs: [
-            "Protocol config for treasury address"
-          ],
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          name: "treasury",
-          docs: [
-            "Treasury receives fees"
-          ],
-          writable: true
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "details_cid",
-          type: "string"
-        },
-        {
-          name: "bond",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "add_to_stake",
-      docs: [
-        "Add stake to a standalone subject"
-      ],
-      discriminator: [
-        227,
-        50,
-        25,
-        66,
-        59,
-        214,
-        58,
-        213
-      ],
-      accounts: [
-        {
-          name: "staker",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true
-        },
-        {
-          name: "defender_record",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  100,
-                  101,
-                  102,
-                  101,
-                  110,
-                  100,
-                  101,
-                  114,
-                  95,
-                  114,
-                  101,
-                  99,
-                  111,
-                  114,
-                  100
-                ]
-              },
-              {
-                kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "staker"
-              }
-            ]
-          }
-        },
-        {
-          name: "dispute",
-          docs: [
-            "Optional: Active dispute (required if subject has active dispute in proportional mode)"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "protocol_config",
-          docs: [
-            "Protocol config for treasury address (required if proportional dispute)"
-          ],
-          optional: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          name: "treasury",
-          docs: [
-            "Treasury receives fees (required if proportional dispute)"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "stake",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "add_to_vote",
-      docs: [
-        "Add more stake to an existing vote"
-      ],
-      discriminator: [
-        202,
-        66,
-        94,
-        152,
-        90,
-        103,
-        240,
-        68
-      ],
-      accounts: [
-        {
-          name: "juror",
-          writable: true,
-          signer: true,
-          relations: [
-            "juror_account",
-            "vote_record"
-          ]
-        },
-        {
-          name: "juror_account",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  106,
+                  115,
                   117,
-                  114,
-                  111,
-                  114
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
                 ]
               },
               {
                 kind: "account",
-                path: "juror"
+                path: "subject.subject_id",
+                account: "Subject"
               }
             ]
           }
         },
         {
-          name: "subject",
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "dispute",
-          writable: true,
-          relations: [
-            "vote_record"
-          ]
-        },
-        {
-          name: "vote_record",
+          name: "escrow",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  118,
+                  101,
+                  115,
+                  99,
+                  114,
                   111,
-                  116,
-                  101
+                  119
                 ]
               },
               {
                 kind: "account",
-                path: "dispute"
-              },
-              {
-                kind: "account",
-                path: "juror"
+                path: "subject.subject_id",
+                account: "Subject"
               }
             ]
           }
         },
         {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "additional_stake",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "claim_challenger_reward",
-      docs: [
-        "Claim challenger reward (if dispute upheld)"
-      ],
-      discriminator: [
-        173,
-        143,
-        119,
-        13,
-        142,
-        25,
-        102,
-        36
-      ],
-      accounts: [
-        {
-          name: "challenger",
-          writable: true,
-          signer: true,
-          relations: [
-            "challenger_record"
-          ]
-        },
-        {
-          name: "challenger_account",
+          name: "challenger_record",
           writable: true,
           pda: {
             seeds: [
@@ -647,7 +692,55 @@ var idl_default = {
                   110,
                   103,
                   101,
-                  114
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -658,65 +751,85 @@ var idl_default = {
           }
         },
         {
-          name: "subject",
-          writable: true,
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "dispute",
-          writable: true,
-          relations: [
-            "challenger_record"
-          ]
-        },
-        {
-          name: "challenger_record",
-          writable: true
-        },
-        {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
     },
     {
-      name: "claim_defender_reward",
+      name: "claim_defender",
       docs: [
-        "Claim defender reward (if dispute dismissed)"
+        "Claim defender reward"
       ],
       discriminator: [
-        189,
-        13,
-        90,
-        154,
-        251,
-        183,
-        166,
-        135
+        230,
+        104,
+        48,
+        216,
+        165,
+        86,
+        123,
+        142
       ],
       accounts: [
         {
           name: "defender",
           writable: true,
-          signer: true,
-          relations: [
-            "defender_record"
-          ]
+          signer: true
         },
         {
           name: "subject",
-          writable: true,
-          relations: [
-            "dispute",
-            "defender_record"
-          ]
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
         },
         {
-          name: "dispute",
-          writable: true
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
         },
         {
           name: "defender_record",
@@ -745,7 +858,42 @@ var idl_default = {
               },
               {
                 kind: "account",
-                path: "subject"
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "defender"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "defender_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               },
               {
                 kind: "account",
@@ -759,35 +907,84 @@ var idl_default = {
           address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
     },
     {
-      name: "claim_juror_reward",
+      name: "claim_juror",
       docs: [
-        "Claim juror reward for correct vote"
+        "Claim juror reward"
       ],
       discriminator: [
-        220,
-        82,
-        126,
-        176,
-        119,
-        103,
-        33,
-        25
+        239,
+        58,
+        13,
+        171,
+        137,
+        109,
+        76,
+        30
       ],
       accounts: [
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account",
-            "vote_record"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
           writable: true,
           pda: {
             seeds: [
@@ -798,7 +995,50 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "juror"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -809,76 +1049,658 @@ var idl_default = {
           }
         },
         {
-          name: "subject",
-          writable: true,
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "dispute",
-          writable: true,
-          relations: [
-            "vote_record"
-          ]
-        },
-        {
-          name: "vote_record",
-          writable: true
-        },
-        {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
     },
     {
-      name: "claim_restorer_refund",
+      name: "close_challenger_record",
       docs: [
-        "Claim restorer refund for failed restoration request"
+        "Close challenger record"
       ],
       discriminator: [
-        100,
-        102,
-        249,
-        204,
-        60,
-        72,
-        242,
-        87
+        254,
+        255,
+        55,
+        246,
+        51,
+        196,
+        121,
+        232
       ],
       accounts: [
         {
-          name: "restorer",
+          name: "challenger",
           writable: true,
           signer: true
         },
         {
-          name: "dispute",
-          writable: true
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
         },
         {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
     },
     {
-      name: "create_free_subject",
+      name: "close_defender_record",
       docs: [
-        "Create a free subject (no stake required, just Subject account)"
+        "Close defender record"
       ],
       discriminator: [
-        131,
-        154,
-        217,
-        251,
-        107,
-        165,
-        155,
-        197
+        192,
+        4,
+        53,
+        135,
+        80,
+        151,
+        171,
+        87
+      ],
+      accounts: [
+        {
+          name: "defender",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "defender_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "defender"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
+    },
+    {
+      name: "close_juror_record",
+      docs: [
+        "Close juror record"
+      ],
+      discriminator: [
+        17,
+        237,
+        233,
+        65,
+        255,
+        237,
+        33,
+        58
+      ],
+      accounts: [
+        {
+          name: "juror",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "juror"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
+    },
+    {
+      name: "create_defender_pool",
+      docs: [
+        "Create a defender pool"
+      ],
+      discriminator: [
+        146,
+        138,
+        10,
+        14,
+        120,
+        153,
+        97,
+        34
+      ],
+      accounts: [
+        {
+          name: "owner",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "defender_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "owner"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "initial_amount",
+          type: "u64"
+        },
+        {
+          name: "max_bond",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "create_dispute",
+      docs: [
+        "Create a dispute against a subject"
+      ],
+      discriminator: [
+        161,
+        99,
+        53,
+        116,
+        60,
+        79,
+        149,
+        105
+      ],
+      accounts: [
+        {
+          name: "challenger",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_pool",
+          docs: [
+            "Challenger's pool - created if doesn't exist"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "dispute_type",
+          type: {
+            defined: {
+              name: "DisputeType"
+            }
+          }
+        },
+        {
+          name: "details_cid",
+          type: "string"
+        },
+        {
+          name: "stake",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "create_subject",
+      docs: [
+        "Create a subject with Subject + Dispute + Escrow PDAs"
+      ],
+      discriminator: [
+        243,
+        24,
+        101,
+        208,
+        170,
+        5,
+        242,
+        26
       ],
       accounts: [
         {
@@ -911,48 +1733,7 @@ var idl_default = {
           }
         },
         {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "subject_id",
-          type: "pubkey"
-        },
-        {
-          name: "details_cid",
-          type: "string"
-        },
-        {
-          name: "voting_period",
-          type: "i64"
-        }
-      ]
-    },
-    {
-      name: "create_linked_subject",
-      docs: [
-        "Create a subject linked to a defender pool"
-      ],
-      discriminator: [
-        42,
-        140,
-        162,
-        241,
-        23,
-        166,
-        71,
-        51
-      ],
-      accounts: [
-        {
-          name: "owner",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "defender_pool",
+          name: "dispute",
           writable: true,
           pda: {
             seeds: [
@@ -960,42 +1741,35 @@ var idl_default = {
                 kind: "const",
                 value: [
                   100,
-                  101,
-                  102,
-                  101,
-                  110,
-                  100,
-                  101,
-                  114,
-                  95,
+                  105,
+                  115,
                   112,
-                  111,
-                  111,
-                  108
+                  117,
+                  116,
+                  101
                 ]
               },
               {
-                kind: "account",
-                path: "owner"
+                kind: "arg",
+                path: "subject_id"
               }
             ]
           }
         },
         {
-          name: "subject",
+          name: "escrow",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  115,
-                  117,
-                  98,
-                  106,
                   101,
+                  115,
                   99,
-                  116
+                  114,
+                  111,
+                  119
                 ]
               },
               {
@@ -1020,15 +1794,7 @@ var idl_default = {
           type: "string"
         },
         {
-          name: "max_stake",
-          type: "u64"
-        },
-        {
           name: "match_mode",
-          type: "bool"
-        },
-        {
-          name: "free_case",
           type: "bool"
         },
         {
@@ -1038,19 +1804,19 @@ var idl_default = {
       ]
     },
     {
-      name: "create_pool",
+      name: "deposit_defender_pool",
       docs: [
-        "Create a defender pool with initial stake"
+        "Deposit to defender pool"
       ],
       discriminator: [
-        233,
-        146,
-        209,
-        142,
-        207,
-        104,
-        64,
-        188
+        91,
+        11,
+        23,
+        235,
+        88,
+        18,
+        65,
+        162
       ],
       accounts: [
         {
@@ -1095,7 +1861,7 @@ var idl_default = {
       ],
       args: [
         {
-          name: "initial_stake",
+          name: "amount",
           type: "u64"
         }
       ]
@@ -1157,9 +1923,240 @@ var idl_default = {
       args: []
     },
     {
+      name: "join_challengers",
+      docs: [
+        "Join existing dispute as additional challenger"
+      ],
+      discriminator: [
+        223,
+        204,
+        21,
+        113,
+        209,
+        155,
+        162,
+        77
+      ],
+      accounts: [
+        {
+          name: "challenger",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_pool",
+          docs: [
+            "Challenger's pool - created if doesn't exist"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "details_cid",
+          type: "string"
+        },
+        {
+          name: "stake",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "register_challenger",
+      docs: [
+        "Register as a challenger"
+      ],
+      discriminator: [
+        69,
+        151,
+        151,
+        202,
+        4,
+        226,
+        241,
+        134
+      ],
+      accounts: [
+        {
+          name: "challenger",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "challenger_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "challenger"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "stake_amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
       name: "register_juror",
       docs: [
-        "Register as a juror with initial stake"
+        "Register as a juror"
       ],
       discriminator: [
         116,
@@ -1178,7 +2175,7 @@ var idl_default = {
           signer: true
         },
         {
-          name: "juror_account",
+          name: "juror_pool",
           writable: true,
           pda: {
             seeds: [
@@ -1189,7 +2186,12 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -1233,311 +2235,31 @@ var idl_default = {
           signer: true
         },
         {
-          name: "dispute",
-          writable: true
-        },
-        {
           name: "subject",
           writable: true,
-          relations: [
-            "dispute"
-          ]
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: []
-    },
-    {
-      name: "stake_pool",
-      docs: [
-        "Add stake to an existing pool"
-      ],
-      discriminator: [
-        186,
-        105,
-        178,
-        191,
-        181,
-        236,
-        39,
-        162
-      ],
-      accounts: [
-        {
-          name: "owner",
-          writable: true,
-          signer: true,
-          relations: [
-            "defender_pool"
-          ]
-        },
-        {
-          name: "defender_pool",
-          writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  100,
-                  101,
-                  102,
-                  101,
-                  110,
-                  100,
-                  101,
-                  114,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
-                ]
-              },
-              {
-                kind: "account",
-                path: "owner"
-              }
-            ]
-          }
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "amount",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "submit_dispute",
-      docs: [
-        "Submit a new dispute against a subject (first challenger)"
-      ],
-      discriminator: [
-        216,
-        199,
-        236,
-        25,
-        212,
-        79,
-        19,
-        19
-      ],
-      accounts: [
-        {
-          name: "challenger",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true
-        },
-        {
-          name: "defender_pool",
-          docs: [
-            "Optional: defender pool if subject is linked"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "pool_owner_defender_record",
-          docs: [
-            "Optional: DefenderRecord for pool owner (required if pool has stake to transfer)"
-          ],
-          writable: true,
-          optional: true
-        },
-        {
-          name: "challenger_account",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  99,
-                  104,
-                  97,
-                  108,
-                  108,
-                  101,
-                  110,
-                  103,
-                  101,
-                  114
-                ]
-              },
-              {
-                kind: "account",
-                path: "challenger"
-              }
-            ]
-          }
-        },
-        {
-          name: "dispute",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  100,
-                  105,
                   115,
-                  112,
                   117,
-                  116,
-                  101
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
                 ]
               },
               {
                 kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "subject.dispute_count",
+                path: "subject.subject_id",
                 account: "Subject"
               }
             ]
           }
         },
         {
-          name: "challenger_record",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  99,
-                  104,
-                  97,
-                  108,
-                  108,
-                  101,
-                  110,
-                  103,
-                  101,
-                  114,
-                  95,
-                  114,
-                  101,
-                  99,
-                  111,
-                  114,
-                  100
-                ]
-              },
-              {
-                kind: "account",
-                path: "dispute"
-              },
-              {
-                kind: "account",
-                path: "challenger"
-              }
-            ]
-          }
-        },
-        {
-          name: "protocol_config",
-          docs: [
-            "Protocol config for treasury address"
-          ],
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          name: "treasury",
-          docs: [
-            "Treasury receives fees"
-          ],
-          writable: true
-        },
-        {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "dispute_type",
-          type: {
-            defined: {
-              name: "DisputeType"
-            }
-          }
-        },
-        {
-          name: "details_cid",
-          type: "string"
-        },
-        {
-          name: "bond",
-          type: "u64"
-        }
-      ]
-    },
-    {
-      name: "submit_free_dispute",
-      docs: [
-        "Submit a free dispute (no bond required, just Dispute account)"
-      ],
-      discriminator: [
-        140,
-        225,
-        220,
-        24,
-        64,
-        19,
-        209,
-        197
-      ],
-      accounts: [
-        {
-          name: "challenger",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true
-        },
-        {
           name: "dispute",
           writable: true,
           pda: {
@@ -1556,87 +2278,31 @@ var idl_default = {
               },
               {
                 kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "subject.dispute_count",
+                path: "subject.subject_id",
                 account: "Subject"
               }
             ]
           }
         },
         {
-          name: "system_program",
-          address: "11111111111111111111111111111111"
-        }
-      ],
-      args: [
-        {
-          name: "dispute_type",
-          type: {
-            defined: {
-              name: "DisputeType"
-            }
-          }
-        },
-        {
-          name: "details_cid",
-          type: "string"
-        }
-      ]
-    },
-    {
-      name: "submit_restore",
-      docs: [
-        "Submit a restoration request against an invalidated subject",
-        "Restorations allow community to reverse previous invalidation decisions",
-        "Restorer stakes (no bond required), voting period is 2x previous"
-      ],
-      discriminator: [
-        32,
-        59,
-        202,
-        78,
-        224,
-        183,
-        80,
-        191
-      ],
-      accounts: [
-        {
-          name: "restorer",
-          writable: true,
-          signer: true
-        },
-        {
-          name: "subject",
-          writable: true
-        },
-        {
-          name: "dispute",
+          name: "escrow",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  100,
-                  105,
+                  101,
                   115,
-                  112,
-                  117,
-                  116,
-                  101
+                  99,
+                  114,
+                  111,
+                  119
                 ]
               },
               {
                 kind: "account",
-                path: "subject"
-              },
-              {
-                kind: "account",
-                path: "subject.dispute_count",
+                path: "subject.subject_id",
                 account: "Subject"
               }
             ]
@@ -1684,6 +2350,115 @@ var idl_default = {
           address: "11111111111111111111111111111111"
         }
       ],
+      args: []
+    },
+    {
+      name: "submit_restore",
+      docs: [
+        "Submit a restoration request for an invalidated subject"
+      ],
+      discriminator: [
+        32,
+        59,
+        202,
+        78,
+        224,
+        183,
+        80,
+        191
+      ],
+      accounts: [
+        {
+          name: "restorer",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "challenger_record",
+          docs: [
+            "Challenger record for the restorer (acts as first challenger)"
+          ],
+          writable: true
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
       args: [
         {
           name: "dispute_type",
@@ -1704,9 +2479,208 @@ var idl_default = {
       ]
     },
     {
+      name: "sweep_round_creator",
+      docs: [
+        "Creator sweep unclaimed funds (after 30 days)"
+      ],
+      discriminator: [
+        171,
+        13,
+        243,
+        211,
+        73,
+        235,
+        65,
+        30
+      ],
+      accounts: [
+        {
+          name: "creator",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
+    },
+    {
+      name: "sweep_round_treasury",
+      docs: [
+        "Treasury sweep unclaimed funds (after 90 days)"
+      ],
+      discriminator: [
+        224,
+        70,
+        132,
+        233,
+        159,
+        248,
+        133,
+        130
+      ],
+      accounts: [
+        {
+          name: "sweeper",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "protocol_config",
+          docs: [
+            "Protocol config for treasury address"
+          ],
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          name: "treasury",
+          docs: [
+            "Treasury receives swept funds"
+          ],
+          writable: true
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
+    },
+    {
       name: "unlock_juror_stake",
       docs: [
-        "Unlock juror stake after 7-day buffer"
+        "Unlock juror stake (7 days after resolution)"
       ],
       discriminator: [
         109,
@@ -1722,14 +2696,57 @@ var idl_default = {
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account",
-            "vote_record"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "escrow",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
           writable: true,
           pda: {
             seeds: [
@@ -1740,7 +2757,50 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "juror"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -1751,22 +2811,21 @@ var idl_default = {
           }
         },
         {
-          name: "dispute",
-          relations: [
-            "vote_record"
-          ]
-        },
-        {
-          name: "vote_record",
-          writable: true
+          name: "system_program",
+          address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        }
+      ]
     },
     {
       name: "unregister_juror",
       docs: [
-        "Unregister juror and withdraw all available stake"
+        "Unregister juror"
       ],
       discriminator: [
         199,
@@ -1782,13 +2841,10 @@ var idl_default = {
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "juror_pool",
           writable: true,
           pda: {
             seeds: [
@@ -1799,7 +2855,12 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -1879,7 +2940,7 @@ var idl_default = {
     {
       name: "vote_on_dispute",
       docs: [
-        "Vote on a dispute with stake allocation"
+        "Vote on a dispute"
       ],
       discriminator: [
         7,
@@ -1895,13 +2956,10 @@ var idl_default = {
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "juror_pool",
           writable: true,
           pda: {
             seeds: [
@@ -1912,7 +2970,12 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -1924,35 +2987,88 @@ var idl_default = {
         },
         {
           name: "subject",
-          relations: [
-            "dispute"
-          ]
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
         },
         {
           name: "dispute",
-          writable: true
-        },
-        {
-          name: "vote_record",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  118,
-                  111,
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
                   116,
                   101
                 ]
               },
               {
                 kind: "account",
-                path: "dispute"
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
               },
               {
                 kind: "account",
                 path: "juror"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
               }
             ]
           }
@@ -1984,9 +3100,7 @@ var idl_default = {
     {
       name: "vote_on_restore",
       docs: [
-        "Vote on a restoration with stake allocation",
-        "ForRestoration = vote to restore subject to Valid",
-        "AgainstRestoration = vote to keep subject Invalidated"
+        "Vote on a restoration"
       ],
       discriminator: [
         122,
@@ -2002,13 +3116,10 @@ var idl_default = {
         {
           name: "juror",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "juror_pool",
           writable: true,
           pda: {
             seeds: [
@@ -2019,7 +3130,12 @@ var idl_default = {
                   117,
                   114,
                   111,
-                  114
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               },
               {
@@ -2031,35 +3147,88 @@ var idl_default = {
         },
         {
           name: "subject",
-          relations: [
-            "dispute"
-          ]
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
         },
         {
           name: "dispute",
-          writable: true
-        },
-        {
-          name: "vote_record",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  118,
-                  111,
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
                   116,
                   101
                 ]
               },
               {
                 kind: "account",
-                path: "dispute"
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
               },
               {
                 kind: "account",
                 path: "juror"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
               }
             ]
           }
@@ -2089,50 +3258,94 @@ var idl_default = {
       ]
     },
     {
-      name: "withdraw_juror_stake",
+      name: "withdraw_challenger_stake",
       docs: [
-        "Withdraw available stake (with reputation-based slashing)"
+        "Withdraw from challenger pool"
       ],
       discriminator: [
-        178,
-        43,
-        144,
-        250,
-        188,
-        199,
-        135,
-        133
+        78,
+        33,
+        10,
+        217,
+        10,
+        63,
+        81,
+        45
       ],
       accounts: [
         {
-          name: "juror",
+          name: "challenger",
           writable: true,
-          signer: true,
-          relations: [
-            "juror_account"
-          ]
+          signer: true
         },
         {
-          name: "juror_account",
+          name: "challenger_pool",
           writable: true,
           pda: {
             seeds: [
               {
                 kind: "const",
                 value: [
-                  106,
-                  117,
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101,
                   114,
+                  95,
+                  112,
                   111,
-                  114
+                  111,
+                  108
                 ]
               },
               {
                 kind: "account",
-                path: "juror"
+                path: "challenger"
               }
             ]
           }
+        },
+        {
+          name: "protocol_config",
+          docs: [
+            "Protocol config for treasury address"
+          ],
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          name: "treasury",
+          docs: [
+            "Treasury receives slashed amounts"
+          ],
+          writable: true
         },
         {
           name: "system_program",
@@ -2147,28 +3360,25 @@ var idl_default = {
       ]
     },
     {
-      name: "withdraw_pool",
+      name: "withdraw_defender_pool",
       docs: [
-        "Withdraw available stake from pool"
+        "Withdraw from defender pool"
       ],
       discriminator: [
-        190,
-        43,
-        148,
-        248,
-        68,
-        5,
-        215,
-        136
+        34,
+        62,
+        12,
+        146,
+        220,
+        10,
+        123,
+        61
       ],
       accounts: [
         {
           name: "owner",
           writable: true,
-          signer: true,
-          relations: [
-            "defender_pool"
-          ]
+          signer: true
         },
         {
           name: "defender_pool",
@@ -2211,20 +3421,80 @@ var idl_default = {
           type: "u64"
         }
       ]
+    },
+    {
+      name: "withdraw_juror_stake",
+      docs: [
+        "Withdraw from juror pool"
+      ],
+      discriminator: [
+        178,
+        43,
+        144,
+        250,
+        188,
+        199,
+        135,
+        133
+      ],
+      accounts: [
+        {
+          name: "juror",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "juror_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "juror"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "amount",
+          type: "u64"
+        }
+      ]
     }
   ],
   accounts: [
     {
-      name: "ChallengerAccount",
+      name: "ChallengerPool",
       discriminator: [
-        63,
-        207,
-        170,
-        69,
-        229,
-        2,
-        163,
-        201
+        88,
+        158,
+        225,
+        15,
+        47,
+        185,
+        77,
+        238
       ]
     },
     {
@@ -2280,16 +3550,42 @@ var idl_default = {
       ]
     },
     {
-      name: "JurorAccount",
+      name: "Escrow",
       discriminator: [
-        138,
-        222,
-        50,
-        194,
-        222,
-        131,
-        255,
-        186
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ]
+    },
+    {
+      name: "JurorPool",
+      discriminator: [
+        217,
+        104,
+        42,
+        167,
+        209,
+        1,
+        171,
+        33
+      ]
+    },
+    {
+      name: "JurorRecord",
+      discriminator: [
+        144,
+        76,
+        94,
+        12,
+        102,
+        207,
+        151,
+        40
       ]
     },
     {
@@ -2317,229 +3613,372 @@ var idl_default = {
         138,
         166
       ]
+    }
+  ],
+  events: [
+    {
+      name: "BondAddedEvent",
+      discriminator: [
+        139,
+        73,
+        9,
+        193,
+        204,
+        12,
+        69,
+        174
+      ]
     },
     {
-      name: "VoteRecord",
+      name: "BondWithdrawnEvent",
       discriminator: [
-        112,
-        9,
+        1,
+        22,
+        115,
+        176,
+        15,
+        248,
         123,
-        165,
-        234,
+        151
+      ]
+    },
+    {
+      name: "ChallengerJoinedEvent",
+      discriminator: [
+        163,
+        95,
+        96,
+        131,
+        237,
+        97,
+        229,
+        35
+      ]
+    },
+    {
+      name: "DisputeCreatedEvent",
+      discriminator: [
+        89,
+        162,
+        48,
+        158,
+        30,
+        116,
+        145,
+        247
+      ]
+    },
+    {
+      name: "DisputeResolvedEvent",
+      discriminator: [
+        152,
+        37,
+        98,
+        245,
+        229,
+        39,
+        150,
+        78
+      ]
+    },
+    {
+      name: "PoolDepositEvent",
+      discriminator: [
+        17,
+        52,
+        153,
+        164,
+        206,
+        202,
+        228,
+        220
+      ]
+    },
+    {
+      name: "PoolWithdrawEvent",
+      discriminator: [
+        4,
+        215,
+        203,
+        122,
+        8,
+        73,
+        179,
+        46
+      ]
+    },
+    {
+      name: "RecordClosedEvent",
+      discriminator: [
+        127,
+        196,
+        65,
+        213,
+        113,
+        178,
+        80,
+        55
+      ]
+    },
+    {
+      name: "RestoreResolvedEvent",
+      discriminator: [
+        151,
+        57,
+        204,
+        231,
         9,
-        157,
-        167
+        240,
+        171,
+        205
+      ]
+    },
+    {
+      name: "RestoreSubmittedEvent",
+      discriminator: [
+        91,
+        160,
+        93,
+        112,
+        192,
+        112,
+        155,
+        30
+      ]
+    },
+    {
+      name: "RestoreVoteEvent",
+      discriminator: [
+        54,
+        218,
+        241,
+        44,
+        90,
+        247,
+        210,
+        238
+      ]
+    },
+    {
+      name: "RewardClaimedEvent",
+      discriminator: [
+        246,
+        43,
+        215,
+        228,
+        82,
+        49,
+        230,
+        56
+      ]
+    },
+    {
+      name: "RoundSweptEvent",
+      discriminator: [
+        245,
+        127,
+        207,
+        243,
+        30,
+        229,
+        3,
+        134
+      ]
+    },
+    {
+      name: "StakeUnlockedEvent",
+      discriminator: [
+        99,
+        31,
+        70,
+        177,
+        150,
+        105,
+        180,
+        93
+      ]
+    },
+    {
+      name: "SubjectCreatedEvent",
+      discriminator: [
+        70,
+        23,
+        14,
+        215,
+        220,
+        223,
+        89,
+        17
+      ]
+    },
+    {
+      name: "SubjectStatusChangedEvent",
+      discriminator: [
+        118,
+        28,
+        47,
+        229,
+        59,
+        42,
+        149,
+        118
+      ]
+    },
+    {
+      name: "VoteEvent",
+      discriminator: [
+        195,
+        71,
+        250,
+        105,
+        120,
+        119,
+        234,
+        134
       ]
     }
   ],
   errors: [
     {
       code: 6e3,
-      name: "Unauthorized",
-      msg: "Unauthorized"
-    },
-    {
-      code: 6001,
-      name: "InvalidConfig",
-      msg: "Invalid configuration parameter"
-    },
-    {
-      code: 6002,
-      name: "StakeBelowMinimum",
-      msg: "Stake amount below minimum"
-    },
-    {
-      code: 6003,
-      name: "InsufficientAvailableStake",
-      msg: "Insufficient available stake"
-    },
-    {
-      code: 6004,
-      name: "InsufficientHeldStake",
-      msg: "Insufficient held stake"
-    },
-    {
-      code: 6005,
-      name: "StakeStillLocked",
-      msg: "Stake still locked"
-    },
-    {
-      code: 6006,
-      name: "StakeAlreadyUnlocked",
-      msg: "Stake already unlocked"
-    },
-    {
-      code: 6007,
-      name: "BondBelowMinimum",
-      msg: "Bond amount below minimum"
-    },
-    {
-      code: 6008,
-      name: "BondExceedsAvailable",
-      msg: "Bond exceeds staker's available pool"
-    },
-    {
-      code: 6009,
-      name: "SubjectCannotBeStaked",
-      msg: "Subject cannot accept stakes"
-    },
-    {
-      code: 6010,
-      name: "SubjectCannotBeDisputed",
-      msg: "Subject cannot be disputed"
-    },
-    {
-      code: 6011,
-      name: "SubjectCannotBeRestored",
-      msg: "Subject cannot be restored"
-    },
-    {
-      code: 6012,
-      name: "RestoreStakeBelowMinimum",
-      msg: "Restore stake below minimum (must match previous dispute total)"
-    },
-    {
-      code: 6013,
-      name: "NotARestore",
-      msg: "This dispute is not a restoration request"
-    },
-    {
-      code: 6014,
-      name: "CannotSelfDispute",
-      msg: "Cannot dispute own subject"
-    },
-    {
-      code: 6015,
-      name: "DisputeAlreadyExists",
-      msg: "Dispute already exists for this subject"
-    },
-    {
-      code: 6016,
-      name: "DisputeNotFound",
-      msg: "Dispute not found"
-    },
-    {
-      code: 6017,
-      name: "DisputeAlreadyResolved",
-      msg: "Dispute already resolved"
-    },
-    {
-      code: 6018,
-      name: "VotingNotEnded",
-      msg: "Voting period not ended"
-    },
-    {
-      code: 6019,
-      name: "VotingEnded",
-      msg: "Voting period has ended"
-    },
-    {
-      code: 6020,
-      name: "CannotVoteOnOwnDispute",
-      msg: "Cannot vote on own dispute"
-    },
-    {
-      code: 6021,
-      name: "AlreadyVoted",
-      msg: "Already voted on this dispute"
-    },
-    {
-      code: 6022,
-      name: "VoteAllocationBelowMinimum",
-      msg: "Vote allocation below minimum"
-    },
-    {
-      code: 6023,
-      name: "InvalidVoteChoice",
-      msg: "Invalid vote choice"
-    },
-    {
-      code: 6024,
-      name: "JurorNotActive",
-      msg: "Juror not active"
-    },
-    {
-      code: 6025,
-      name: "JurorAlreadyRegistered",
-      msg: "Juror already registered"
-    },
-    {
-      code: 6026,
-      name: "ChallengerNotFound",
-      msg: "Challenger not found"
-    },
-    {
-      code: 6027,
-      name: "RewardAlreadyClaimed",
-      msg: "Reward already claimed"
-    },
-    {
-      code: 6028,
-      name: "NotEligibleForReward",
-      msg: "Not eligible for reward"
-    },
-    {
-      code: 6029,
-      name: "ReputationAlreadyProcessed",
-      msg: "Reputation already processed"
-    },
-    {
-      code: 6030,
-      name: "ArithmeticOverflow",
-      msg: "Arithmetic overflow"
-    },
-    {
-      code: 6031,
-      name: "DivisionByZero",
-      msg: "Division by zero"
-    },
-    {
-      code: 6032,
-      name: "ClaimsNotComplete",
-      msg: "Not all claims have been processed"
+      name: "InsufficientBalance",
+      msg: "Insufficient balance in defender pool"
     }
   ],
   types: [
     {
-      name: "ChallengerAccount",
+      name: "BondAddedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "defender",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "source",
+            type: {
+              defined: {
+                name: "BondSource"
+              }
+            }
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "BondSource",
       docs: [
-        "Challenger account tracking reputation - global per wallet"
+        "Source of bond funds"
+      ],
+      type: {
+        kind: "enum",
+        variants: [
+          {
+            name: "Direct"
+          },
+          {
+            name: "Pool"
+          }
+        ]
+      }
+    },
+    {
+      name: "BondWithdrawnEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "defender",
+            type: "pubkey"
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "ChallengerJoinedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "challenger",
+            type: "pubkey"
+          },
+          {
+            name: "stake",
+            type: "u64"
+          },
+          {
+            name: "total_stake",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "ChallengerPool",
+      docs: [
+        "Challenger's pool for holding stake funds",
+        "Seeds: [CHALLENGER_POOL_SEED, owner]",
+        "One per user, persistent"
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "challenger",
+            name: "owner",
             docs: [
-              "Challenger's wallet address"
+              "Pool owner's wallet address"
             ],
             type: "pubkey"
+          },
+          {
+            name: "balance",
+            docs: [
+              "Available balance"
+            ],
+            type: "u64"
           },
           {
             name: "reputation",
             docs: [
               "Reputation score (6 decimals, 100% = 100_000_000)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "disputes_submitted",
-            docs: [
-              "Total disputes submitted"
-            ],
-            type: "u64"
-          },
-          {
-            name: "disputes_upheld",
-            docs: [
-              "Disputes that were upheld (challenger was correct)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "disputes_dismissed",
-            docs: [
-              "Disputes that were dismissed (challenger was wrong)"
             ],
             type: "u64"
           },
@@ -2553,14 +3992,7 @@ var idl_default = {
           {
             name: "created_at",
             docs: [
-              "First dispute timestamp"
-            ],
-            type: "i64"
-          },
-          {
-            name: "last_dispute_at",
-            docs: [
-              "Last dispute timestamp"
+              "Creation timestamp"
             ],
             type: "i64"
           }
@@ -2570,16 +4002,17 @@ var idl_default = {
     {
       name: "ChallengerRecord",
       docs: [
-        "Individual challenger's contribution to a dispute",
-        "Supports cumulative disputes where multiple challengers contribute"
+        "Individual challenger's stake for a specific subject round",
+        "Seeds: [CHALLENGER_RECORD_SEED, subject_id, challenger, round]",
+        "Created per round, closed after claim"
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "dispute",
+            name: "subject_id",
             docs: [
-              "The dispute this record belongs to"
+              "The subject_id this record belongs to"
             ],
             type: "pubkey"
           },
@@ -2591,16 +4024,16 @@ var idl_default = {
             type: "pubkey"
           },
           {
-            name: "challenger_account",
+            name: "round",
             docs: [
-              "Challenger account PDA"
+              "Which round this stake is for"
             ],
-            type: "pubkey"
+            type: "u32"
           },
           {
-            name: "bond",
+            name: "stake",
             docs: [
-              "Bond amount contributed by this challenger"
+              "Stake amount contributed to the dispute"
             ],
             type: "u64"
           },
@@ -2636,9 +4069,28 @@ var idl_default = {
       }
     },
     {
+      name: "ClaimRole",
+      type: {
+        kind: "enum",
+        variants: [
+          {
+            name: "Defender"
+          },
+          {
+            name: "Challenger"
+          },
+          {
+            name: "Juror"
+          }
+        ]
+      }
+    },
+    {
       name: "DefenderPool",
       docs: [
-        "Defender's pool that can back multiple subjects - global per wallet"
+        "Defender's pool for holding bond funds",
+        "Seeds: [DEFENDER_POOL_SEED, owner]",
+        "One per user, persistent"
       ],
       type: {
         kind: "struct",
@@ -2651,39 +4103,18 @@ var idl_default = {
             type: "pubkey"
           },
           {
-            name: "total_stake",
+            name: "balance",
             docs: [
-              "Total stake deposited"
+              "Available balance (not locked in active bonds)"
             ],
             type: "u64"
           },
           {
-            name: "available",
+            name: "max_bond",
             docs: [
-              "Available stake (not held by disputes)"
+              "Max bond per subject (for auto-allocation)"
             ],
             type: "u64"
-          },
-          {
-            name: "held",
-            docs: [
-              "Held stake (locked by pending disputes)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "subject_count",
-            docs: [
-              "Number of subjects linked to this pool"
-            ],
-            type: "u32"
-          },
-          {
-            name: "pending_disputes",
-            docs: [
-              "Number of pending disputes against subjects in this pool"
-            ],
-            type: "u32"
           },
           {
             name: "bump",
@@ -2712,16 +4143,17 @@ var idl_default = {
     {
       name: "DefenderRecord",
       docs: [
-        "Individual defender's contribution to backing a subject",
-        "Supports cumulative staking where multiple defenders back a subject"
+        "Individual defender's bond for a specific subject round",
+        "Seeds: [DEFENDER_RECORD_SEED, subject_id, defender, round]",
+        "Created per round, closed after claim"
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "subject",
+            name: "subject_id",
             docs: [
-              "The subject this record belongs to"
+              "The subject_id this record belongs to"
             ],
             type: "pubkey"
           },
@@ -2733,19 +4165,29 @@ var idl_default = {
             type: "pubkey"
           },
           {
-            name: "stake",
+            name: "round",
             docs: [
-              "Total amount staked to back the subject (on subject account)"
+              "Which round this bond is for"
+            ],
+            type: "u32"
+          },
+          {
+            name: "bond",
+            docs: [
+              "Bond amount backing the subject"
             ],
             type: "u64"
           },
           {
-            name: "stake_in_escrow",
+            name: "source",
             docs: [
-              "Amount of stake currently at risk in escrow (during active dispute)",
-              "This is the amount that will be used for claim calculations"
+              "Source of bond funds"
             ],
-            type: "u64"
+            type: {
+              defined: {
+                name: "BondSource"
+              }
+            }
           },
           {
             name: "reward_claimed",
@@ -2762,9 +4204,9 @@ var idl_default = {
             type: "u8"
           },
           {
-            name: "staked_at",
+            name: "bonded_at",
             docs: [
-              "Timestamp when this defender joined"
+              "Timestamp when this defender bonded"
             ],
             type: "i64"
           }
@@ -2774,56 +4216,25 @@ var idl_default = {
     {
       name: "Dispute",
       docs: [
-        "Dispute (supports cumulative challengers)"
+        "Dispute - Persistent PDA, reset after each round",
+        "Seeds: [DISPUTE_SEED, subject_id]"
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "subject",
+            name: "subject_id",
             docs: [
-              "Subject account being disputed"
+              "Subject being disputed (subject_id, not Subject PDA)"
             ],
             type: "pubkey"
           },
           {
-            name: "dispute_type",
+            name: "round",
             docs: [
-              "Dispute type"
+              "Which round this dispute is for"
             ],
-            type: {
-              defined: {
-                name: "DisputeType"
-              }
-            }
-          },
-          {
-            name: "total_bond",
-            docs: [
-              "Total bond from all challengers (cumulative)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "stake_held",
-            docs: [
-              "Stake held from pool (match mode, linked subjects)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "direct_stake_held",
-            docs: [
-              "Stake held from direct stakers on subject (match mode)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "challenger_count",
-            docs: [
-              "Number of challengers who contributed"
-            ],
-            type: "u16"
+            type: "u32"
           },
           {
             name: "status",
@@ -2837,27 +4248,57 @@ var idl_default = {
             }
           },
           {
-            name: "outcome",
+            name: "dispute_type",
             docs: [
-              "Resolution outcome"
+              "Dispute type"
             ],
             type: {
               defined: {
-                name: "ResolutionOutcome"
+                name: "DisputeType"
               }
             }
           },
           {
-            name: "votes_favor_weight",
+            name: "total_stake",
             docs: [
-              'Cumulative voting power for "ForChallenger" votes'
+              "Total stake from all challengers"
             ],
             type: "u64"
           },
           {
-            name: "votes_against_weight",
+            name: "challenger_count",
             docs: [
-              'Cumulative voting power for "ForDefender" votes'
+              "Number of challengers"
+            ],
+            type: "u16"
+          },
+          {
+            name: "bond_at_risk",
+            docs: [
+              "Bond at risk (calculated based on mode)",
+              "Match: min(total_stake, available_bond)",
+              "Prop: available_bond"
+            ],
+            type: "u64"
+          },
+          {
+            name: "defender_count",
+            docs: [
+              "Number of defenders (snapshot at dispute creation, updated if new defenders join)"
+            ],
+            type: "u16"
+          },
+          {
+            name: "votes_for_challenger",
+            docs: [
+              "Cumulative voting power for challenger"
+            ],
+            type: "u64"
+          },
+          {
+            name: "votes_for_defender",
+            docs: [
+              "Cumulative voting power for defender"
             ],
             type: "u64"
           },
@@ -2869,25 +4310,29 @@ var idl_default = {
             type: "u16"
           },
           {
-            name: "voting_started",
-            docs: [
-              "Whether voting has started (match mode waits for matching)"
-            ],
-            type: "bool"
-          },
-          {
             name: "voting_starts_at",
             docs: [
-              "Voting start timestamp (0 if not started)"
+              "Voting start timestamp"
             ],
             type: "i64"
           },
           {
             name: "voting_ends_at",
             docs: [
-              "Voting end timestamp (0 if not started)"
+              "Voting end timestamp"
             ],
             type: "i64"
+          },
+          {
+            name: "outcome",
+            docs: [
+              "Resolution outcome"
+            ],
+            type: {
+              defined: {
+                name: "ResolutionOutcome"
+              }
+            }
           },
           {
             name: "resolved_at",
@@ -2895,6 +4340,34 @@ var idl_default = {
               "Resolution timestamp"
             ],
             type: "i64"
+          },
+          {
+            name: "is_restore",
+            docs: [
+              "True if this dispute is a restoration request"
+            ],
+            type: "bool"
+          },
+          {
+            name: "restore_stake",
+            docs: [
+              "Stake posted by restorer (for restorations only)"
+            ],
+            type: "u64"
+          },
+          {
+            name: "restorer",
+            docs: [
+              "Restorer's pubkey (for restorations only)"
+            ],
+            type: "pubkey"
+          },
+          {
+            name: "details_cid",
+            docs: [
+              "Details CID (IPFS hash for dispute details)"
+            ],
+            type: "string"
           },
           {
             name: "bump",
@@ -2909,69 +4382,90 @@ var idl_default = {
               "Creation timestamp"
             ],
             type: "i64"
-          },
+          }
+        ]
+      }
+    },
+    {
+      name: "DisputeCreatedEvent",
+      type: {
+        kind: "struct",
+        fields: [
           {
-            name: "pool_reward_claimed",
-            docs: [
-              "Pool reward claimed (for linked mode)"
-            ],
-            type: "bool"
-          },
-          {
-            name: "snapshot_total_stake",
-            docs: [
-              "Snapshot of subject's total_stake at dispute creation"
-            ],
-            type: "u64"
-          },
-          {
-            name: "snapshot_defender_count",
-            docs: [
-              "Snapshot of subject's defender_count at dispute creation"
-            ],
-            type: "u16"
-          },
-          {
-            name: "challengers_claimed",
-            docs: [
-              "Number of challengers who have claimed their reward/refund"
-            ],
-            type: "u16"
-          },
-          {
-            name: "defenders_claimed",
-            docs: [
-              "Number of direct defenders who have claimed their reward/refund"
-            ],
-            type: "u16"
-          },
-          {
-            name: "is_restore",
-            docs: [
-              "True if this dispute is a restoration request (reverses the meaning of outcomes)"
-            ],
-            type: "bool"
-          },
-          {
-            name: "restore_stake",
-            docs: [
-              "Stake posted by restorer (for restorations only)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "restorer",
-            docs: [
-              "Restorer's pubkey (for restorations only, used for refunds)"
-            ],
+            name: "subject_id",
             type: "pubkey"
           },
           {
-            name: "details_cid",
-            docs: [
-              "Details CID for restoration requests (stored here since no ChallengerRecord)"
-            ],
-            type: "string"
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "creator",
+            type: "pubkey"
+          },
+          {
+            name: "stake",
+            type: "u64"
+          },
+          {
+            name: "bond_at_risk",
+            type: "u64"
+          },
+          {
+            name: "voting_ends_at",
+            type: "i64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "DisputeResolvedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "outcome",
+            type: {
+              defined: {
+                name: "ResolutionOutcome"
+              }
+            }
+          },
+          {
+            name: "total_stake",
+            type: "u64"
+          },
+          {
+            name: "bond_at_risk",
+            type: "u64"
+          },
+          {
+            name: "winner_pool",
+            type: "u64"
+          },
+          {
+            name: "juror_pool",
+            type: "u64"
+          },
+          {
+            name: "resolved_at",
+            type: "i64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
           }
         ]
       }
@@ -2984,6 +4478,9 @@ var idl_default = {
       type: {
         kind: "enum",
         variants: [
+          {
+            name: "None"
+          },
           {
             name: "Pending"
           },
@@ -3029,38 +4526,74 @@ var idl_default = {
       }
     },
     {
-      name: "JurorAccount",
+      name: "Escrow",
       docs: [
-        "Juror (arbiter) account - global per wallet",
-        "",
-        "Balance Model:",
-        "- `total_stake`: Total SOL held in this PDA (actual lamports)",
-        "- `available_stake`: SOL available to vote or withdraw",
-        "- Held (locked): `total_stake - available_stake` (locked in active disputes)",
-        "",
-        "SOL only transfers on deposit/withdraw. Voting is accounting only."
+        "Escrow account - holds funds for claims across rounds",
+        "Seeds: [ESCROW_SEED, subject_id]",
+        "Persistent PDA - created once, reused"
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "juror",
+            name: "subject_id",
+            docs: [
+              "Subject this escrow belongs to"
+            ],
+            type: "pubkey"
+          },
+          {
+            name: "balance",
+            docs: [
+              "Current balance available for claims"
+            ],
+            type: "u64"
+          },
+          {
+            name: "rounds",
+            docs: [
+              "Historical round results for claims",
+              "Vec grows with realloc on dispute creation, shrinks on last claim"
+            ],
+            type: {
+              vec: {
+                defined: {
+                  name: "RoundResult"
+                }
+              }
+            }
+          },
+          {
+            name: "bump",
+            docs: [
+              "Bump seed for PDA"
+            ],
+            type: "u8"
+          }
+        ]
+      }
+    },
+    {
+      name: "JurorPool",
+      docs: [
+        "Juror's pool for holding voting stake",
+        "Seeds: [JUROR_POOL_SEED, owner]",
+        "One per user, persistent"
+      ],
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "owner",
             docs: [
               "Juror's wallet address"
             ],
             type: "pubkey"
           },
           {
-            name: "total_stake",
+            name: "balance",
             docs: [
-              "Total stake held in this PDA (actual lamports)"
-            ],
-            type: "u64"
-          },
-          {
-            name: "available_stake",
-            docs: [
-              "Available stake (not locked in active disputes)"
+              "Available balance"
             ],
             type: "u64"
           },
@@ -3072,23 +4605,107 @@ var idl_default = {
             type: "u64"
           },
           {
-            name: "votes_cast",
+            name: "bump",
             docs: [
-              "Total votes cast"
+              "Bump seed for PDA"
+            ],
+            type: "u8"
+          },
+          {
+            name: "created_at",
+            docs: [
+              "Registration timestamp"
+            ],
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "JurorRecord",
+      docs: [
+        "Juror's vote record for a specific subject round",
+        "Seeds: [JUROR_RECORD_SEED, subject_id, juror, round]",
+        "Created per round, closed after claim"
+      ],
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            docs: [
+              "The subject_id this record belongs to"
+            ],
+            type: "pubkey"
+          },
+          {
+            name: "juror",
+            docs: [
+              "Juror who cast the vote"
+            ],
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            docs: [
+              "Which round this vote is for"
+            ],
+            type: "u32"
+          },
+          {
+            name: "choice",
+            docs: [
+              "Vote choice for regular disputes"
+            ],
+            type: {
+              defined: {
+                name: "VoteChoice"
+              }
+            }
+          },
+          {
+            name: "restore_choice",
+            docs: [
+              "Vote choice for restorations (only used when is_restore_vote is true)"
+            ],
+            type: {
+              defined: {
+                name: "RestoreVoteChoice"
+              }
+            }
+          },
+          {
+            name: "is_restore_vote",
+            docs: [
+              "Whether this is a restoration vote"
+            ],
+            type: "bool"
+          },
+          {
+            name: "voting_power",
+            docs: [
+              "Calculated voting power"
             ],
             type: "u64"
           },
           {
-            name: "correct_votes",
+            name: "stake_allocation",
             docs: [
-              "Correct votes (aligned with outcome)"
+              "Stake allocated (locked from juror pool)"
             ],
             type: "u64"
           },
           {
-            name: "is_active",
+            name: "reward_claimed",
             docs: [
-              "Whether juror is active"
+              "Whether reward has been claimed"
+            ],
+            type: "bool"
+          },
+          {
+            name: "stake_unlocked",
+            docs: [
+              "Whether stake has been unlocked (7 days after voting ends)"
             ],
             type: "bool"
           },
@@ -3100,17 +4717,94 @@ var idl_default = {
             type: "u8"
           },
           {
-            name: "joined_at",
+            name: "voted_at",
             docs: [
-              "Registration timestamp"
+              "Vote timestamp"
             ],
             type: "i64"
           },
           {
-            name: "last_vote_at",
+            name: "rationale_cid",
             docs: [
-              "Last activity timestamp"
+              "IPFS CID for vote rationale (optional)"
             ],
+            type: "string"
+          }
+        ]
+      }
+    },
+    {
+      name: "PoolDepositEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "pool_type",
+            type: {
+              defined: {
+                name: "PoolType"
+              }
+            }
+          },
+          {
+            name: "owner",
+            type: "pubkey"
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "PoolType",
+      type: {
+        kind: "enum",
+        variants: [
+          {
+            name: "Defender"
+          },
+          {
+            name: "Challenger"
+          },
+          {
+            name: "Juror"
+          }
+        ]
+      }
+    },
+    {
+      name: "PoolWithdrawEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "pool_type",
+            type: {
+              defined: {
+                name: "PoolType"
+              }
+            }
+          },
+          {
+            name: "owner",
+            type: "pubkey"
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "slashed",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
             type: "i64"
           }
         ]
@@ -3150,6 +4844,42 @@ var idl_default = {
       }
     },
     {
+      name: "RecordClosedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "owner",
+            type: "pubkey"
+          },
+          {
+            name: "role",
+            type: {
+              defined: {
+                name: "ClaimRole"
+              }
+            }
+          },
+          {
+            name: "rent_returned",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
       name: "ResolutionOutcome",
       docs: [
         "Resolution outcome"
@@ -3173,9 +4903,73 @@ var idl_default = {
       }
     },
     {
+      name: "RestoreResolvedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "outcome",
+            type: {
+              defined: {
+                name: "ResolutionOutcome"
+              }
+            }
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "RestoreSubmittedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "restorer",
+            type: "pubkey"
+          },
+          {
+            name: "stake",
+            type: "u64"
+          },
+          {
+            name: "details_cid",
+            type: "string"
+          },
+          {
+            name: "voting_period",
+            type: "i64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
       name: "RestoreVoteChoice",
       docs: [
-        "Vote choice for restorations (separate enum for clearer semantics)"
+        "Vote choice for restorations"
       ],
       type: {
         kind: "enum",
@@ -3190,9 +4984,274 @@ var idl_default = {
       }
     },
     {
+      name: "RestoreVoteEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "juror",
+            type: "pubkey"
+          },
+          {
+            name: "choice",
+            type: {
+              defined: {
+                name: "RestoreVoteChoice"
+              }
+            }
+          },
+          {
+            name: "voting_power",
+            type: "u64"
+          },
+          {
+            name: "rationale_cid",
+            type: "string"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "RewardClaimedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "claimer",
+            type: "pubkey"
+          },
+          {
+            name: "role",
+            type: {
+              defined: {
+                name: "ClaimRole"
+              }
+            }
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "RoundResult",
+      docs: [
+        "Result data for a completed round, stored in Escrow",
+        "Used for claim calculations after resolution"
+      ],
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "round",
+            docs: [
+              "Round number"
+            ],
+            type: "u32"
+          },
+          {
+            name: "creator",
+            docs: [
+              "Dispute creator (for rent refund on last claim or sweep)"
+            ],
+            type: "pubkey"
+          },
+          {
+            name: "resolved_at",
+            docs: [
+              "Resolution timestamp (for grace period calculation)"
+            ],
+            type: "i64"
+          },
+          {
+            name: "outcome",
+            docs: [
+              "Resolution outcome"
+            ],
+            type: {
+              defined: {
+                name: "ResolutionOutcome"
+              }
+            }
+          },
+          {
+            name: "total_stake",
+            docs: [
+              "Total stake from challengers"
+            ],
+            type: "u64"
+          },
+          {
+            name: "bond_at_risk",
+            docs: [
+              "Bond at risk from defenders"
+            ],
+            type: "u64"
+          },
+          {
+            name: "safe_bond",
+            docs: [
+              "Safe bond (available_bond - bond_at_risk) returned to defenders"
+            ],
+            type: "u64"
+          },
+          {
+            name: "total_vote_weight",
+            docs: [
+              "Total voting power cast"
+            ],
+            type: "u64"
+          },
+          {
+            name: "winner_pool",
+            docs: [
+              "Winner pool amount (80%)"
+            ],
+            type: "u64"
+          },
+          {
+            name: "juror_pool",
+            docs: [
+              "Juror pool amount (19%)"
+            ],
+            type: "u64"
+          },
+          {
+            name: "defender_count",
+            docs: [
+              "Number of defenders"
+            ],
+            type: "u16"
+          },
+          {
+            name: "challenger_count",
+            docs: [
+              "Number of challengers"
+            ],
+            type: "u16"
+          },
+          {
+            name: "juror_count",
+            docs: [
+              "Number of jurors"
+            ],
+            type: "u16"
+          },
+          {
+            name: "defender_claims",
+            docs: [
+              "Number of defenders who have claimed"
+            ],
+            type: "u16"
+          },
+          {
+            name: "challenger_claims",
+            docs: [
+              "Number of challengers who have claimed"
+            ],
+            type: "u16"
+          },
+          {
+            name: "juror_claims",
+            docs: [
+              "Number of jurors who have claimed"
+            ],
+            type: "u16"
+          }
+        ]
+      }
+    },
+    {
+      name: "RoundSweptEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "sweeper",
+            type: "pubkey"
+          },
+          {
+            name: "unclaimed",
+            type: "u64"
+          },
+          {
+            name: "bot_reward",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
+      name: "StakeUnlockedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "juror",
+            type: "pubkey"
+          },
+          {
+            name: "amount",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
       name: "Subject",
       docs: [
-        "Subject that defenders back - global (identified by subject_id)"
+        "Subject that defenders back - identified by subject_id",
+        "Persistent PDA - created once, reused across rounds"
       ],
       type: {
         kind: "struct",
@@ -3205,18 +5264,39 @@ var idl_default = {
             type: "pubkey"
           },
           {
-            name: "defender_pool",
+            name: "creator",
             docs: [
-              "Optional defender pool (default = standalone mode, set = linked to pool)"
+              "Creator of this subject (for auto-bond on reset)"
             ],
             type: "pubkey"
           },
           {
             name: "details_cid",
             docs: [
-              "Details/metadata CID (IPFS/Arweave) - context provided by first staker"
+              "Content CID (IPFS hash for subject details)"
             ],
             type: "string"
+          },
+          {
+            name: "round",
+            docs: [
+              "Current round counter (0, 1, 2, ...)"
+            ],
+            type: "u32"
+          },
+          {
+            name: "available_bond",
+            docs: [
+              "Total bond available for current round"
+            ],
+            type: "u64"
+          },
+          {
+            name: "defender_count",
+            docs: [
+              "Number of defenders in current round"
+            ],
+            type: "u16"
           },
           {
             name: "status",
@@ -3230,19 +5310,11 @@ var idl_default = {
             }
           },
           {
-            name: "available_stake",
+            name: "match_mode",
             docs: [
-              "Available stake for disputes (direct stakes + pool contribution when disputed)",
-              "Updated at resolution: available_stake -= stake_at_risk"
+              "Match mode: true = bond_at_risk matches stake, false = proportionate (all bond at risk)"
             ],
-            type: "u64"
-          },
-          {
-            name: "max_stake",
-            docs: [
-              "Max stake at risk per dispute (for match mode)"
-            ],
-            type: "u64"
+            type: "bool"
           },
           {
             name: "voting_period",
@@ -3250,34 +5322,6 @@ var idl_default = {
               "Voting period in seconds for this subject's disputes"
             ],
             type: "i64"
-          },
-          {
-            name: "defender_count",
-            docs: [
-              "Number of defenders (standalone mode only)"
-            ],
-            type: "u16"
-          },
-          {
-            name: "dispute_count",
-            docs: [
-              "Number of disputes (for sequential dispute PDAs)"
-            ],
-            type: "u32"
-          },
-          {
-            name: "match_mode",
-            docs: [
-              "Match mode: true = bond must match stake, false = proportionate"
-            ],
-            type: "bool"
-          },
-          {
-            name: "free_case",
-            docs: [
-              "Free case mode: no stake/bond required, no rewards, no reputation impact"
-            ],
-            type: "bool"
           },
           {
             name: "dispute",
@@ -3325,6 +5369,34 @@ var idl_default = {
       }
     },
     {
+      name: "SubjectCreatedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "creator",
+            type: "pubkey"
+          },
+          {
+            name: "match_mode",
+            type: "bool"
+          },
+          {
+            name: "voting_period",
+            type: "i64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
+    {
       name: "SubjectStatus",
       docs: [
         "Subject status"
@@ -3332,6 +5404,9 @@ var idl_default = {
       type: {
         kind: "enum",
         variants: [
+          {
+            name: "Dormant"
+          },
           {
             name: "Valid"
           },
@@ -3342,10 +5417,31 @@ var idl_default = {
             name: "Invalid"
           },
           {
-            name: "Dormant"
+            name: "Restoring"
+          }
+        ]
+      }
+    },
+    {
+      name: "SubjectStatusChangedEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
           },
           {
-            name: "Restoring"
+            name: "old_status",
+            type: "u8"
+          },
+          {
+            name: "new_status",
+            type: "u8"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
           }
         ]
       }
@@ -3353,7 +5449,7 @@ var idl_default = {
     {
       name: "VoteChoice",
       docs: [
-        "Vote choice for regular disputes"
+        "Vote choice for disputes"
       ],
       type: {
         kind: "enum",
@@ -3368,39 +5464,24 @@ var idl_default = {
       }
     },
     {
-      name: "VoteRecord",
-      docs: [
-        "Juror's vote on a dispute"
-      ],
+      name: "VoteEvent",
       type: {
         kind: "struct",
         fields: [
           {
-            name: "dispute",
-            docs: [
-              "The dispute being voted on"
-            ],
+            name: "subject_id",
             type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
           },
           {
             name: "juror",
-            docs: [
-              "Juror who cast the vote"
-            ],
-            type: "pubkey"
-          },
-          {
-            name: "juror_account",
-            docs: [
-              "Juror account PDA"
-            ],
             type: "pubkey"
           },
           {
             name: "choice",
-            docs: [
-              "Vote choice for regular disputes"
-            ],
             type: {
               defined: {
                 name: "VoteChoice"
@@ -3408,85 +5489,16 @@ var idl_default = {
             }
           },
           {
-            name: "restore_choice",
-            docs: [
-              "Vote choice for restorations (only used when is_restore_vote is true)"
-            ],
-            type: {
-              defined: {
-                name: "RestoreVoteChoice"
-              }
-            }
-          },
-          {
-            name: "is_restore_vote",
-            docs: [
-              "Whether this is a restoration vote"
-            ],
-            type: "bool"
-          },
-          {
-            name: "stake_allocated",
-            docs: [
-              "Stake allocated to this vote"
-            ],
-            type: "u64"
-          },
-          {
             name: "voting_power",
-            docs: [
-              "Calculated voting power (scaled by WEIGHT_PRECISION)"
-            ],
             type: "u64"
-          },
-          {
-            name: "unlock_at",
-            docs: [
-              "When the stake unlocks"
-            ],
-            type: "i64"
-          },
-          {
-            name: "reputation_processed",
-            docs: [
-              "Whether reputation has been processed after resolution"
-            ],
-            type: "bool"
-          },
-          {
-            name: "reward_claimed",
-            docs: [
-              "Whether reward has been claimed"
-            ],
-            type: "bool"
-          },
-          {
-            name: "stake_unlocked",
-            docs: [
-              "Whether stake has been unlocked/returned"
-            ],
-            type: "bool"
-          },
-          {
-            name: "bump",
-            docs: [
-              "Bump seed for PDA"
-            ],
-            type: "u8"
-          },
-          {
-            name: "voted_at",
-            docs: [
-              "Vote timestamp"
-            ],
-            type: "i64"
           },
           {
             name: "rationale_cid",
-            docs: [
-              "IPFS CID for vote rationale (optional)"
-            ],
             type: "string"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
           }
         ]
       }
@@ -3521,7 +5533,7 @@ var ERROR_CODES = {
   6022: "NotRestorer",
   6023: "RestorationFailed"
 };
-var TribunalCraftClient = class {
+var _TribunalCraftClient = class _TribunalCraftClient {
   constructor(config) {
     this.connection = config.connection;
     this.programId = config.programId ?? PROGRAM_ID;
@@ -3689,7 +5701,6 @@ var TribunalCraftClient = class {
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        const { code, message } = this.parseErrorFromLogs([errorMessage]);
         let logs = [];
         if (err && typeof err === "object" && "logs" in err) {
           logs = err.logs || [];
@@ -3698,13 +5709,20 @@ var TribunalCraftClient = class {
           const simResponse = err.simulationResponse;
           logs = simResponse?.logs || [];
         }
-        const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
-        const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
-        console.error(errorMsg);
-        if (logs.length > 0) {
-          console.error("Logs:", logs.slice(-10).join("\n"));
+        const programSucceeded = logs.some(
+          (log) => log.includes(`Program ${this.programId.toBase58()} success`) || log.includes("success")
+        );
+        if (programSucceeded) {
+          console.warn(`[Simulation] ${actionName} threw but program succeeded, proceeding with RPC`);
+        } else {
+          const parsedError = logs.length > 0 ? this.parseErrorFromLogs(logs) : { message: errorMessage };
+          const errorMsg = `Simulation failed for ${actionName}: ${parsedError.message}`;
+          console.error(errorMsg);
+          if (logs.length > 0) {
+            console.error("Logs:", logs.slice(-10).join("\n"));
+          }
+          throw new Error(errorMsg);
         }
-        throw new Error(errorMsg);
       }
     }
     return methodBuilder.rpc();
@@ -3733,95 +5751,87 @@ var TribunalCraftClient = class {
   // Defender Pool
   // ===========================================================================
   /**
-   * Create a defender pool with initial stake
+   * Create a defender pool with initial deposit and max bond setting
    */
-  async createPool(initialStake) {
+  async createDefenderPool(initialAmount, maxBond = new BN(0)) {
     const { wallet, program } = this.getWalletAndProgram();
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
-    const signature = await program.methods.createPool(initialStake).rpc();
+    const signature = await program.methods.createDefenderPool(initialAmount, maxBond).rpc();
     return { signature, accounts: { defenderPool } };
   }
   /**
-   * Add stake to an existing pool
+   * Deposit to defender pool
    */
-  async stakePool(amount) {
+  async depositDefenderPool(amount) {
     const { program } = this.getWalletAndProgram();
-    const signature = await program.methods.stakePool(amount).rpc();
+    const signature = await program.methods.depositDefenderPool(amount).rpc();
     return { signature };
   }
   /**
-   * Withdraw available stake from pool
+   * Withdraw from defender pool
    */
-  async withdrawPool(amount) {
+  async withdrawDefenderPool(amount) {
     const { program } = this.getWalletAndProgram();
-    const signature = await program.methods.withdrawPool(amount).rpc();
+    const signature = await program.methods.withdrawDefenderPool(amount).rpc();
     return { signature };
   }
   // ===========================================================================
   // Subject Management
   // ===========================================================================
   /**
-   * Create a subject - unified method that handles all subject types
-   *
-   * All staked subjects are linked to the creator's defender pool.
-   * Pool is auto-created by the program if it doesn't exist.
-   *
-   * Subject type is determined by params:
-   * - freeCase: true → creates free subject (no stakes, no pool)
-   * - otherwise → creates linked subject (pool auto-created if needed)
+   * Create a subject with its associated Dispute and Escrow accounts
+   * In V2, subjects are created in Dormant status and become Valid when bond is added
    */
   async createSubject(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
-    if (params.freeCase) {
-      const signature2 = await program.methods.createFreeSubject(params.subjectId, params.detailsCid, params.votingPeriod).rpc();
-      return { signature: signature2, accounts: { subject } };
-    }
-    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
-    const [defenderRecord] = this.pda.defenderRecord(subject, wallet.publicKey);
-    const createSubjectIx = await program.methods.createLinkedSubject(
-      params.subjectId,
-      params.detailsCid,
-      params.maxStake ?? new BN(0),
-      params.matchMode ?? true,
-      false,
-      // freeCase
-      params.votingPeriod
-    ).accountsPartial({
-      defenderPool
-    }).instruction();
-    if (params.stake && !params.stake.isZero()) {
-      const addStakeIx = await program.methods.addToStake(params.stake).accountsPartial({
-        subject,
-        defenderRecord,
-        dispute: null,
-        protocolConfig: null,
-        treasury: null
-      }).instruction();
-      const tx2 = new Transaction();
-      tx2.add(createSubjectIx, addStakeIx);
-      const signature2 = await program.provider.sendAndConfirm(tx2);
-      return { signature: signature2, accounts: { subject, defenderPool, defenderRecord } };
-    }
-    const tx = new Transaction().add(createSubjectIx);
-    const signature = await program.provider.sendAndConfirm(tx);
-    return { signature, accounts: { subject, defenderPool } };
+    const [dispute] = this.pda.dispute(params.subjectId);
+    const [escrow] = this.pda.escrow(params.subjectId);
+    const signature = await program.methods.createSubject(params.subjectId, params.detailsCid, params.matchMode ?? true, params.votingPeriod).rpc();
+    return { signature, accounts: { subject, dispute, escrow } };
   }
   /**
-   * Add stake to a standalone subject
-   * If subject has active dispute in proportional mode, pass dispute, protocolConfig, and treasury
-   * Fees are deducted in proportional mode during active dispute
+   * Add bond directly from wallet to a subject
+   * Creates DefenderRecord for the current round
+   * Also creates DefenderPool if it doesn't exist
    */
-  async addToStake(subject, stake, proportionalDispute) {
+  async addBondDirect(subjectId, amount) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [protocolConfig] = this.pda.protocolConfig();
-    const signature = await program.methods.addToStake(stake).accountsPartial({
-      subject,
-      dispute: proportionalDispute?.dispute ?? null,
-      protocolConfig: proportionalDispute ? protocolConfig : null,
-      treasury: proportionalDispute?.treasury ?? null
+    const subject = await this.fetchSubjectById(subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(subjectId);
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const signature = await program.methods.addBondDirect(amount).accountsPartial({
+      defender: wallet.publicKey,
+      subject: subjectPda,
+      defenderRecord,
+      defenderPool,
+      dispute: disputePda
     }).rpc();
-    return { signature };
+    return { signature, accounts: { defenderRecord } };
+  }
+  /**
+   * Add bond from defender pool to a subject
+   * Creates DefenderRecord for the current round
+   */
+  async addBondFromPool(subjectId, amount) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const subject = await this.fetchSubjectById(subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(subjectId);
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
+    const signature = await program.methods.addBondFromPool(amount).accountsPartial({
+      defender: wallet.publicKey,
+      subject: subjectPda,
+      defenderPool,
+      defenderRecord,
+      dispute: disputePda
+    }).rpc();
+    return { signature, accounts: { defenderRecord } };
   }
   // ===========================================================================
   // Juror Management
@@ -3831,9 +5841,9 @@ var TribunalCraftClient = class {
    */
   async registerJuror(stakeAmount) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
     const signature = await program.methods.registerJuror(stakeAmount).rpc();
-    return { signature, accounts: { jurorAccount } };
+    return { signature, accounts: { jurorPool } };
   }
   /**
    * Add more stake to juror account
@@ -3860,129 +5870,176 @@ var TribunalCraftClient = class {
     return { signature };
   }
   // ===========================================================================
+  // Challenger Pool Management
+  // ===========================================================================
+  /**
+   * Register as a challenger with initial stake
+   */
+  async registerChallenger(stakeAmount) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const signature = await program.methods.registerChallenger(stakeAmount).rpc();
+    return { signature, accounts: { challengerPool } };
+  }
+  /**
+   * Add more stake to challenger pool
+   */
+  async addChallengerStake(amount) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const signature = await program.methods.addChallengerStake(amount).rpc();
+    return { signature };
+  }
+  /**
+   * Withdraw available stake from challenger pool
+   */
+  async withdrawChallengerStake(amount) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const signature = await program.methods.withdrawChallengerStake(amount).rpc();
+    return { signature };
+  }
+  // ===========================================================================
   // Dispute Management
   // ===========================================================================
   /**
-   * Submit a new dispute against a subject
+   * Create a new dispute against a subject
+   * This initiates the dispute and creates a ChallengerRecord for the caller
    */
-  async submitDispute(params) {
+  async createDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
     const [challengerRecord] = this.pda.challengerRecord(
-      dispute,
-      wallet.publicKey
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
     );
-    const poolOwnerDefenderRecord = params.poolOwner ? this.pda.defenderRecord(params.subject, params.poolOwner)[0] : null;
-    const [protocolConfig] = this.pda.protocolConfig();
-    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
-    const treasury = protocolConfigAccount.treasury;
-    const methodBuilder = program.methods.submitDispute(params.disputeType, params.detailsCid, params.bond).accountsPartial({
-      subject: params.subject,
-      defenderPool: params.defenderPool ?? null,
-      poolOwnerDefenderRecord,
-      protocolConfig,
-      treasury
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const methodBuilder = program.methods.createDispute(params.disputeType, params.detailsCid, params.stake).accountsPartial({
+      challenger: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      escrow: escrowPda,
+      challengerRecord,
+      challengerPool
     });
-    const signature = await this.rpcWithSimulation(methodBuilder, "submitDispute");
-    return { signature, accounts: { dispute, challengerRecord } };
+    const signature = await this.rpcWithSimulation(methodBuilder, "createDispute");
+    return { signature, accounts: { challengerRecord } };
   }
   /**
-   * Submit a free dispute (no bond required)
+   * Join an existing dispute as additional challenger
    */
-  async submitFreeDispute(params) {
+  async joinChallengers(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
     const [challengerRecord] = this.pda.challengerRecord(
-      dispute,
-      wallet.publicKey
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
     );
-    const signature = await program.methods.submitFreeDispute(params.disputeType, params.detailsCid).accountsPartial({ subject: params.subject }).rpc();
-    return { signature, accounts: { dispute, challengerRecord } };
-  }
-  /**
-   * Add to existing dispute (additional challengers)
-   */
-  async addToDispute(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    const [challengerRecord] = this.pda.challengerRecord(
-      params.dispute,
-      wallet.publicKey
-    );
-    const poolOwnerDefenderRecord = params.poolOwner ? this.pda.defenderRecord(params.subject, params.poolOwner)[0] : null;
-    const [protocolConfig] = this.pda.protocolConfig();
-    const protocolConfigAccount = await program.account.protocolConfig.fetch(protocolConfig);
-    const treasury = protocolConfigAccount.treasury;
-    const signature = await program.methods.addToDispute(params.detailsCid, params.bond).accountsPartial({
-      subject: params.subject,
-      dispute: params.dispute,
-      defenderPool: params.defenderPool ?? null,
-      poolOwnerDefenderRecord,
-      protocolConfig,
-      treasury
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const signature = await program.methods.joinChallengers(params.detailsCid, params.stake).accountsPartial({
+      challenger: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      challengerRecord,
+      challengerPool
     }).rpc();
     return { signature, accounts: { challengerRecord } };
   }
   /**
    * Submit a restoration request against an invalidated subject
-   * Platform fee (1%) is collected upfront to treasury
+   * Fees are collected during resolution from total pool
    */
   async submitRestore(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [dispute] = this.pda.dispute(params.subject, params.disputeCount);
-    const [protocolConfig] = this.pda.protocolConfig();
-    const config = await this.fetchProtocolConfig();
-    if (!config) {
-      throw new Error("Protocol config not initialized");
-    }
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    const [challengerRecord] = this.pda.challengerRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round + 1
+    );
     const methodBuilder = program.methods.submitRestore(params.disputeType, params.detailsCid, params.stakeAmount).accountsPartial({
-      subject: params.subject,
-      protocolConfig,
-      treasury: config.treasury
+      restorer: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      escrow: escrowPda,
+      challengerRecord
     });
     const signature = await this.rpcWithSimulation(methodBuilder, "submitRestore");
-    return { signature, accounts: { dispute } };
+    return { signature, accounts: { challengerRecord } };
   }
   // ===========================================================================
   // Voting
   // ===========================================================================
   /**
    * Vote on a dispute
+   * Creates a JurorRecord for the current round
    */
   async voteOnDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
+    );
     const methodBuilder = program.methods.voteOnDispute(
       params.choice,
       params.stakeAllocation,
       params.rationaleCid ?? ""
-    ).accountsPartial({ dispute: params.dispute });
+    ).accountsPartial({
+      juror: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      jurorPool,
+      jurorRecord
+    });
     const signature = await this.rpcWithSimulation(methodBuilder, "voteOnDispute");
-    return { signature, accounts: { voteRecord } };
+    return { signature, accounts: { jurorRecord } };
   }
   /**
    * Vote on a restoration request
+   * Creates a JurorRecord for the current round
    */
   async voteOnRestore(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [voteRecord] = this.pda.voteRecord(params.dispute, wallet.publicKey);
+    const subject = await this.fetchSubjectById(params.subjectId);
+    if (!subject) throw new Error("Subject not found");
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      subject.round
+    );
     const methodBuilder = program.methods.voteOnRestore(
       params.choice,
       params.stakeAllocation,
       params.rationaleCid ?? ""
-    ).accountsPartial({ dispute: params.dispute });
+    ).accountsPartial({
+      juror: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      jurorPool,
+      jurorRecord
+    });
     const signature = await this.rpcWithSimulation(methodBuilder, "voteOnRestore");
-    return { signature, accounts: { voteRecord } };
-  }
-  /**
-   * Add more stake to an existing vote
-   */
-  async addToVote(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.addToVote(params.additionalStake).accountsPartial({
-      dispute: params.dispute,
-      subject: params.subject
-    }).rpc();
-    return { signature };
+    return { signature, accounts: { jurorRecord } };
   }
   // ===========================================================================
   // Resolution
@@ -3992,128 +6049,74 @@ var TribunalCraftClient = class {
    */
   async resolveDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    const [protocolConfigPda] = this.pda.protocolConfig();
+    const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
     const methodBuilder = program.methods.resolveDispute().accountsPartial({
-      dispute: params.dispute,
-      subject: params.subject
+      resolver: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      escrow: escrowPda,
+      protocolConfig: protocolConfigPda,
+      treasury: protocolConfig.treasury
     });
     const signature = await this.rpcWithSimulation(methodBuilder, "resolveDispute");
     return { signature };
   }
   /**
-   * Unlock juror stake after 7-day buffer
+   * Claim juror reward for a specific round
+   */
+  async claimJuror(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
+    const method = program.methods.claimJuror(params.round);
+    const signature = await this.rpcWithSimulation(method, "claimJuror", true);
+    return { signature, accounts: { jurorPool, jurorRecord } };
+  }
+  /**
+   * Unlock juror stake after 7 days post-resolution
+   * Returns the locked stake back to the juror pool
    */
   async unlockJurorStake(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const signature = await program.methods.unlockJurorStake().accountsPartial({
-      dispute: params.dispute,
-      voteRecord: params.voteRecord
-    }).rpc();
-    return { signature };
-  }
-  /**
-   * Batch unlock all ready juror stakes in a single transaction
-   */
-  async batchUnlockStake(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    if (params.unlocks.length === 0) {
-      throw new Error("No stakes to unlock");
-    }
-    const instructions = [];
-    for (const unlock of params.unlocks) {
-      const ix = await program.methods.unlockJurorStake().accountsPartial({
-        dispute: unlock.dispute,
-        voteRecord: unlock.voteRecord
-      }).instruction();
-      instructions.push(ix);
-    }
-    const tx = new Transaction().add(...instructions);
-    if (this.simulateFirst) {
-      console.log(`[SDK] Simulating batch unlock with ${instructions.length} instructions`);
-      try {
-        const { blockhash } = await this.connection.getLatestBlockhash();
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = wallet.publicKey;
-        const simulation = await this.connection.simulateTransaction(tx);
-        if (simulation.value.err) {
-          const errorMessage = this.parseErrorFromLogs(simulation.value.logs || []);
-          throw new Error(`Simulation failed: ${errorMessage.message}`);
-        }
-        console.log("[SDK] Simulation succeeded");
-      } catch (err) {
-        if (err.message.includes("Simulation failed")) {
-          throw err;
-        }
-        console.warn("[SDK] Simulation warning:", err.message);
-      }
-    }
-    const signature = await program.provider.sendAndConfirm(tx, []);
-    console.log(`[SDK] Batch unlock completed: ${instructions.length} unlocks in tx ${signature}`);
-    return { signature };
-  }
-  /**
-   * Claim juror reward (processes reputation + distributes reward)
-   * Simulates transaction first to catch errors before sending
-   */
-  async claimJurorReward(params) {
-    console.log("[SDK] claimJurorReward called");
-    const { wallet, program } = this.getWalletAndProgram();
-    const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
-    console.log("[SDK] jurorAccount:", jurorAccount.toBase58());
-    const method = program.methods.claimJurorReward().accountsPartial({
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [escrowPda] = this.pda.escrow(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
+    const method = program.methods.unlockJurorStake(params.round).accountsPartial({
       juror: wallet.publicKey,
-      jurorAccount,
-      dispute: params.dispute,
-      subject: params.subject,
-      voteRecord: params.voteRecord
+      subject: subjectPda,
+      escrow: escrowPda,
+      jurorRecord,
+      jurorPool
     });
-    console.log("[SDK] calling rpcWithSimulation for claimJurorReward");
-    const signature = await this.rpcWithSimulation(method, "claimJurorReward", true);
-    return { signature };
+    const signature = await this.rpcWithSimulation(method, "unlockJurorStake", true);
+    return { signature, accounts: { jurorPool, jurorRecord } };
   }
   /**
-   * Claim challenger reward (if dispute upheld)
-   * Simulates transaction first to catch errors before sending
+   * Claim challenger reward for a specific round (if dispute upheld)
    */
-  async claimChallengerReward(params) {
+  async claimChallenger(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
-    const method = program.methods.claimChallengerReward().accountsPartial({
-      challenger: wallet.publicKey,
-      challengerAccount,
-      dispute: params.dispute,
-      subject: params.subject,
-      challengerRecord: params.challengerRecord
-    });
-    const signature = await this.rpcWithSimulation(method, "claimChallengerReward", true);
-    return { signature };
+    const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const [challengerRecord] = this.pda.challengerRecord(params.subjectId, wallet.publicKey, params.round);
+    const method = program.methods.claimChallenger(params.round);
+    const signature = await this.rpcWithSimulation(method, "claimChallenger", true);
+    return { signature, accounts: { challengerPool, challengerRecord } };
   }
   /**
-   * Claim defender reward (if dispute dismissed)
-   * Simulates transaction first to catch errors before sending
+   * Claim defender reward for a specific round (if dispute dismissed)
    */
-  async claimDefenderReward(params) {
+  async claimDefender(params) {
     const { wallet, program } = this.getWalletAndProgram();
-    const method = program.methods.claimDefenderReward().accountsPartial({
-      defender: wallet.publicKey,
-      dispute: params.dispute,
-      subject: params.subject,
-      defenderRecord: params.defenderRecord
-    });
-    const signature = await this.rpcWithSimulation(method, "claimDefenderReward", true);
-    return { signature };
-  }
-  /**
-   * Claim restorer refund for failed restoration request
-   * Simulates transaction first to catch errors before sending
-   */
-  async claimRestorerRefund(params) {
-    const { wallet, program } = this.getWalletAndProgram();
-    const method = program.methods.claimRestorerRefund().accountsPartial({
-      restorer: wallet.publicKey,
-      dispute: params.dispute
-    });
-    const signature = await this.rpcWithSimulation(method, "claimRestorerRefund", true);
-    return { signature };
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, params.round);
+    const method = program.methods.claimDefender(params.round);
+    const signature = await this.rpcWithSimulation(method, "claimDefender", true);
+    return { signature, accounts: { defenderPool, defenderRecord } };
   }
   /**
    * Batch claim all available rewards in a single transaction
@@ -4123,38 +6126,49 @@ var TribunalCraftClient = class {
     const { wallet, program } = this.getWalletAndProgram();
     const instructions = [];
     if (params.jurorClaims && params.jurorClaims.length > 0) {
-      const [jurorAccount] = this.pda.jurorAccount(wallet.publicKey);
       for (const claim of params.jurorClaims) {
-        const ix = await program.methods.claimJurorReward().accountsPartial({
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [jurorRecord] = this.pda.jurorRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+        const ix = await program.methods.claimJuror(claim.round).accountsPartial({
           juror: wallet.publicKey,
-          jurorAccount,
-          dispute: claim.dispute,
-          subject: claim.subject,
-          voteRecord: claim.voteRecord
+          subject: subjectPda,
+          escrow: escrowPda,
+          jurorRecord,
+          jurorPool
         }).instruction();
         instructions.push(ix);
       }
     }
     if (params.challengerClaims && params.challengerClaims.length > 0) {
-      const [challengerAccount] = this.pda.challengerAccount(wallet.publicKey);
       for (const claim of params.challengerClaims) {
-        const ix = await program.methods.claimChallengerReward().accountsPartial({
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [challengerRecord] = this.pda.challengerRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+        const ix = await program.methods.claimChallenger(claim.round).accountsPartial({
           challenger: wallet.publicKey,
-          challengerAccount,
-          dispute: claim.dispute,
-          subject: claim.subject,
-          challengerRecord: claim.challengerRecord
+          subject: subjectPda,
+          escrow: escrowPda,
+          challengerRecord,
+          challengerPool
         }).instruction();
         instructions.push(ix);
       }
     }
     if (params.defenderClaims && params.defenderClaims.length > 0) {
       for (const claim of params.defenderClaims) {
-        const ix = await program.methods.claimDefenderReward().accountsPartial({
+        const [subjectPda] = this.pda.subject(claim.subjectId);
+        const [escrowPda] = this.pda.escrow(claim.subjectId);
+        const [defenderRecord] = this.pda.defenderRecord(claim.subjectId, wallet.publicKey, claim.round);
+        const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+        const ix = await program.methods.claimDefender(claim.round).accountsPartial({
           defender: wallet.publicKey,
-          dispute: claim.dispute,
-          subject: claim.subject,
-          defenderRecord: claim.defenderRecord
+          subject: subjectPda,
+          escrow: escrowPda,
+          defenderRecord,
+          defenderPool
         }).instruction();
         instructions.push(ix);
       }
@@ -4186,7 +6200,102 @@ var TribunalCraftClient = class {
     console.log(`[SDK] Batch claim completed: ${instructions.length} claims in tx ${signature}`);
     return { signature };
   }
-  // NOTE: closeEscrow removed - no escrow in simplified model
+  // ===========================================================================
+  // Cleanup Instructions (close records to reclaim rent)
+  // ===========================================================================
+  /**
+   * Close juror record and reclaim rent (after reward claimed)
+   */
+  async closeJurorRecord(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [jurorRecord] = this.pda.jurorRecord(params.subjectId, wallet.publicKey, params.round);
+    const signature = await program.methods.closeJurorRecord(params.round).rpc();
+    return { signature };
+  }
+  /**
+   * Close challenger record and reclaim rent (after reward claimed)
+   */
+  async closeChallengerRecord(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [challengerRecord] = this.pda.challengerRecord(params.subjectId, wallet.publicKey, params.round);
+    const signature = await program.methods.closeChallengerRecord(params.round).rpc();
+    return { signature };
+  }
+  /**
+   * Close defender record and reclaim rent (after reward claimed)
+   */
+  async closeDefenderRecord(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, params.round);
+    const signature = await program.methods.closeDefenderRecord(params.round).rpc();
+    return { signature };
+  }
+  /**
+   * Batch close multiple records in a single transaction.
+   * Useful for reclaiming rent after claiming rewards.
+   */
+  async batchCloseRecords(records) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const instructions = [];
+    for (const record of records) {
+      const [subjectPda] = this.pda.subject(record.subjectId);
+      const [escrowPda] = this.pda.escrow(record.subjectId);
+      switch (record.type) {
+        case "juror": {
+          const [jurorRecord] = this.pda.jurorRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods.closeJurorRecord(record.round).accountsPartial({
+            juror: wallet.publicKey,
+            subject: subjectPda,
+            escrow: escrowPda,
+            jurorRecord
+          }).instruction();
+          instructions.push(ix);
+          break;
+        }
+        case "challenger": {
+          const [challengerRecord] = this.pda.challengerRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods.closeChallengerRecord(record.round).accountsPartial({
+            challenger: wallet.publicKey,
+            subject: subjectPda,
+            escrow: escrowPda,
+            challengerRecord
+          }).instruction();
+          instructions.push(ix);
+          break;
+        }
+        case "defender": {
+          const [defenderRecord] = this.pda.defenderRecord(
+            record.subjectId,
+            wallet.publicKey,
+            record.round
+          );
+          const ix = await program.methods.closeDefenderRecord(record.round).accountsPartial({
+            defender: wallet.publicKey,
+            subject: subjectPda,
+            escrow: escrowPda,
+            defenderRecord
+          }).instruction();
+          instructions.push(ix);
+          break;
+        }
+      }
+    }
+    if (instructions.length === 0) {
+      throw new Error("No valid records to close");
+    }
+    const tx = new Transaction().add(...instructions);
+    const signature = await program.provider.sendAndConfirm(tx, []);
+    console.log(`[SDK] Batch close completed: ${instructions.length} records in tx ${signature}`);
+    return { signature, closedCount: instructions.length };
+  }
   // ===========================================================================
   // Account Fetchers
   // ===========================================================================
@@ -4211,7 +6320,10 @@ var TribunalCraftClient = class {
       return await this.anchorProgram.account.defenderPool.fetch(
         address
       );
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && !err.message.includes("Account does not exist")) {
+        console.error("[SDK] fetchDefenderPool error:", err.message);
+      }
       return null;
     }
   }
@@ -4255,11 +6367,11 @@ var TribunalCraftClient = class {
   }
   // NOTE: fetchEscrow removed - no escrow in simplified model
   /**
-   * Fetch juror account by address
+   * Fetch juror pool by address
    */
-  async fetchJurorAccount(address) {
+  async fetchJurorPool(address) {
     try {
-      return await this.anchorProgram.account.jurorAccount.fetch(
+      return await this.anchorProgram.account.jurorPool.fetch(
         address
       );
     } catch {
@@ -4267,18 +6379,18 @@ var TribunalCraftClient = class {
     }
   }
   /**
-   * Fetch juror account by juror pubkey
+   * Fetch juror pool by owner pubkey
    */
-  async fetchJurorByPubkey(juror) {
-    const [address] = this.pda.jurorAccount(juror);
-    return this.fetchJurorAccount(address);
+  async fetchJurorPoolByOwner(owner) {
+    const [address] = this.pda.jurorPool(owner);
+    return this.fetchJurorPool(address);
   }
   /**
-   * Fetch vote record
+   * Fetch escrow by address
    */
-  async fetchVoteRecord(address) {
+  async fetchEscrow(address) {
     try {
-      return await this.anchorProgram.account.voteRecord.fetch(
+      return await this.anchorProgram.account.escrow.fetch(
         address
       );
     } catch {
@@ -4286,18 +6398,18 @@ var TribunalCraftClient = class {
     }
   }
   /**
-   * Fetch vote record for a dispute and juror
+   * Fetch escrow by subject ID
    */
-  async fetchVoteRecordByDisputeAndJuror(dispute, juror) {
-    const [address] = this.pda.voteRecord(dispute, juror);
-    return this.fetchVoteRecord(address);
+  async fetchEscrowBySubjectId(subjectId) {
+    const [address] = this.pda.escrow(subjectId);
+    return this.fetchEscrow(address);
   }
   /**
-   * Fetch challenger account
+   * Fetch juror record by address
    */
-  async fetchChallengerAccount(address) {
+  async fetchJurorRecord(address) {
     try {
-      return await this.anchorProgram.account.challengerAccount.fetch(
+      return await this.anchorProgram.account.jurorRecord.fetch(
         address
       );
     } catch {
@@ -4305,7 +6417,33 @@ var TribunalCraftClient = class {
     }
   }
   /**
-   * Fetch challenger record
+   * Fetch juror record for a subject, juror, and round
+   */
+  async fetchJurorRecordBySubjectAndJuror(subjectId, juror, round) {
+    const [address] = this.pda.jurorRecord(subjectId, juror, round);
+    return this.fetchJurorRecord(address);
+  }
+  /**
+   * Fetch challenger pool by address
+   */
+  async fetchChallengerPool(address) {
+    try {
+      return await this.anchorProgram.account.challengerPool.fetch(
+        address
+      );
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Fetch challenger pool by owner pubkey
+   */
+  async fetchChallengerPoolByOwner(owner) {
+    const [address] = this.pda.challengerPool(owner);
+    return this.fetchChallengerPool(address);
+  }
+  /**
+   * Fetch challenger record by address
    */
   async fetchChallengerRecord(address) {
     try {
@@ -4317,7 +6455,14 @@ var TribunalCraftClient = class {
     }
   }
   /**
-   * Fetch defender record
+   * Fetch challenger record by subject, challenger, and round
+   */
+  async fetchChallengerRecordBySubject(subjectId, challenger, round) {
+    const [address] = this.pda.challengerRecord(subjectId, challenger, round);
+    return this.fetchChallengerRecord(address);
+  }
+  /**
+   * Fetch defender record by address
    */
   async fetchDefenderRecord(address) {
     try {
@@ -4327,6 +6472,13 @@ var TribunalCraftClient = class {
     } catch {
       return null;
     }
+  }
+  /**
+   * Fetch defender record by subject, defender, and round
+   */
+  async fetchDefenderRecordBySubject(subjectId, defender, round) {
+    const [address] = this.pda.defenderRecord(subjectId, defender, round);
+    return this.fetchDefenderRecord(address);
   }
   // ===========================================================================
   // Bulk Fetchers
@@ -4346,82 +6498,798 @@ var TribunalCraftClient = class {
     return accounts;
   }
   /**
-   * Fetch all disputes (with error handling for old account formats)
-   * Uses individual fetching to handle incompatible old disputes gracefully
+   * Fetch all disputes (V2: one dispute per subject)
    */
   async fetchAllDisputes() {
-    const subjects = await this.fetchAllSubjects();
-    const disputes = [];
-    for (const subject of subjects) {
-      const disputeCount = subject.account.disputeCount;
-      for (let i = 0; i < disputeCount; i++) {
+    const accounts = await this.anchorProgram.account.dispute.all();
+    return accounts;
+  }
+  /**
+   * Fetch all juror pools
+   */
+  async fetchAllJurorPools() {
+    const accounts = await this.anchorProgram.account.jurorPool.all();
+    return accounts;
+  }
+  /**
+   * Fetch all challenger pools
+   */
+  async fetchAllChallengerPools() {
+    const accounts = await this.anchorProgram.account.challengerPool.all();
+    return accounts;
+  }
+  /**
+   * Fetch all escrows
+   */
+  async fetchAllEscrows() {
+    const accounts = await this.anchorProgram.account.escrow.all();
+    return accounts;
+  }
+  /**
+   * Fetch all juror records
+   * Note: Uses raw account fetching to handle old accounts missing new fields
+   */
+  async fetchAllJurorRecords() {
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all();
+      return accounts;
+    } catch (err) {
+      console.warn("[fetchAllJurorRecords] Bulk fetch failed, trying individual fetch:", err);
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } }
+        ]
+      });
+      const validAccounts = [];
+      for (const { pubkey, account } of gpaResult) {
         try {
-          const [disputePda] = this.pda.dispute(subject.publicKey, i);
-          const accountInfo = await this.connection.getAccountInfo(disputePda);
-          if (!accountInfo) continue;
-          try {
-            const dispute = await this.anchorProgram.account.dispute.fetch(disputePda);
-            if (dispute) {
-              disputes.push({ publicKey: disputePda, account: dispute });
-            }
-          } catch (deserializeErr) {
-            console.warn(`Dispute ${i} for subject ${subject.publicKey.toBase58()} has incompatible format, skipping`);
-          }
-        } catch (err) {
-          console.warn(`Failed to fetch dispute ${i} for subject ${subject.publicKey.toBase58()}:`, err);
+          const decoded = this.anchorProgram.coder.accounts.decode(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          console.warn(`[fetchAllJurorRecords] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
         }
       }
+      return validAccounts;
     }
-    console.log(`Fetched ${disputes.length} disputes from ${subjects.length} subjects`);
-    return disputes;
   }
   /**
-   * Fetch all juror accounts
+   * Fetch all challenger records
    */
-  async fetchAllJurors() {
-    const accounts = await this.anchorProgram.account.jurorAccount.all();
+  async fetchAllChallengerRecords() {
+    const accounts = await this.anchorProgram.account.challengerRecord.all();
     return accounts;
   }
   /**
-   * Fetch disputes by subject
+   * Fetch all defender records
    */
-  async fetchDisputesBySubject(subject) {
-    const accounts = await this.anchorProgram.account.dispute.all([
-      { memcmp: { offset: 8, bytes: subject.toBase58() } }
-    ]);
+  async fetchAllDefenderRecords() {
+    const accounts = await this.anchorProgram.account.defenderRecord.all();
     return accounts;
   }
   /**
-   * Fetch votes by dispute
+   * Fetch dispute by subject ID
    */
-  async fetchVotesByDispute(dispute) {
-    const accounts = await this.anchorProgram.account.voteRecord.all([
-      { memcmp: { offset: 8, bytes: dispute.toBase58() } }
-    ]);
-    return accounts;
+  async fetchDisputeBySubjectId(subjectId) {
+    const [address] = this.pda.dispute(subjectId);
+    return this.fetchDispute(address);
   }
   /**
-   * Fetch challengers by dispute
+   * Fetch juror records by subject
+   * Note: Uses raw account fetching to handle old accounts missing new fields
    */
-  async fetchChallengersByDispute(dispute) {
+  async fetchJurorRecordsBySubject(subjectId) {
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all([
+        { memcmp: { offset: 8, bytes: subjectId.toBase58() } }
+      ]);
+      return accounts;
+    } catch (err) {
+      console.warn("[fetchJurorRecordsBySubject] Bulk fetch failed, trying individual fetch:", err);
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } },
+          { memcmp: { offset: 8, bytes: subjectId.toBase58() } }
+        ]
+      });
+      const validAccounts = [];
+      for (const { pubkey, account } of gpaResult) {
+        try {
+          const decoded = this.anchorProgram.coder.accounts.decode(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          console.warn(`[fetchJurorRecordsBySubject] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
+        }
+      }
+      return validAccounts;
+    }
+  }
+  /**
+   * Fetch challengers by subject
+   */
+  async fetchChallengersBySubject(subjectId) {
     const accounts = await this.anchorProgram.account.challengerRecord.all([
-      { memcmp: { offset: 8, bytes: dispute.toBase58() } }
+      { memcmp: { offset: 8, bytes: subjectId.toBase58() } }
     ]);
     return accounts;
+  }
+  /**
+   * Fetch defenders by subject
+   */
+  async fetchDefendersBySubject(subjectId) {
+    const accounts = await this.anchorProgram.account.defenderRecord.all([
+      { memcmp: { offset: 8, bytes: subjectId.toBase58() } }
+    ]);
+    return accounts;
+  }
+  /**
+   * Fetch challenger records by subject (alias for fetchChallengersBySubject)
+   */
+  async fetchChallengerRecordsBySubject(subjectId) {
+    return this.fetchChallengersBySubject(subjectId);
+  }
+  /**
+   * Fetch defender records by subject (alias for fetchDefendersBySubject)
+   */
+  async fetchDefenderRecordsBySubject(subjectId) {
+    return this.fetchDefendersBySubject(subjectId);
+  }
+  // ===========================================================================
+  // User Record Fetchers (for Collect All)
+  // ===========================================================================
+  /**
+   * Fetch all juror records for a juror
+   * Note: Uses raw account fetching to handle old accounts missing new fields
+   */
+  async fetchJurorRecordsByJuror(juror) {
+    try {
+      const accounts = await this.anchorProgram.account.jurorRecord.all([
+        { memcmp: { offset: 40, bytes: juror.toBase58() } }
+      ]);
+      return accounts;
+    } catch (err) {
+      console.warn("[fetchJurorRecordsByJuror] Bulk fetch failed, trying individual fetch:", err);
+      const gpaResult = await this.connection.getProgramAccounts(this.programId, {
+        filters: [
+          { memcmp: { offset: 0, bytes: this.anchorProgram.account.jurorRecord.coder.accounts.memcmp("JurorRecord") } },
+          { memcmp: { offset: 40, bytes: juror.toBase58() } }
+        ]
+      });
+      const validAccounts = [];
+      for (const { pubkey, account } of gpaResult) {
+        try {
+          const decoded = this.anchorProgram.coder.accounts.decode(
+            "JurorRecord",
+            account.data
+          );
+          validAccounts.push({ publicKey: pubkey, account: decoded });
+        } catch (decodeErr) {
+          console.warn(`[fetchJurorRecordsByJuror] Skipping account ${pubkey.toBase58()}: ${decodeErr}`);
+        }
+      }
+      return validAccounts;
+    }
+  }
+  /**
+   * Fetch all challenger records for a challenger
+   */
+  async fetchChallengerRecordsByChallenger(challenger) {
+    const accounts = await this.anchorProgram.account.challengerRecord.all([
+      { memcmp: { offset: 40, bytes: challenger.toBase58() } }
+    ]);
+    return accounts;
+  }
+  /**
+   * Fetch all defender records for a defender
+   */
+  async fetchDefenderRecordsByDefender(defender) {
+    const accounts = await this.anchorProgram.account.defenderRecord.all([
+      { memcmp: { offset: 40, bytes: defender.toBase58() } }
+    ]);
+    return accounts;
+  }
+  // ===========================================================================
+  // Collect All - Batch claim, unlock, and close (V2)
+  // ===========================================================================
+  /**
+   * Scan all user records and return what's eligible for collection
+   * TODO: Implement for V2 round-based design
+   */
+  async scanCollectableRecords() {
+    const { wallet } = this.getWalletAndProgram();
+    const user = wallet.publicKey;
+    const [jurorRecords, challengerRecords, defenderRecords] = await Promise.all([
+      this.fetchJurorRecordsByJuror(user),
+      this.fetchChallengerRecordsByChallenger(user),
+      this.fetchDefenderRecordsByDefender(user)
+    ]);
+    console.log("[scanCollectableRecords] Found records:", {
+      jurorRecords: jurorRecords.length,
+      challengerRecords: challengerRecords.length,
+      defenderRecords: defenderRecords.length
+    });
+    const claims = {
+      juror: [],
+      challenger: [],
+      defender: []
+    };
+    const closes = {
+      juror: [],
+      challenger: [],
+      defender: []
+    };
+    let estimatedRewards = 0;
+    let estimatedRent = 0;
+    const RENT_PER_RECORD = 2e-3 * 1e9;
+    for (const jr of jurorRecords) {
+      if (!jr.account.rewardClaimed) {
+        claims.juror.push({
+          subjectId: jr.account.subjectId,
+          round: jr.account.round,
+          jurorRecord: jr.publicKey
+        });
+        estimatedRewards += 1e-3 * 1e9;
+      } else {
+        closes.juror.push({
+          subjectId: jr.account.subjectId,
+          round: jr.account.round
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+    for (const cr of challengerRecords) {
+      if (!cr.account.rewardClaimed) {
+        claims.challenger.push({
+          subjectId: cr.account.subjectId,
+          round: cr.account.round,
+          challengerRecord: cr.publicKey
+        });
+        estimatedRewards += 1e-3 * 1e9;
+      } else {
+        closes.challenger.push({
+          subjectId: cr.account.subjectId,
+          round: cr.account.round
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+    for (const dr of defenderRecords) {
+      if (!dr.account.rewardClaimed) {
+        claims.defender.push({
+          subjectId: dr.account.subjectId,
+          round: dr.account.round,
+          defenderRecord: dr.publicKey
+        });
+        estimatedRewards += 1e-3 * 1e9;
+      } else {
+        closes.defender.push({
+          subjectId: dr.account.subjectId,
+          round: dr.account.round
+        });
+        estimatedRent += RENT_PER_RECORD;
+      }
+    }
+    return {
+      claims,
+      closes,
+      totals: {
+        estimatedRewards,
+        estimatedRent
+      }
+    };
+  }
+  /**
+   * Execute collect all - claims rewards and closes records
+   * TODO: Implement for V2 round-based design with claim instructions
+   */
+  async collectAll() {
+    console.warn("[collectAll] V2 implementation pending");
+    return {
+      signatures: [],
+      summary: { claimCount: 0, closeCount: 0 }
+    };
+  }
+  /**
+   * Fetch transaction history for a user and parse TribunalCraft activity
+   * This allows showing historical activity even for closed records
+   */
+  async fetchUserActivity(user, options) {
+    const activities = [];
+    try {
+      const signatures = await this.connection.getSignaturesForAddress(
+        user,
+        {
+          limit: options?.limit || 100,
+          before: options?.before
+        }
+      );
+      for (const sigInfo of signatures) {
+        if (sigInfo.err) continue;
+        try {
+          const tx = await this.connection.getParsedTransaction(sigInfo.signature, {
+            maxSupportedTransactionVersion: 0
+          });
+          if (!tx || !tx.meta) continue;
+          const programInvoked = tx.transaction.message.accountKeys.some(
+            (key) => key.pubkey.equals(this.programId)
+          );
+          if (!programInvoked) continue;
+          const logs = tx.meta.logMessages || [];
+          const activity = this.parseActivityFromLogs(logs, sigInfo.signature, tx, user);
+          if (activity) {
+            activities.push({
+              ...activity,
+              timestamp: sigInfo.blockTime || 0,
+              slot: sigInfo.slot,
+              success: true
+            });
+          }
+        } catch (err) {
+          console.warn(`[fetchUserActivity] Failed to parse tx ${sigInfo.signature}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[fetchUserActivity] Failed to fetch signatures:", err);
+    }
+    return activities;
+  }
+  /**
+   * Parse activity type from transaction logs and Anchor events
+   */
+  parseActivityFromLogs(logs, signature, tx, userPubkey) {
+    const hasProgram = logs.some((log) => log.includes(this.programId.toBase58()));
+    if (!hasProgram) return null;
+    const eventData = this.parseAnchorEventsFromLogs(logs, userPubkey);
+    if (eventData) {
+      return { signature, ...eventData };
+    }
+    const { dispute, subject } = this.extractAccountsFromTx(tx);
+    const { received, sent, rentReclaimed } = this.extractBalanceChanges(tx, userPubkey);
+    const voteDetails = this.extractVoteDetailsFromTx(tx);
+    const outcome = this.inferOutcomeFromLogs(logs);
+    for (const log of logs) {
+      if (log.includes("Instruction: VoteOnDispute")) {
+        return {
+          type: "vote",
+          signature,
+          dispute,
+          amount: sent,
+          voteChoice: voteDetails?.choice,
+          rationaleCid: voteDetails?.rationaleCid
+        };
+      }
+      if (log.includes("Instruction: VoteOnRestore")) {
+        return {
+          type: "vote_restore",
+          signature,
+          dispute,
+          amount: sent,
+          voteChoice: voteDetails?.choice,
+          rationaleCid: voteDetails?.rationaleCid
+        };
+      }
+      if (log.includes("Instruction: SubmitDispute")) {
+        return { type: "challenge", signature, dispute, amount: sent };
+      }
+      if (log.includes("Instruction: AddToDispute")) {
+        return { type: "add_challenge", signature, dispute, amount: sent };
+      }
+      if (log.includes("Instruction: AddToStake")) {
+        return { type: "defend", signature, subject, amount: sent };
+      }
+      if (log.includes("Instruction: CreateLinkedSubject")) {
+        return { type: "create_subject", signature, subject };
+      }
+      if (log.includes("Instruction: ClaimJurorReward")) {
+        return { type: "claim_juror", signature, dispute, amount: received, outcome };
+      }
+      if (log.includes("Instruction: ClaimChallengerReward")) {
+        return { type: "claim_challenger", signature, dispute, amount: received, outcome: "ChallengerWins" };
+      }
+      if (log.includes("Instruction: ClaimDefenderReward")) {
+        return { type: "claim_defender", signature, dispute, amount: received, outcome: "DefenderWins" };
+      }
+      if (log.includes("Instruction: CloseVoteRecord")) {
+        return { type: "close_vote", signature, dispute, rentReclaimed };
+      }
+      if (log.includes("Instruction: CloseChallengerRecord")) {
+        return { type: "close_challenger", signature, dispute, rentReclaimed };
+      }
+      if (log.includes("Instruction: CloseDefenderRecord")) {
+        return { type: "close_defender", signature, subject, rentReclaimed };
+      }
+      if (log.includes("Instruction: UnlockJurorStake")) {
+        return { type: "unlock_stake", signature, dispute };
+      }
+      if (log.includes("Instruction: ResolveDispute")) {
+        return { type: "resolve", signature, dispute, outcome };
+      }
+    }
+    return null;
+  }
+  /**
+   * Parse Anchor events from "Program data:" logs
+   * Events contain reliable dispute/subject keys and amounts
+   * Uses browser-compatible methods (no Node.js Buffer methods)
+   */
+  parseAnchorEventsFromLogs(logs, userPubkey) {
+    const base64ToBytes = (base64) => {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    };
+    const bytesToHex = (bytes) => {
+      return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    };
+    const readU64LE = (data, offset) => {
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      const lo = view.getUint32(offset, true);
+      const hi = view.getUint32(offset + 4, true);
+      return lo + hi * 4294967296;
+    };
+    const readU32LE = (data, offset) => {
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      return view.getUint32(offset, true);
+    };
+    const bytesToUtf8 = (bytes) => {
+      return new TextDecoder().decode(bytes);
+    };
+    try {
+      for (const log of logs) {
+        if (!log.startsWith("Program data: ")) continue;
+        const base64Data = log.slice("Program data: ".length);
+        const data = base64ToBytes(base64Data);
+        if (data.length < 8) continue;
+        const discriminator = bytesToHex(data.slice(0, 8));
+        if (this.matchesEventName(discriminator, "VoteEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const juror = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (juror !== userPubkey.toBase58()) continue;
+          const choiceByte = data[72];
+          const voteChoice = choiceByte === 0 ? "ForChallenger" : "ForDefender";
+          const stakeAllocated = readU64LE(data, 73);
+          let rationaleCid;
+          if (data.length > 89) {
+            const cidLength = readU32LE(data, 89);
+            if (cidLength > 0 && cidLength < 200 && data.length >= 93 + cidLength) {
+              rationaleCid = bytesToUtf8(data.slice(93, 93 + cidLength));
+            }
+          }
+          return {
+            type: "vote",
+            dispute,
+            amount: stakeAllocated,
+            voteChoice,
+            rationaleCid
+          };
+        }
+        if (this.matchesEventName(discriminator, "RestoreVoteEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const juror = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (juror !== userPubkey.toBase58()) continue;
+          const choiceByte = data[72];
+          const voteChoice = choiceByte === 0 ? "ForRestoration" : "AgainstRestoration";
+          const stakeAllocated = readU64LE(data, 73);
+          return {
+            type: "vote_restore",
+            dispute,
+            amount: stakeAllocated,
+            voteChoice
+          };
+        }
+        if (this.matchesEventName(discriminator, "DisputeCreatedEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const subject = new PublicKey3(data.slice(40, 72)).toBase58();
+          const challenger = new PublicKey3(data.slice(72, 104)).toBase58();
+          if (challenger !== userPubkey.toBase58()) continue;
+          let offset = 104;
+          offset += 1;
+          const cidLength = readU32LE(data, offset);
+          offset += 4 + cidLength;
+          const bond = readU64LE(data, offset);
+          return {
+            type: "challenge",
+            dispute,
+            subject,
+            amount: bond
+          };
+        }
+        if (this.matchesEventName(discriminator, "ChallengerJoinedEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const challenger = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (challenger !== userPubkey.toBase58()) continue;
+          const bond = readU64LE(data, 72);
+          return {
+            type: "add_challenge",
+            dispute,
+            amount: bond
+          };
+        }
+        if (this.matchesEventName(discriminator, "RewardClaimedEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const recipient = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (recipient !== userPubkey.toBase58()) continue;
+          const rewardType = data[72];
+          const amount = readU64LE(data, 73);
+          const typeMap = {
+            0: "claim_juror",
+            1: "claim_challenger",
+            2: "claim_defender",
+            3: "claim_restorer"
+          };
+          return {
+            type: typeMap[rewardType] || "claim_unknown",
+            dispute,
+            amount
+          };
+        }
+        if (this.matchesEventName(discriminator, "RecordClosedEvent")) {
+          const dispute = new PublicKey3(data.slice(8, 40)).toBase58();
+          const recordOwner = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (recordOwner !== userPubkey.toBase58()) continue;
+          const recordType = data[72];
+          const rentReturned = readU64LE(data, 73);
+          const typeMap = {
+            0: "close_vote",
+            1: "close_challenger",
+            2: "close_defender"
+          };
+          return {
+            type: typeMap[recordType] || "close_unknown",
+            dispute,
+            rentReclaimed: rentReturned
+          };
+        }
+        if (this.matchesEventName(discriminator, "DefenderStakedEvent")) {
+          const subject = new PublicKey3(data.slice(8, 40)).toBase58();
+          const defender = new PublicKey3(data.slice(40, 72)).toBase58();
+          if (defender !== userPubkey.toBase58()) continue;
+          const stakeAmount = readU64LE(data, 72);
+          return {
+            type: "defend",
+            subject,
+            amount: stakeAmount
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("[parseAnchorEventsFromLogs] Error parsing events:", err);
+    }
+    return null;
+  }
+  /**
+   * Check if a discriminator matches an event name
+   * Uses pre-computed EVENT_DISCRIMINATORS to avoid crypto dependency
+   */
+  matchesEventName(discriminator, eventName) {
+    const expected = _TribunalCraftClient.EVENT_DISCRIMINATORS[eventName];
+    return expected ? discriminator === expected : false;
+  }
+  /**
+   * Extract vote choice and rationale from instruction data
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractVoteDetailsFromTx(tx) {
+    try {
+      const instructions = tx.transaction.message.instructions;
+      for (const ix of instructions) {
+        const programId = tx.transaction.message.accountKeys[ix.programIdIndex];
+        const programKey = programId?.pubkey?.toBase58?.() || programId?.toBase58?.();
+        if (programKey !== this.programId.toBase58()) continue;
+        const data = Buffer.from(ix.data, "base64");
+        if (data.length < 9) continue;
+        const discriminator = data.slice(0, 8).toString("hex");
+        if (discriminator === "07d560abfc3b3717") {
+          const choiceByte = data[8];
+          const choice = choiceByte === 0 ? "ForChallenger" : "ForDefender";
+          if (data.length > 17) {
+            const cidLength = data.readUInt32LE(17);
+            if (cidLength > 0 && cidLength < 100 && data.length >= 21 + cidLength) {
+              const rationaleCid = data.slice(21, 21 + cidLength).toString("utf8");
+              return { choice, rationaleCid };
+            }
+          }
+          return { choice };
+        }
+        if (discriminator === "7a7b5cf0fbcdbd20") {
+          const choiceByte = data[8];
+          const choice = choiceByte === 0 ? "ForRestoration" : "AgainstRestoration";
+          if (data.length > 17) {
+            const cidLength = data.readUInt32LE(17);
+            if (cidLength > 0 && cidLength < 100 && data.length >= 21 + cidLength) {
+              const rationaleCid = data.slice(21, 21 + cidLength).toString("utf8");
+              return { choice, rationaleCid };
+            }
+          }
+          return { choice };
+        }
+      }
+    } catch (err) {
+    }
+    return null;
+  }
+  /**
+   * Try to infer dispute outcome from transaction logs
+   */
+  inferOutcomeFromLogs(logs) {
+    for (const log of logs) {
+      if (log.includes("ChallengerWins") || log.includes("challenger wins") || log.includes("challenger_wins")) {
+        return "ChallengerWins";
+      }
+      if (log.includes("DefenderWins") || log.includes("defender wins") || log.includes("defender_wins")) {
+        return "DefenderWins";
+      }
+      if (log.includes("NoParticipation") || log.includes("no participation") || log.includes("no_participation")) {
+        return "NoParticipation";
+      }
+    }
+    return void 0;
+  }
+  /**
+   * Extract dispute and subject pubkeys from transaction accounts
+   *
+   * Account layout for most TribunalCraft instructions:
+   * [0] signer (user)
+   * [1] user's main account (juror_account, challenger_account, etc.)
+   * [2] dispute PDA
+   * [3] record PDA (vote_record, challenger_record, etc.)
+   * [4] subject PDA
+   * [5+] other accounts (system_program, etc.)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractAccountsFromTx(tx) {
+    try {
+      const accounts = tx.transaction.message.accountKeys;
+      const result = {};
+      const systemAccounts = /* @__PURE__ */ new Set([
+        "11111111111111111111111111111111",
+        // System Program
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        // Token Program
+        "SysvarRent111111111111111111111111111111111",
+        // Rent Sysvar
+        "SysvarC1ock11111111111111111111111111111111",
+        // Clock Sysvar
+        this.programId.toBase58()
+      ]);
+      const writableAccounts = [];
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+        if (!key) continue;
+        if (systemAccounts.has(key)) continue;
+        if (acc.signer) continue;
+        const preBalance = tx.meta?.preBalances?.[i] || 0;
+        const postBalance = tx.meta?.postBalances?.[i] || 0;
+        if (preBalance !== postBalance || acc.writable) {
+          writableAccounts.push(key);
+        }
+      }
+      if (writableAccounts.length >= 2) {
+        result.dispute = writableAccounts[1];
+      }
+      if (writableAccounts.length >= 4) {
+        result.subject = writableAccounts[3];
+      }
+      if (!result.dispute) {
+        const nonSystemAccounts = [];
+        for (let i = 0; i < accounts.length; i++) {
+          const acc = accounts[i];
+          const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+          if (!key) continue;
+          if (systemAccounts.has(key)) continue;
+          if (acc.signer) continue;
+          nonSystemAccounts.push(key);
+        }
+        if (nonSystemAccounts.length >= 2) {
+          result.dispute = nonSystemAccounts[1];
+        }
+        if (nonSystemAccounts.length >= 4) {
+          result.subject = nonSystemAccounts[3];
+        }
+      }
+      return result;
+    } catch {
+      return {};
+    }
+  }
+  /**
+   * Extract balance changes for the user from transaction
+   */
+  extractBalanceChanges(tx, userPubkey) {
+    try {
+      const accounts = tx.transaction.message.accountKeys;
+      const preBalances = tx.meta?.preBalances || [];
+      const postBalances = tx.meta?.postBalances || [];
+      let received = 0;
+      let sent = 0;
+      let rentReclaimed = 0;
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        const key = acc.pubkey?.toBase58?.() || acc.toBase58?.();
+        if (key === userPubkey.toBase58()) {
+          const pre = preBalances[i] || 0;
+          const post = postBalances[i] || 0;
+          const diff = post - pre;
+          if (diff > 0) {
+            received = diff;
+          } else if (diff < 0) {
+            sent = Math.abs(diff);
+          }
+          break;
+        }
+      }
+      for (let i = 0; i < accounts.length; i++) {
+        const pre = preBalances[i] || 0;
+        const post = postBalances[i] || 0;
+        if (pre > 0 && post === 0) {
+          rentReclaimed += pre;
+        }
+      }
+      return { received, sent, rentReclaimed };
+    } catch {
+      return { received: 0, sent: 0, rentReclaimed: 0 };
+    }
   }
 };
+// ===========================================================================
+// Transaction History (for closed records)
+// ===========================================================================
+/**
+ * Activity types that can be parsed from transaction history
+ */
+_TribunalCraftClient.ACTIVITY_TYPES = {
+  VOTE: "vote",
+  CHALLENGE: "challenge",
+  DEFEND: "defend",
+  CLAIM_JUROR: "claim_juror",
+  CLAIM_CHALLENGER: "claim_challenger",
+  CLAIM_DEFENDER: "claim_defender",
+  CLOSE_VOTE: "close_vote",
+  CLOSE_CHALLENGER: "close_challenger",
+  CLOSE_DEFENDER: "close_defender",
+  UNLOCK_STAKE: "unlock_stake"
+};
+/**
+ * Instruction discriminators (first 8 bytes of sha256("global:<instruction_name>"))
+ */
+_TribunalCraftClient.INSTRUCTION_DISCRIMINATORS = {
+  vote_on_dispute: "07d560abfc3b3717",
+  vote_on_restore: "7a7b5cf0fbcdbd20",
+  submit_dispute: "d40f5c9c6f3c6d3c",
+  // Will need to verify
+  resolve_dispute: "e706ca0660670ce6"
+};
+// Pre-computed event discriminators: sha256("event:<EventName>")[0..8]
+// These are constants and don't change, so we avoid runtime crypto usage
+_TribunalCraftClient.EVENT_DISCRIMINATORS = {
+  VoteEvent: "c347fa697877ea86",
+  RestoreVoteEvent: "36daf12c5af7d2ee",
+  DisputeCreatedEvent: "59a2309e1e7491f7",
+  ChallengerJoinedEvent: "a35f6083ed61e523",
+  RewardClaimedEvent: "f62bd7e45231e638",
+  RecordClosedEvent: "7fc441d571b25037",
+  DefenderStakedEvent: "03ba63387dd7d992"
+};
+var TribunalCraftClient = _TribunalCraftClient;
 
 // src/types.ts
-import { PublicKey as PublicKey4 } from "@solana/web3.js";
-import { BN as BN2 } from "@coral-xyz/anchor";
 var SubjectStatusEnum = {
   Valid: { valid: {} },
   Disputed: { disputed: {} },
   Invalid: { invalid: {} },
-  Dormant: { dormant: {} },
   Restoring: { restoring: {} }
 };
 var DisputeStatusEnum = {
+  None: { none: {} },
   Pending: { pending: {} },
   Resolved: { resolved: {} }
 };
@@ -4449,6 +7317,10 @@ var RestoreVoteChoiceEnum = {
   ForRestoration: { forRestoration: {} },
   AgainstRestoration: { againstRestoration: {} }
 };
+var BondSourceEnum = {
+  Direct: { direct: {} },
+  Pool: { pool: {} }
+};
 function isSubjectValid(status) {
   return "valid" in status;
 }
@@ -4458,11 +7330,11 @@ function isSubjectDisputed(status) {
 function isSubjectInvalid(status) {
   return "invalid" in status;
 }
-function isSubjectDormant(status) {
-  return "dormant" in status;
-}
 function isSubjectRestoring(status) {
   return "restoring" in status;
+}
+function isDisputeNone(status) {
+  return "none" in status;
 }
 function isDisputePending(status) {
   return "pending" in status;
@@ -4497,44 +7369,347 @@ function getOutcomeName(outcome) {
   if ("noParticipation" in outcome) return "No Participation";
   return "Unknown";
 }
-function canLinkedSubjectBeDisputed(subject, pool, minBond) {
-  if (subject.freeCase) {
-    return true;
-  }
-  if (subject.defenderPool.equals(new PublicKey4(0))) {
-    return true;
-  }
-  if (!pool) {
-    return false;
-  }
-  if (subject.matchMode) {
-    const totalAvailable = pool.available.add(subject.availableStake);
-    const requiredHold = BN2.min(minBond, subject.maxStake);
-    return totalAvailable.gte(requiredHold);
-  }
-  return true;
+function getBondSourceName(source) {
+  if ("direct" in source) return "Direct";
+  if ("pool" in source) return "Pool";
+  return "Unknown";
 }
-function getEffectiveStatus(subject, pool, minBond) {
-  if (!isSubjectValid(subject.status)) {
-    return subject.status;
+
+// src/rewards.ts
+function safeToNumber(value) {
+  if (value === void 0) return 0;
+  if (typeof value === "number") return value;
+  return value.toNumber();
+}
+function calculateJurorReward(roundResult, jurorRecord) {
+  const jurorPool = safeToNumber(roundResult.jurorPool);
+  const totalVoteWeight = safeToNumber(roundResult.totalVoteWeight);
+  const votingPower = safeToNumber(jurorRecord.votingPower);
+  const jurorPoolShare = totalVoteWeight > 0 ? votingPower / totalVoteWeight * jurorPool : 0;
+  const votePercentage = totalVoteWeight > 0 ? votingPower / totalVoteWeight * 100 : 0;
+  return {
+    total: jurorPoolShare,
+    jurorPoolShare,
+    votingPower,
+    totalVoteWeight,
+    votePercentage
+  };
+}
+function calculateChallengerReward(roundResult, challengerRecord) {
+  const outcome = roundResult.outcome;
+  const challengerWins = isChallengerWins(outcome);
+  const noParticipation = isNoParticipation(outcome);
+  const winnerPool = safeToNumber(roundResult.winnerPool);
+  const totalStake = safeToNumber(roundResult.totalStake);
+  const bondAtRisk = safeToNumber(roundResult.bondAtRisk);
+  const stake = safeToNumber(challengerRecord.stake);
+  let winnerPoolShare = 0;
+  if (challengerWins && totalStake > 0) {
+    winnerPoolShare = stake / totalStake * winnerPool;
+  } else if (noParticipation) {
+    const totalPool = totalStake + bondAtRisk;
+    if (totalPool > 0) {
+      winnerPoolShare = stake / totalPool * winnerPool;
+    }
   }
-  if (!canLinkedSubjectBeDisputed(subject, pool, minBond)) {
-    return SubjectStatusEnum.Dormant;
+  const poolPercentage = totalStake > 0 ? stake / totalStake * 100 : 0;
+  return {
+    total: winnerPoolShare,
+    winnerPoolShare,
+    stake,
+    totalStake,
+    poolPercentage
+  };
+}
+function calculateDefenderReward(roundResult, defenderRecord) {
+  const outcome = roundResult.outcome;
+  const defenderWins = isDefenderWins(outcome);
+  const noParticipation = isNoParticipation(outcome);
+  const winnerPool = safeToNumber(roundResult.winnerPool);
+  const bondAtRisk = safeToNumber(roundResult.bondAtRisk);
+  const safeBond = safeToNumber(roundResult.safeBond);
+  const totalStake = safeToNumber(roundResult.totalStake);
+  const bond = safeToNumber(defenderRecord.bond);
+  const availableBond = bondAtRisk + safeBond;
+  const safeBondShare = availableBond > 0 ? safeBond * bond / availableBond : 0;
+  const defenderAtRisk = availableBond > 0 ? bondAtRisk * bond / availableBond : 0;
+  let winnerPoolShare = 0;
+  if (defenderWins && bondAtRisk > 0) {
+    winnerPoolShare = defenderAtRisk / bondAtRisk * winnerPool;
+  } else if (noParticipation) {
+    const totalPool = totalStake + bondAtRisk;
+    if (totalPool > 0) {
+      winnerPoolShare = defenderAtRisk / totalPool * winnerPool;
+    }
   }
-  return subject.status;
+  const poolPercentage = availableBond > 0 ? bond / availableBond * 100 : 0;
+  return {
+    total: winnerPoolShare + safeBondShare,
+    safeBondShare,
+    winnerPoolShare,
+    bond,
+    totalBondAtRisk: bondAtRisk,
+    safeBond,
+    poolPercentage
+  };
+}
+function calculateUserRewards(roundResult, records) {
+  const outcome = roundResult.outcome;
+  const challengerWins = isChallengerWins(outcome);
+  const defenderWins = isDefenderWins(outcome);
+  let total = 0;
+  let juror;
+  let challenger;
+  let defender;
+  if (records.jurorRecord) {
+    juror = calculateJurorReward(roundResult, records.jurorRecord);
+    total += juror.total;
+  }
+  if (records.challengerRecord) {
+    challenger = calculateChallengerReward(roundResult, records.challengerRecord);
+    total += challenger.total;
+  }
+  if (records.defenderRecord) {
+    defender = calculateDefenderReward(roundResult, records.defenderRecord);
+    total += defender.total;
+  }
+  return {
+    total,
+    juror,
+    challenger,
+    defender,
+    challengerWins,
+    defenderWins
+  };
+}
+function isJurorRewardClaimable(jurorRecord) {
+  return !jurorRecord.rewardClaimed;
+}
+function isChallengerRewardClaimable(challengerRecord, outcome) {
+  return !challengerRecord.rewardClaimed && isChallengerWins(outcome);
+}
+function isDefenderRewardClaimable(defenderRecord) {
+  return !defenderRecord.rewardClaimed;
+}
+function lamportsToSol(lamports, decimals = 6) {
+  return (lamports / 1e9).toFixed(decimals);
+}
+
+// src/events.ts
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
+import { BorshCoder, EventParser } from "@coral-xyz/anchor";
+function parseClaimRole(role) {
+  if ("defender" in role) return "Defender";
+  if ("challenger" in role) return "Challenger";
+  if ("juror" in role) return "Juror";
+  return "Defender";
+}
+function parseOutcome(outcome) {
+  if ("challengerWins" in outcome) return "ChallengerWins";
+  if ("defenderWins" in outcome) return "DefenderWins";
+  if ("noParticipation" in outcome) return "NoParticipation";
+  return "None";
+}
+function createEventParser() {
+  const coder = new BorshCoder(idl_default);
+  return new EventParser(new PublicKey4(PROGRAM_ID), coder);
+}
+function parseEventsFromLogs(logs) {
+  const parser = createEventParser();
+  const events = [];
+  for (const event of parser.parseLogs(logs)) {
+    switch (event.name) {
+      case "RewardClaimedEvent":
+        events.push({
+          type: "RewardClaimed",
+          data: {
+            subjectId: event.data.subjectId,
+            round: event.data.round?.toNumber?.() ?? Number(event.data.round),
+            claimer: event.data.claimer,
+            role: parseClaimRole(event.data.role),
+            amount: event.data.amount?.toNumber?.() ?? Number(event.data.amount),
+            timestamp: event.data.timestamp?.toNumber?.() ?? Number(event.data.timestamp)
+          }
+        });
+        break;
+      case "RecordClosedEvent":
+        events.push({
+          type: "RecordClosed",
+          data: {
+            subjectId: event.data.subjectId,
+            round: event.data.round?.toNumber?.() ?? Number(event.data.round),
+            owner: event.data.owner,
+            role: parseClaimRole(event.data.role),
+            rentReturned: event.data.rentReturned?.toNumber?.() ?? Number(event.data.rentReturned),
+            timestamp: event.data.timestamp?.toNumber?.() ?? Number(event.data.timestamp)
+          }
+        });
+        break;
+      case "StakeUnlockedEvent":
+        events.push({
+          type: "StakeUnlocked",
+          data: {
+            subjectId: event.data.subjectId,
+            round: event.data.round?.toNumber?.() ?? Number(event.data.round),
+            juror: event.data.juror,
+            amount: event.data.amount?.toNumber?.() ?? Number(event.data.amount),
+            timestamp: event.data.timestamp?.toNumber?.() ?? Number(event.data.timestamp)
+          }
+        });
+        break;
+      case "DisputeResolvedEvent":
+        events.push({
+          type: "DisputeResolved",
+          data: {
+            subjectId: event.data.subjectId,
+            round: event.data.round?.toNumber?.() ?? Number(event.data.round),
+            outcome: parseOutcome(event.data.outcome),
+            totalStake: event.data.totalStake?.toNumber?.() ?? Number(event.data.totalStake),
+            bondAtRisk: event.data.bondAtRisk?.toNumber?.() ?? Number(event.data.bondAtRisk),
+            winnerPool: event.data.winnerPool?.toNumber?.() ?? Number(event.data.winnerPool),
+            jurorPool: event.data.jurorPool?.toNumber?.() ?? Number(event.data.jurorPool),
+            resolvedAt: event.data.resolvedAt?.toNumber?.() ?? Number(event.data.resolvedAt),
+            timestamp: event.data.timestamp?.toNumber?.() ?? Number(event.data.timestamp)
+          }
+        });
+        break;
+    }
+  }
+  return events;
+}
+async function fetchClaimHistory(connection, claimer, options) {
+  const claims = [];
+  console.log("[SDK:fetchClaimHistory] Fetching signatures for:", claimer.toBase58());
+  const signatures = await connection.getSignaturesForAddress(claimer, {
+    limit: options?.limit ?? 100,
+    before: options?.before
+  });
+  console.log("[SDK:fetchClaimHistory] Found signatures:", signatures.length);
+  let tribunalTxCount = 0;
+  for (const sig of signatures) {
+    try {
+      const tx = await connection.getParsedTransaction(sig.signature, {
+        maxSupportedTransactionVersion: 0
+      });
+      if (!tx?.meta?.logMessages) continue;
+      const programIdStr = PROGRAM_ID.toString();
+      const involvesTribunal = tx.meta.logMessages.some(
+        (log) => log.includes(programIdStr)
+      );
+      if (!involvesTribunal) continue;
+      tribunalTxCount++;
+      const events = parseEventsFromLogs(tx.meta.logMessages);
+      if (events.length > 0) {
+        console.log("[SDK:fetchClaimHistory] Tx", sig.signature.slice(0, 8), "events:", events.map((e) => e.type));
+      }
+      for (const event of events) {
+        if (event.type === "RewardClaimed") {
+          console.log("[SDK:fetchClaimHistory] Found RewardClaimed:", {
+            claimer: event.data.claimer.toBase58(),
+            expectedClaimer: claimer.toBase58(),
+            matches: event.data.claimer.equals(claimer),
+            subjectId: event.data.subjectId.toBase58(),
+            round: event.data.round,
+            amount: event.data.amount
+          });
+          if (event.data.claimer.equals(claimer)) {
+            claims.push(event.data);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to parse transaction ${sig.signature}:`, error);
+    }
+  }
+  console.log("[SDK:fetchClaimHistory] Tribunal txs:", tribunalTxCount, "claims found:", claims.length);
+  return claims;
+}
+async function fetchClaimHistoryForSubject(connection, subjectId, escrowAddress, options) {
+  const claims = [];
+  const signatures = await connection.getSignaturesForAddress(escrowAddress, {
+    limit: options?.limit ?? 100
+  });
+  for (const sig of signatures) {
+    try {
+      const tx = await connection.getParsedTransaction(sig.signature, {
+        maxSupportedTransactionVersion: 0
+      });
+      if (!tx?.meta?.logMessages) continue;
+      const events = parseEventsFromLogs(tx.meta.logMessages);
+      for (const event of events) {
+        if (event.type === "RewardClaimed" && event.data.subjectId.equals(subjectId)) {
+          claims.push(event.data);
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to parse transaction ${sig.signature}:`, error);
+    }
+  }
+  return claims;
+}
+async function getClaimSummaryFromHistory(connection, claimer, subjectId, round, escrowAddress) {
+  console.log("[SDK:getClaimSummaryFromHistory] Fetching claims for:", {
+    claimer: claimer.toBase58(),
+    subjectId: subjectId.toBase58(),
+    round,
+    escrowAddress: escrowAddress?.toBase58()
+  });
+  let claims;
+  if (escrowAddress) {
+    const allClaims = await fetchClaimHistoryForSubject(connection, subjectId, escrowAddress, { limit: 50 });
+    claims = allClaims.filter((c) => c.claimer.equals(claimer));
+    console.log("[SDK:getClaimSummaryFromHistory] Escrow query: found", allClaims.length, "claims,", claims.length, "for this user");
+  } else {
+    claims = await fetchClaimHistory(connection, claimer, { limit: 50 });
+    console.log("[SDK:getClaimSummaryFromHistory] User query: found", claims.length, "claims");
+  }
+  const summary = { total: 0 };
+  for (const claim of claims) {
+    if (claim.subjectId.equals(subjectId) && claim.round === round) {
+      console.log("[SDK:getClaimSummaryFromHistory] Match:", claim.role, claim.amount);
+      switch (claim.role) {
+        case "Defender":
+          summary.defender = claim;
+          break;
+        case "Challenger":
+          summary.challenger = claim;
+          break;
+        case "Juror":
+          summary.juror = claim;
+          break;
+      }
+      summary.total += claim.amount;
+    }
+  }
+  console.log("[SDK:getClaimSummaryFromHistory] Summary total:", summary.total);
+  return summary;
+}
+async function parseEventsFromTransaction(connection, signature) {
+  const tx = await connection.getParsedTransaction(signature, {
+    maxSupportedTransactionVersion: 0
+  });
+  if (!tx?.meta?.logMessages) {
+    return [];
+  }
+  return parseEventsFromLogs(tx.meta.logMessages);
 }
 export {
   BASE_CHALLENGER_BOND,
+  BOT_REWARD_BPS,
+  BondSourceEnum,
+  CHALLENGER_POOL_SEED,
   CHALLENGER_RECORD_SEED,
-  CHALLENGER_SEED,
+  CLAIM_GRACE_PERIOD,
   DEFENDER_POOL_SEED,
   DEFENDER_RECORD_SEED,
   DISPUTE_SEED,
   DisputeStatusEnum,
   DisputeTypeEnum,
+  ESCROW_SEED,
   idl_default as IDL,
   INITIAL_REPUTATION,
-  JUROR_SEED,
+  JUROR_POOL_SEED,
+  JUROR_RECORD_SEED,
   JUROR_SHARE_BPS,
   MAX_VOTING_PERIOD,
   MIN_CHALLENGER_BOND,
@@ -4555,26 +7730,39 @@ export {
   SUBJECT_SEED,
   SubjectStatusEnum,
   TOTAL_FEE_BPS,
+  TREASURY_SWEEP_PERIOD,
   TribunalCraftClient,
-  VOTE_RECORD_SEED,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
+  calculateChallengerReward,
+  calculateDefenderReward,
+  calculateJurorReward,
   calculateMinBond,
-  canLinkedSubjectBeDisputed,
+  calculateUserRewards,
+  createEventParser,
+  fetchClaimHistory,
+  fetchClaimHistoryForSubject,
   formatReputation,
+  getBondSourceName,
+  getClaimSummaryFromHistory,
   getDisputeTypeName,
-  getEffectiveStatus,
   getOutcomeName,
   integerSqrt,
+  isChallengerRewardClaimable,
   isChallengerWins,
+  isDefenderRewardClaimable,
   isDefenderWins,
+  isDisputeNone,
   isDisputePending,
   isDisputeResolved,
+  isJurorRewardClaimable,
   isNoParticipation,
   isSubjectDisputed,
-  isSubjectDormant,
   isSubjectInvalid,
   isSubjectRestoring,
   isSubjectValid,
+  lamportsToSol,
+  parseEventsFromLogs,
+  parseEventsFromTransaction,
   pda
 };

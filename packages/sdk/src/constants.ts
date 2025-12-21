@@ -2,26 +2,31 @@ import { PublicKey } from "@solana/web3.js";
 
 // Program ID
 export const PROGRAM_ID = new PublicKey(
-  "4skvzJnHJomLcMf1pNWVhVg8NFWBYspGW8AKEECtHhaC"
+  "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q"
 );
 
 // PDA Seeds
 export const PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 export const DEFENDER_POOL_SEED = Buffer.from("defender_pool");
+export const CHALLENGER_POOL_SEED = Buffer.from("challenger_pool");
+export const JUROR_POOL_SEED = Buffer.from("juror_pool");
 export const SUBJECT_SEED = Buffer.from("subject");
-export const JUROR_SEED = Buffer.from("juror");
 export const DISPUTE_SEED = Buffer.from("dispute");
-// NOTE: ESCROW_SEED removed - no escrow in simplified model
-export const CHALLENGER_SEED = Buffer.from("challenger");
-export const CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
+export const ESCROW_SEED = Buffer.from("escrow");
 export const DEFENDER_RECORD_SEED = Buffer.from("defender_record");
-export const VOTE_RECORD_SEED = Buffer.from("vote");
+export const CHALLENGER_RECORD_SEED = Buffer.from("challenger_record");
+export const JUROR_RECORD_SEED = Buffer.from("juror_record");
 
 // Fee Constants (basis points)
 export const TOTAL_FEE_BPS = 2000; // 20% fee from total pool
 export const PLATFORM_SHARE_BPS = 500; // 5% of fees -> platform (1% of total)
 export const JUROR_SHARE_BPS = 9500; // 95% of fees -> jurors (19% of total)
 export const WINNER_SHARE_BPS = 8000; // 80% of loser's contribution -> winner
+
+// Sweep Constants
+export const CLAIM_GRACE_PERIOD = 30 * 24 * 60 * 60; // 30 days in seconds
+export const TREASURY_SWEEP_PERIOD = 90 * 24 * 60 * 60; // 90 days in seconds
+export const BOT_REWARD_BPS = 100; // 1% bot reward for treasury sweep
 
 // Stake Constants
 export const MIN_JUROR_STAKE = 100_000_000; // 0.1 SOL in lamports

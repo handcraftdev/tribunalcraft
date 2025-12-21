@@ -7,22 +7,29 @@ export { PDA, pda } from "./pda";
 
 // Types
 export type {
+  UserActivity,
   ProtocolConfig,
+  // Pool Types
   DefenderPool,
+  ChallengerPool,
+  JurorPool,
+  // Subject PDAs
   Subject,
   Dispute,
-  // NOTE: DisputeEscrow removed - no escrow in simplified model
-  JurorAccount,
-  VoteRecord,
-  ChallengerAccount,
-  ChallengerRecord,
+  Escrow,
+  RoundResult,
+  // Record Types
   DefenderRecord,
+  ChallengerRecord,
+  JurorRecord,
+  // Enum Types
   SubjectStatus,
   DisputeStatus,
   ResolutionOutcome,
   DisputeType,
   VoteChoice,
   RestoreVoteChoice,
+  BondSource,
 } from "./types";
 
 // Enum Helpers
@@ -33,12 +40,13 @@ export {
   DisputeTypeEnum,
   VoteChoiceEnum,
   RestoreVoteChoiceEnum,
+  BondSourceEnum,
   // Type Guards
   isSubjectValid,
   isSubjectDisputed,
   isSubjectInvalid,
-  isSubjectDormant,
   isSubjectRestoring,
+  isDisputeNone,
   isDisputePending,
   isDisputeResolved,
   isChallengerWins,
@@ -47,9 +55,7 @@ export {
   // Name Getters
   getDisputeTypeName,
   getOutcomeName,
-  // Effective Status Helpers
-  canLinkedSubjectBeDisputed,
-  getEffectiveStatus,
+  getBondSourceName,
 } from "./types";
 
 // Constants
@@ -58,19 +64,23 @@ export {
   // PDA Seeds
   PROTOCOL_CONFIG_SEED,
   DEFENDER_POOL_SEED,
+  CHALLENGER_POOL_SEED,
+  JUROR_POOL_SEED,
   SUBJECT_SEED,
-  JUROR_SEED,
   DISPUTE_SEED,
-  // NOTE: ESCROW_SEED removed - no escrow in simplified model
-  CHALLENGER_SEED,
-  CHALLENGER_RECORD_SEED,
+  ESCROW_SEED,
   DEFENDER_RECORD_SEED,
-  VOTE_RECORD_SEED,
+  CHALLENGER_RECORD_SEED,
+  JUROR_RECORD_SEED,
   // Fee Constants
   TOTAL_FEE_BPS,
   PLATFORM_SHARE_BPS,
   JUROR_SHARE_BPS,
   WINNER_SHARE_BPS,
+  // Sweep Constants
+  CLAIM_GRACE_PERIOD,
+  TREASURY_SWEEP_PERIOD,
+  BOT_REWARD_BPS,
   // Stake Constants
   MIN_JUROR_STAKE,
   MIN_CHALLENGER_BOND,
@@ -91,6 +101,45 @@ export {
   calculateMinBond,
   formatReputation,
 } from "./constants";
+
+// Reward Calculations
+export {
+  calculateJurorReward,
+  calculateChallengerReward,
+  calculateDefenderReward,
+  calculateUserRewards,
+  isJurorRewardClaimable,
+  isChallengerRewardClaimable,
+  isDefenderRewardClaimable,
+  lamportsToSol,
+} from "./rewards";
+export type {
+  JurorRecordInput,
+  ChallengerRecordInput,
+  DefenderRecordInput,
+  JurorRewardBreakdown,
+  ChallengerRewardBreakdown,
+  DefenderRewardBreakdown,
+  UserRewardSummary,
+} from "./rewards";
+
+// Event Parsing
+export {
+  createEventParser,
+  parseEventsFromLogs,
+  parseEventsFromTransaction,
+  fetchClaimHistory,
+  fetchClaimHistoryForSubject,
+  getClaimSummaryFromHistory,
+} from "./events";
+export type {
+  ClaimRole,
+  RewardClaimedEvent,
+  RecordClosedEvent,
+  StakeUnlockedEvent,
+  DisputeResolvedEvent,
+  TribunalEvent,
+} from "./events";
 
 // IDL (for advanced usage)
 export { default as IDL } from "./idl.json";

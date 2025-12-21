@@ -2,7 +2,27 @@ import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 
 // =============================================================================
-// Account Types
+// Activity Types (from transaction history)
+// =============================================================================
+
+export interface UserActivity {
+  type: string;
+  signature: string;
+  timestamp: number;
+  slot: number;
+  dispute?: string;
+  subject?: string;
+  round?: number;
+  amount?: number;        // SOL amount in lamports (for stakes, claims)
+  rentReclaimed?: number; // Rent reclaimed in lamports (for closes)
+  voteChoice?: "ForChallenger" | "ForDefender" | "ForRestoration" | "AgainstRestoration";
+  outcome?: "ChallengerWins" | "DefenderWins" | "NoParticipation";
+  rationaleCid?: string;  // IPFS CID for vote rationale
+  success: boolean;
+}
+
+// =============================================================================
+// Account Types (V2 Design)
 // =============================================================================
 
 export interface ProtocolConfig {
@@ -11,30 +31,45 @@ export interface ProtocolConfig {
   bump: number;
 }
 
+// Pool Accounts (persistent per user)
+
 export interface DefenderPool {
   owner: PublicKey;
-  totalStake: BN;
-  available: BN;
-  held: BN;
-  subjectCount: number;
-  pendingDisputes: number;
+  balance: BN;
+  maxBond: BN;
   bump: number;
   createdAt: BN;
   updatedAt: BN;
 }
 
+export interface ChallengerPool {
+  owner: PublicKey;
+  balance: BN;
+  reputation: BN;
+  bump: number;
+  createdAt: BN;
+}
+
+export interface JurorPool {
+  owner: PublicKey;
+  balance: BN;
+  reputation: BN;
+  bump: number;
+  createdAt: BN;
+}
+
+// Subject PDAs (persistent per subject_id)
+
 export interface Subject {
   subjectId: PublicKey;
-  defenderPool: PublicKey;
+  creator: PublicKey;
   detailsCid: string;
-  status: SubjectStatus;
-  availableStake: BN;
-  maxStake: BN;
-  votingPeriod: BN;
+  round: number;
+  availableBond: BN;
   defenderCount: number;
-  disputeCount: number;
+  status: SubjectStatus;
   matchMode: boolean;
-  freeCase: boolean;
+  votingPeriod: BN;
   dispute: PublicKey;
   bump: number;
   createdAt: BN;
@@ -44,96 +79,93 @@ export interface Subject {
 }
 
 export interface Dispute {
-  subject: PublicKey;
-  disputeType: DisputeType;
-  totalBond: BN;
-  stakeHeld: BN;
-  directStakeHeld: BN;
-  challengerCount: number;
+  subjectId: PublicKey;
+  round: number;
   status: DisputeStatus;
-  outcome: ResolutionOutcome;
-  votesFavorWeight: BN;
-  votesAgainstWeight: BN;
+  disputeType: DisputeType;
+  totalStake: BN;
+  challengerCount: number;
+  bondAtRisk: BN;
+  defenderCount: number;
+  votesForChallenger: BN;
+  votesForDefender: BN;
   voteCount: number;
-  votingStarted: boolean;
   votingStartsAt: BN;
   votingEndsAt: BN;
+  outcome: ResolutionOutcome;
   resolvedAt: BN;
-  bump: number;
-  createdAt: BN;
-  poolRewardClaimed: boolean;
-  snapshotTotalStake: BN;
-  snapshotDefenderCount: number;
-  challengersClaimed: number;
-  defendersClaimed: number;
   isRestore: boolean;
   restoreStake: BN;
   restorer: PublicKey;
   detailsCid: string;
-}
-
-// NOTE: DisputeEscrow removed - no escrow in simplified model
-
-export interface JurorAccount {
-  juror: PublicKey;
-  totalStake: BN;
-  availableStake: BN;
-  reputation: number;
-  votesCast: BN;
-  correctVotes: BN;
-  isActive: boolean;
-  bump: number;
-  joinedAt: BN;
-  lastVoteAt: BN;
-}
-
-export interface VoteRecord {
-  dispute: PublicKey;
-  juror: PublicKey;
-  jurorAccount: PublicKey;
-  choice: VoteChoice;
-  restoreChoice: RestoreVoteChoice;
-  isRestoreVote: boolean;
-  stakeAllocated: BN;
-  votingPower: BN;
-  unlockAt: BN;
-  reputationProcessed: boolean;
-  rewardClaimed: boolean;
-  stakeUnlocked: boolean;
-  bump: number;
-  votedAt: BN;
-  rationaleCid: string;
-}
-
-export interface ChallengerAccount {
-  challenger: PublicKey;
-  reputation: number;
-  disputesSubmitted: BN;
-  disputesUpheld: BN;
-  disputesDismissed: BN;
   bump: number;
   createdAt: BN;
-  lastDisputeAt: BN;
+}
+
+export interface Escrow {
+  subjectId: PublicKey;
+  balance: BN;
+  rounds: RoundResult[];
+  bump: number;
+}
+
+export interface RoundResult {
+  round: number;
+  creator: PublicKey;
+  resolvedAt: BN;
+  outcome: ResolutionOutcome;
+  totalStake: BN;
+  bondAtRisk: BN;
+  safeBond: BN;
+  totalVoteWeight: BN;
+  winnerPool: BN;
+  jurorPool: BN;
+  defenderCount: number;
+  challengerCount: number;
+  jurorCount: number;
+  defenderClaims: number;
+  challengerClaims: number;
+  jurorClaims: number;
+}
+
+// Round-specific Record PDAs
+
+export interface DefenderRecord {
+  subjectId: PublicKey;
+  defender: PublicKey;
+  round: number;
+  bond: BN;
+  source: BondSource;
+  rewardClaimed: boolean;
+  bump: number;
+  bondedAt: BN;
 }
 
 export interface ChallengerRecord {
-  dispute: PublicKey;
+  subjectId: PublicKey;
   challenger: PublicKey;
-  challengerAccount: PublicKey;
-  bond: BN;
+  round: number;
+  stake: BN;
   detailsCid: string;
   rewardClaimed: boolean;
   bump: number;
   challengedAt: BN;
 }
 
-export interface DefenderRecord {
-  subject: PublicKey;
-  defender: PublicKey;
-  stake: BN;
+export interface JurorRecord {
+  subjectId: PublicKey;
+  juror: PublicKey;
+  round: number;
+  choice: VoteChoice;
+  restoreChoice: RestoreVoteChoice;
+  isRestoreVote: boolean;
+  votingPower: BN;
+  stakeAllocation: BN;
   rewardClaimed: boolean;
+  stakeUnlocked: boolean;
   bump: number;
-  stakedAt: BN;
+  votedAt: BN;
+  rationaleCid: string;
 }
 
 // =============================================================================
@@ -144,10 +176,10 @@ export type SubjectStatus =
   | { valid: Record<string, never> }
   | { disputed: Record<string, never> }
   | { invalid: Record<string, never> }
-  | { dormant: Record<string, never> }
   | { restoring: Record<string, never> };
 
 export type DisputeStatus =
+  | { none: Record<string, never> }
   | { pending: Record<string, never> }
   | { resolved: Record<string, never> };
 
@@ -175,6 +207,10 @@ export type RestoreVoteChoice =
   | { forRestoration: Record<string, never> }
   | { againstRestoration: Record<string, never> };
 
+export type BondSource =
+  | { direct: Record<string, never> }
+  | { pool: Record<string, never> };
+
 // =============================================================================
 // Enum Helpers
 // =============================================================================
@@ -183,11 +219,11 @@ export const SubjectStatusEnum = {
   Valid: { valid: {} } as SubjectStatus,
   Disputed: { disputed: {} } as SubjectStatus,
   Invalid: { invalid: {} } as SubjectStatus,
-  Dormant: { dormant: {} } as SubjectStatus,
   Restoring: { restoring: {} } as SubjectStatus,
 };
 
 export const DisputeStatusEnum = {
+  None: { none: {} } as DisputeStatus,
   Pending: { pending: {} } as DisputeStatus,
   Resolved: { resolved: {} } as DisputeStatus,
 };
@@ -220,6 +256,11 @@ export const RestoreVoteChoiceEnum = {
   AgainstRestoration: { againstRestoration: {} } as RestoreVoteChoice,
 };
 
+export const BondSourceEnum = {
+  Direct: { direct: {} } as BondSource,
+  Pool: { pool: {} } as BondSource,
+};
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -236,12 +277,12 @@ export function isSubjectInvalid(status: SubjectStatus): boolean {
   return "invalid" in status;
 }
 
-export function isSubjectDormant(status: SubjectStatus): boolean {
-  return "dormant" in status;
-}
-
 export function isSubjectRestoring(status: SubjectStatus): boolean {
   return "restoring" in status;
+}
+
+export function isDisputeNone(status: DisputeStatus): boolean {
+  return "none" in status;
 }
 
 export function isDisputePending(status: DisputeStatus): boolean {
@@ -284,61 +325,8 @@ export function getOutcomeName(outcome: ResolutionOutcome): string {
   return "Unknown";
 }
 
-/**
- * Check if a linked subject can be disputed based on pool availability.
- * For linked match-mode subjects, validates pool has enough balance.
- * Returns true if subject can be disputed, false if pool is drained.
- */
-export function canLinkedSubjectBeDisputed(
-  subject: Subject,
-  pool: DefenderPool | null,
-  minBond: BN
-): boolean {
-  // Free cases don't require stake checks - always disputable
-  if (subject.freeCase) {
-    return true;
-  }
-
-  // Non-linked subjects don't depend on pool
-  if (subject.defenderPool.equals(new PublicKey(0))) {
-    return true;
-  }
-
-  // Must have pool for linked subjects
-  if (!pool) {
-    return false;
-  }
-
-  // Match mode: need pool.available + subject.availableStake >= min(minBond, maxStake)
-  if (subject.matchMode) {
-    const totalAvailable = pool.available.add(subject.availableStake);
-    const requiredHold = BN.min(minBond, subject.maxStake);
-    return totalAvailable.gte(requiredHold);
-  }
-
-  // Proportional mode: pool just needs some available for contribution
-  // Even with 0 pool.available, proportional mode can still work with direct stake
-  return true;
-}
-
-/**
- * Get effective status for a subject, considering pool balance for linked subjects.
- * Returns "dormant" for linked match-mode subjects if pool is drained below minimum.
- */
-export function getEffectiveStatus(
-  subject: Subject,
-  pool: DefenderPool | null,
-  minBond: BN
-): SubjectStatus {
-  // If already disputed/invalid/dormant/restoring, return as-is
-  if (!isSubjectValid(subject.status)) {
-    return subject.status;
-  }
-
-  // Check if linked subject can actually be disputed
-  if (!canLinkedSubjectBeDisputed(subject, pool, minBond)) {
-    return SubjectStatusEnum.Dormant;
-  }
-
-  return subject.status;
+export function getBondSourceName(source: BondSource): string {
+  if ("direct" in source) return "Direct";
+  if ("pool" in source) return "Pool";
+  return "Unknown";
 }
