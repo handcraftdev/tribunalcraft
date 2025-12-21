@@ -7,7 +7,7 @@ import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION } from "@/hooks/
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import type { DisputeType, ChallengerAccount } from "@/hooks/useTribunalcraft";
+import type { DisputeType, JurorPool, ChallengerPool } from "@/hooks/useTribunalcraft";
 import type { SubjectContent, DisputeContent } from "@/lib/content-types";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
@@ -319,34 +319,33 @@ export default function RegistryPage() {
   const {
     client,
     createSubject,
-    submitDispute,
-    submitFreeDispute,
+    createDispute,
     submitRestore,
-    addToDispute,
+    joinChallengers,
     resolveDispute,
-    addToStake,
+    addBondDirect,
     fetchAllSubjects,
     fetchAllDisputes,
     getDefenderPoolPDA,
     getDisputePDA,
     fetchDefenderPool,
-    fetchChallengersByDispute,
+    fetchChallengerRecordsBySubject,
     voteOnDispute,
     voteOnRestore,
-    addToVote,
-    fetchJurorAccount,
-    fetchVoteRecord,
-    getJurorPDA,
-    getVoteRecordPDA,
-    fetchVotesByDispute,
+    fetchJurorPool,
+    fetchJurorRecord,
+    getJurorPoolPDA,
+    getJurorRecordPDA,
+    fetchJurorRecordsBySubject,
     batchClaimRewards,
+    batchCloseRecords,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
     fetchChallengerRecord,
     fetchDefenderRecord,
     fetchProtocolConfig,
-    getChallengerPDA,
-    fetchChallengerAccount,
+    getChallengerPoolPDA,
+    fetchChallengerPool,
   } = useTribunalcraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
@@ -364,10 +363,10 @@ export default function RegistryPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Juror state
-  const [jurorAccount, setJurorAccount] = useState<any>(null);
+  const [jurorPool, setJurorPool] = useState<any>(null);
   const [existingVotes, setExistingVotes] = useState<Record<string, VoteData>>({});
   const [disputeVotes, setDisputeVotes] = useState<VoteData[]>([]);
-  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { favor: number; against: number }>>({});
+  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { forChallenger: number; forDefender: number }>>({});
 
   // Challenger/Defender records for claims (only used in modal)
   const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
@@ -379,7 +378,7 @@ export default function RegistryPage() {
   const [showCreateSubject, setShowCreateSubject] = useState(false);
   const [showCreateDispute, setShowCreateDispute] = useState<string | null>(null);
   const [showRestore, setShowRestore] = useState<string | null>(null);
-  const [challengerAccount, setChallengerAccount] = useState<ChallengerAccount | null>(null);
+  const [userChallengerPool, setUserChallengerPool] = useState<ChallengerPool | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -411,36 +410,34 @@ export default function RegistryPage() {
       }
       setDisputes(finalDisputes);
 
-      // Fetch content for all subjects
+      // Fetch content for all subjects using detailsCid
       for (const s of subjectsData) {
         const key = s.publicKey.toBase58();
-        if (!subjectContents[key]) {
+        if (!subjectContents[key] && s.account.detailsCid) {
           fetchSubjectContent(s.account.detailsCid).then(content => {
             if (content) setSubjectContents(prev => ({ ...prev, [key]: content }));
           });
         }
       }
 
-      // Fetch dispute CIDs
+      // Fetch dispute content using detailsCid from dispute or first challenger
       for (const d of disputesData) {
         const disputeKey = d.publicKey.toBase58();
         if (!disputeCids[disputeKey]) {
-          // For restorations, CID is stored directly on dispute account
-          if (d.account.isRestore) {
-            const cid = d.account.detailsCid;
-            if (cid) {
-              setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
-              fetchDisputeContent(cid).then(content => {
-                if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
-              });
-            }
+          // V2: dispute has detailsCid directly
+          const cid = d.account.detailsCid;
+          if (cid) {
+            setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
+            fetchDisputeContent(cid).then(content => {
+              if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
+            });
           } else {
-            // For regular disputes, get CID from first challenger
-            fetchChallengersByDispute(d.publicKey).then(challengers => {
+            // Fallback: get CID from first challenger record
+            fetchChallengerRecordsBySubject(d.account.subjectId).then(challengers => {
               if (challengers && challengers.length > 0) {
-                const cid = challengers[0].account.detailsCid;
-                setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
-                fetchDisputeContent(cid).then(content => {
+                const challengerCid = challengers[0].account.detailsCid;
+                setDisputeCids(prev => ({ ...prev, [disputeKey]: challengerCid }));
+                fetchDisputeContent(challengerCid).then(content => {
                   if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
                 });
               }
@@ -457,49 +454,49 @@ export default function RegistryPage() {
           setPool(null);
         }
 
-        const [jurorPda] = getJurorPDA(publicKey);
+        const [jurorPda] = getJurorPoolPDA(publicKey);
         try {
-          const jurorData = await fetchJurorAccount(jurorPda);
-          setJurorAccount(jurorData);
+          const jurorData = await fetchJurorPool(jurorPda);
+          setJurorPool(jurorData);
 
-          // Fetch vote records for pending disputes (for voting UI)
+          // Fetch juror records for pending disputes (for voting UI)
           const pendingDisputes = disputesData.filter((d: any) => d.account.status.pending);
           const votes: Record<string, VoteData> = {};
           for (const d of pendingDisputes) {
-            const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
+            const [jurorRecordPda] = getJurorRecordPDA(d.account.subjectId, publicKey, d.account.round);
             try {
-              const voteRecord = await fetchVoteRecord(voteRecordPda);
-              if (voteRecord) votes[d.publicKey.toBase58()] = { publicKey: voteRecordPda, account: voteRecord };
+              const jurorRecord = await fetchJurorRecord(jurorRecordPda);
+              if (jurorRecord) votes[d.publicKey.toBase58()] = { publicKey: jurorRecordPda, account: jurorRecord };
             } catch {}
           }
           setExistingVotes(votes);
 
           // Fetch vote counts for pending disputes (for SubjectCard display)
-          const counts: Record<string, { favor: number; against: number }> = {};
+          const counts: Record<string, { forChallenger: number; forDefender: number }> = {};
           for (const d of pendingDisputes) {
             try {
-              const allVotes = await fetchVotesByDispute(d.publicKey);
+              const allVotes = await fetchJurorRecordsBySubject(d.account.subjectId);
               if (allVotes) {
-                let favor = 0;
-                let against = 0;
+                let forChallenger = 0;
+                let forDefender = 0;
                 for (const v of allVotes) {
-                  // For restorations: forRestoration is favor, againstRestoration is against
-                  // For regular disputes: forChallenger is favor, forDefender is against
+                  // For restorations: forRestoration is forChallenger, againstRestoration is forDefender
+                  // For regular disputes: forChallenger, forDefender
                   if (d.account.isRestore) {
-                    if ("forRestoration" in v.account.restoreChoice) favor++;
-                    else if ("againstRestoration" in v.account.restoreChoice) against++;
+                    if ("forRestoration" in v.account.restoreChoice) forChallenger++;
+                    else if ("againstRestoration" in v.account.restoreChoice) forDefender++;
                   } else {
-                    if ("forChallenger" in v.account.choice) favor++;
-                    else if ("forDefender" in v.account.choice) against++;
+                    if ("forChallenger" in v.account.choice) forChallenger++;
+                    else if ("forDefender" in v.account.choice) forDefender++;
                   }
                 }
-                counts[d.publicKey.toBase58()] = { favor, against };
+                counts[d.publicKey.toBase58()] = { forChallenger, forDefender };
               }
             } catch {}
           }
           setDisputeVoteCounts(counts);
         } catch {
-          setJurorAccount(null);
+          setJurorPool(null);
         }
       }
     } catch (err: any) {
@@ -523,8 +520,8 @@ export default function RegistryPage() {
       const updatedSubject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
       if (updatedDispute && updatedSubject) {
         // Only update if data actually changed
-        if (updatedDispute.account.votesFavorWeight.toNumber() !== selectedItem.dispute.account.votesFavorWeight.toNumber() ||
-            updatedDispute.account.votesAgainstWeight.toNumber() !== selectedItem.dispute.account.votesAgainstWeight.toNumber()) {
+        if (updatedDispute.account.votesForChallenger.toNumber() !== selectedItem.dispute.account.votesForChallenger.toNumber() ||
+            updatedDispute.account.votesForDefender.toNumber() !== selectedItem.dispute.account.votesForDefender.toNumber()) {
           setSelectedItem({ subject: updatedSubject, dispute: updatedDispute });
         }
       }
@@ -545,57 +542,63 @@ export default function RegistryPage() {
 
       // Get all disputes for this subject (current + history)
       const subjectDisputes = disputes.filter(d =>
-        d.account.subject.toBase58() === subjectKey
+        d.account.subjectId.toBase58() === subject.account.subjectId.toBase58()
       );
 
-      // Fetch defender record (applies to all disputes on this subject)
-      const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
-      try {
-        const record = await fetchDefenderRecord(defenderRecordPda);
-        if (record) setDefenderRecords(prev => ({ ...prev, [subjectKey]: record }));
-      } catch {}
-
-      // Fetch records for ALL disputes on this subject (for history)
+      // V2: Fetch records for ALL disputes on this subject (for history)
       for (const d of subjectDisputes) {
         const dKey = d.publicKey.toBase58();
 
-        // Fetch vote record
-        const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
+        // Fetch juror record
+        const [jurorRecordPda] = getJurorRecordPDA(d.account.subjectId, publicKey, d.account.round);
         try {
-          const voteRecord = await fetchVoteRecord(voteRecordPda);
-          if (voteRecord) setExistingVotes(prev => ({
+          const jurorRecord = await fetchJurorRecord(jurorRecordPda);
+          if (jurorRecord) setExistingVotes(prev => ({
             ...prev,
-            [dKey]: { publicKey: voteRecordPda, account: voteRecord }
+            [dKey]: { publicKey: jurorRecordPda, account: jurorRecord }
           }));
         } catch {}
 
         // Fetch challenger record
-        const [challengerRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
+        const [challengerRecordPda] = getChallengerRecordPDA(d.account.subjectId, publicKey, d.account.round);
         try {
           const record = await fetchChallengerRecord(challengerRecordPda);
           if (record) setChallengerRecords(prev => ({ ...prev, [dKey]: record }));
+        } catch {}
+
+        // Fetch defender record
+        const [defenderRecordPda] = getDefenderRecordPDA(d.account.subjectId, publicKey, d.account.round);
+        try {
+          const record = await fetchDefenderRecord(defenderRecordPda);
+          if (record) setDefenderRecords(prev => ({ ...prev, [dKey]: record }));
         } catch {}
       }
 
       // Fetch current dispute specific data
       if (dispute) {
-        const votes = await fetchVotesByDispute(dispute.publicKey);
-        setDisputeVotes(votes || []);
+        const votes = await fetchJurorRecordsBySubject(dispute.account.subjectId);
+        // Filter to only this round
+        const roundVotes = votes.filter(v => v.account.round === dispute.account.round);
+        setDisputeVotes(roundVotes || []);
 
-        // Fetch the dispute creator's reputation
+        // Fetch the dispute creator's reputation from their challenger pool
         try {
-          const challengers = await fetchChallengersByDispute(dispute.publicKey);
-          if (challengers && challengers.length > 0) {
-            const creatorPubkey = challengers[0].account.challenger;
-            const [creatorChallengerPda] = getChallengerPDA(creatorPubkey);
-            const creatorAccount = await fetchChallengerAccount(creatorChallengerPda);
-            if (creatorAccount) {
-              const rep = creatorAccount.reputation;
+          const challengers = await fetchChallengerRecordsBySubject(dispute.account.subjectId);
+          // Find challengers from this round
+          const roundChallengers = challengers.filter(c => c.account.round === dispute.account.round);
+          if (roundChallengers && roundChallengers.length > 0) {
+            const creatorPubkey = roundChallengers[0].account.challenger;
+            // V2: Challenger reputation is on ChallengerPool
+            const [creatorChallengerPoolPda] = getChallengerPoolPDA(creatorPubkey);
+            const creatorChallengerPool = await fetchChallengerPool(creatorChallengerPoolPda);
+            if (creatorChallengerPool) {
+              const rep = creatorChallengerPool.reputation;
               setDisputeCreatorReputation(
                 typeof rep === 'number' ? rep : (rep as any).toNumber?.() ?? null
               );
             } else {
-              setDisputeCreatorReputation(null);
+              // No challenger pool means default reputation
+              setDisputeCreatorReputation(INITIAL_REPUTATION);
             }
           } else {
             setDisputeCreatorReputation(null);
@@ -621,7 +624,7 @@ export default function RegistryPage() {
   // Get past disputes for history (only for selected subject)
   const getPastDisputes = (subjectKey: string, currentDisputeKey?: string) => {
     return disputes.filter(d =>
-      d.account.subject.toBase58() === subjectKey &&
+      d.account.subjectId.toBase58() === subjectKey &&
       d.account.status.resolved &&
       d.publicKey.toBase58() !== currentDisputeKey
     );
@@ -644,19 +647,22 @@ export default function RegistryPage() {
       const subjectKeypair = Keypair.generate();
       const subjectId = subjectKeypair.publicKey;
       const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
-      const maxStake = new BN(parseFloat(form.maxStake || "1") * LAMPORTS_PER_SOL);
       const initialStake = parseFloat(form.directStake || "0");
 
-      // Create subject - all staked subjects are linked (pool auto-created)
+      // V2: Create subject with detailsCid for IPFS content linking
       await createSubject({
         subjectId,
         detailsCid: uploadResult.cid,
         votingPeriod,
-        maxStake,
         matchMode: form.matchMode,
-        freeCase: subjectType === "free",
-        stake: initialStake > 0 ? new BN(initialStake * LAMPORTS_PER_SOL) : undefined,
       });
+
+      // Add initial bond if specified (wait for subject account to be confirmed)
+      if (initialStake > 0) {
+        // Brief delay to ensure subject account is available
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await addBondDirect(subjectId, new BN(initialStake * LAMPORTS_PER_SOL));
+      }
 
       setSuccess("Subject created");
       setShowCreateSubject(false);
@@ -678,44 +684,26 @@ export default function RegistryPage() {
       const disputeTypeInfo = DISPUTE_TYPES.find(t => t.key === form.type);
       const contentType = (disputeTypeInfo?.contentKey ?? "other") as "breach" | "fraud" | "non_delivery" | "quality" | "refund" | "other";
 
+      // V2: Use subjectId.toBase58() as the subject CID for linking
       const uploadResult = await uploadDispute({
         title: form.title,
         reason: form.reason,
         type: contentType,
-        subjectCid: subject.account.detailsCid,
+        subjectCid: subject.account.subjectId.toBase58(),
         requestedOutcome: form.requestedOutcome,
       });
       if (!uploadResult) throw new Error("Failed to upload content");
 
       const disputeType: DisputeType = { [form.type]: {} } as DisputeType;
-      const bond = new BN(parseFloat(form.bondAmount) * LAMPORTS_PER_SOL);
+      const stake = new BN(parseFloat(form.bondAmount) * LAMPORTS_PER_SOL);
 
-      if (subject.account.freeCase) {
-        await submitFreeDispute(
-          subject.publicKey,
-          { disputeCount: subject.account.disputeCount },
-          disputeType,
-          uploadResult.cid
-        );
-      } else {
-        // Get pool owner if subject is linked to a pool
-        let poolOwner: PublicKey | undefined;
-        const isLinked = !subject.account.defenderPool.equals(PublicKey.default);
-        if (isLinked) {
-          const defenderPoolData = await fetchDefenderPool(subject.account.defenderPool);
-          if (defenderPoolData) {
-            poolOwner = defenderPoolData.owner;
-          }
-        }
-
-        await submitDispute(
-          subject.publicKey,
-          { disputeCount: subject.account.disputeCount, defenderPool: subject.account.defenderPool, poolOwner },
-          disputeType,
-          uploadResult.cid,
-          bond
-        );
-      }
+      // V2: Single createDispute call with subjectId, no free cases
+      await createDispute({
+        subjectId: subject.account.subjectId,
+        disputeType,
+        detailsCid: uploadResult.cid,
+        stake,
+      });
 
       setSuccess("Dispute submitted");
       setShowCreateDispute(null);
@@ -724,7 +712,7 @@ export default function RegistryPage() {
       setError(err.message || "Failed to submit dispute");
     }
     setActionLoading(false);
-  }, [publicKey, showCreateDispute, subjects, uploadDispute, submitFreeDispute, submitDispute, loadData]);
+  }, [publicKey, showCreateDispute, subjects, uploadDispute, createDispute, loadData]);
 
   const handleSubmitRestore = useCallback(async (form: { title: string; reason: string; stakeAmount: string }) => {
     if (!publicKey || !showRestore) return;
@@ -739,21 +727,21 @@ export default function RegistryPage() {
         title: form.title,
         reason: form.reason,
         type: "other",
-        subjectCid: subject.account.detailsCid,
+        subjectCid: subject.account.subjectId.toBase58(),
         requestedOutcome: "Restore subject to valid status",
       });
       if (!uploadResult) throw new Error("Failed to upload content");
 
-      const stake = new BN(parseFloat(form.stakeAmount) * LAMPORTS_PER_SOL);
+      const stakeAmount = new BN(parseFloat(form.stakeAmount) * LAMPORTS_PER_SOL);
       const disputeType: DisputeType = { other: {} } as DisputeType;
 
-      await submitRestore(
-        subject.publicKey,
-        { disputeCount: subject.account.disputeCount },
+      // V2: submitRestore takes params object
+      await submitRestore({
+        subjectId: subject.account.subjectId,
         disputeType,
-        uploadResult.cid,
-        stake
-      );
+        detailsCid: uploadResult.cid,
+        stakeAmount,
+      });
 
       setSuccess("Restoration request submitted");
       setShowRestore(null);
@@ -764,26 +752,24 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, showRestore, subjects, uploadDispute, submitRestore, loadData]);
 
-  const handleVote = useCallback(async (disputeKey: string, stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
-    if (!publicKey || !jurorAccount) return;
+  // V2: handleVote takes subjectId instead of disputeKey
+  const handleVote = useCallback(async (subjectIdKey: string, round: number, stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
+    if (!publicKey || !jurorPool) return;
     setActionLoading(true);
     setError(null);
     try {
-      const disputePubkey = new PublicKey(disputeKey);
+      const subjectId = new PublicKey(subjectIdKey);
       const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
-      const hasExistingVote = existingVotes[disputeKey];
       const isRestore = choice === "forRestoration" || choice === "againstRestoration";
 
-      if (hasExistingVote) {
-        await addToVote(disputePubkey, stake);
-        setSuccess(`Added ${stakeAmount} SOL to vote`);
-      } else if (isRestore) {
+      // V2: No addToVote - users vote once per dispute round
+      if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
-        await voteOnRestore(disputePubkey, restoreChoice, stake, rationale);
+        await voteOnRestore(subjectId, restoreChoice, stake, rationale);
         setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
-        await voteOnDispute(disputePubkey, voteChoice, stake, rationale);
+        await voteOnDispute(subjectId, voteChoice, stake, rationale);
         setSuccess("Vote cast");
       }
       await loadData();
@@ -791,74 +777,54 @@ export default function RegistryPage() {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  }, [publicKey, jurorAccount, existingVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
+  }, [publicKey, jurorPool, voteOnDispute, voteOnRestore, loadData]);
 
-  const handleAddStake = useCallback(async (amount: string) => {
+  // V2: handleAddBond uses addBondDirect
+  const handleAddBond = useCallback(async (subjectIdKey: string, amount: string, fromPool: boolean) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
       const subject = selectedItem.subject;
       const isDormant = subject.account.status.dormant;
-      const isDisputed = subject.account.status.disputed;
-      const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
+      const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      // For proportional mode subjects with active dispute, pass the dispute info
-      let proportionalDispute: { dispute: PublicKey; treasury: PublicKey } | undefined;
-      if (isDisputed && !subject.account.matchMode && !subject.account.dispute.equals(PublicKey.default)) {
-        const protocolConfig = await fetchProtocolConfig();
-        if (protocolConfig) {
-          proportionalDispute = {
-            dispute: subject.account.dispute,
-            treasury: protocolConfig.treasury,
-          };
-        }
-      }
-
-      await addToStake(subject.publicKey, stake, proportionalDispute);
-      setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL stake`);
+      // V2: Simple bond addition with subjectId
+      await addBondDirect(subject.account.subjectId, bond);
+      setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to add stake");
+      setError(err.message || "Failed to add bond");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addToStake, loadData, fetchProtocolConfig]);
+  }, [publicKey, selectedItem, addBondDirect, loadData]);
 
-  const handleJoinChallengers = useCallback(async (disputeKey: string, amount: string) => {
+  // V2: handleJoinChallengers uses joinChallengers with params object
+  const handleJoinChallengers = useCallback(async (subjectIdKey: string, amount: string, detailsCid: string = "") => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
-      const subject = selectedItem.subject;
-      const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      const disputePubkey = new PublicKey(disputeKey);
-      const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
+      const subjectId = selectedItem.subject.account.subjectId;
+      const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      // Get pool owner if subject is linked
-      let poolOwner: PublicKey | null = null;
-      if (defenderPool) {
-        const defenderPoolData = await fetchDefenderPool(defenderPool);
-        if (defenderPoolData) {
-          poolOwner = defenderPoolData.owner;
-        }
-      }
-
-      await addToDispute(subject.publicKey, disputePubkey, defenderPool, poolOwner, "", bond);
-      setSuccess(`Added ${amount} SOL bond`);
+      await joinChallengers({ subjectId, stake, detailsCid });
+      setSuccess(`Added ${amount} SOL stake as challenger`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addToDispute, fetchDefenderPool, loadData]);
+  }, [publicKey, selectedItem, joinChallengers, loadData]);
 
-  const handleResolve = useCallback(async (disputeKey: string) => {
+  // V2: handleResolve uses subjectId
+  const handleResolve = useCallback(async (subjectIdKey: string) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
-      const disputePubkey = new PublicKey(disputeKey);
-      await resolveDispute(disputePubkey, selectedItem.subject.publicKey);
+      const subjectId = new PublicKey(subjectIdKey);
+      await resolveDispute(subjectId);
       setSuccess("Dispute resolved");
       setSelectedItem(null);
       await loadData();
@@ -868,37 +834,34 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
-  const handleClaimAll = useCallback(async (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
+  // V2: handleClaimAll uses subjectId and round
+  const handleClaimAll = useCallback(async (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     const claimedRewards: string[] = [];
     try {
-      const disputePubkey = new PublicKey(disputeKey);
-      const subjectPubkey = selectedItem.subject.publicKey;
+      const subjectId = new PublicKey(subjectIdKey);
 
-      // Build batch claim params
+      // V2: Build batch claim params with subjectId and round
       const batchParams: {
-        jurorClaims?: Array<{ dispute: PublicKey; subject: PublicKey; voteRecord: PublicKey }>;
-        challengerClaims?: Array<{ dispute: PublicKey; subject: PublicKey; challengerRecord: PublicKey }>;
-        defenderClaims?: Array<{ dispute: PublicKey; subject: PublicKey; defenderRecord: PublicKey }>;
+        jurorClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        challengerClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        defenderClaims?: Array<{ subjectId: PublicKey; round: number }>;
       } = {};
 
       if (claims.juror) {
-        const [voteRecordPda] = getVoteRecordPDA(disputePubkey, publicKey);
-        batchParams.jurorClaims = [{ dispute: disputePubkey, subject: subjectPubkey, voteRecord: voteRecordPda }];
+        batchParams.jurorClaims = [{ subjectId, round }];
         claimedRewards.push("Juror");
       }
 
       if (claims.challenger) {
-        const [challengerRecordPda] = getChallengerRecordPDA(disputePubkey, publicKey);
-        batchParams.challengerClaims = [{ dispute: disputePubkey, subject: subjectPubkey, challengerRecord: challengerRecordPda }];
+        batchParams.challengerClaims = [{ subjectId, round }];
         claimedRewards.push("Challenger");
       }
 
       if (claims.defender) {
-        const [defenderRecordPda] = getDefenderRecordPDA(subjectPubkey, publicKey);
-        batchParams.defenderClaims = [{ dispute: disputePubkey, subject: subjectPubkey, defenderRecord: defenderRecordPda }];
+        batchParams.defenderClaims = [{ subjectId, round }];
         claimedRewards.push("Defender");
       }
 
@@ -911,34 +874,69 @@ export default function RegistryPage() {
       setError(err.message || "Failed to claim rewards");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getVoteRecordPDA, getChallengerRecordPDA, getDefenderRecordPDA, batchClaimRewards, loadData]);
+  }, [publicKey, selectedItem, batchClaimRewards, loadData]);
+
+  // Close records to reclaim rent (after rewards claimed)
+  const handleCloseRecords = useCallback(async (subjectIdKey: string, round: number, recordTypes: { juror: boolean; challenger: boolean; defender: boolean }) => {
+    if (!publicKey || !selectedItem) return;
+    setActionLoading(true);
+    setError(null);
+    const closedRecords: string[] = [];
+    try {
+      const subjectId = new PublicKey(subjectIdKey);
+      const records: Array<{ type: "juror" | "challenger" | "defender"; subjectId: PublicKey; round: number }> = [];
+
+      if (recordTypes.juror) {
+        records.push({ type: "juror", subjectId, round });
+        closedRecords.push("Juror");
+      }
+      if (recordTypes.challenger) {
+        records.push({ type: "challenger", subjectId, round });
+        closedRecords.push("Challenger");
+      }
+      if (recordTypes.defender) {
+        records.push({ type: "defender", subjectId, round });
+        closedRecords.push("Defender");
+      }
+
+      if (records.length > 0) {
+        await batchCloseRecords(records);
+        setSuccess(`${closedRecords.join(", ")} record${closedRecords.length > 1 ? "s" : ""} closed! Rent reclaimed.`);
+        await loadData();
+      }
+    } catch (err: any) {
+      console.error("[CloseRecords] Error:", err);
+      setError(err.message || "Failed to close records");
+    }
+    setActionLoading(false);
+  }, [publicKey, selectedItem, batchCloseRecords, loadData]);
 
   // Get dispute subject data for create dispute modal
   const disputeSubject = showCreateDispute ? subjects.find(s => s.publicKey.toBase58() === showCreateDispute) : null;
   const disputeSubjectContent = disputeSubject ? subjectContents[disputeSubject.publicKey.toBase58()] : null;
 
-  // Fetch challenger account when dispute modal opens
+  // Fetch user's challenger pool for reputation when dispute modal opens
   useEffect(() => {
-    const fetchChallenger = async () => {
+    const fetchUserChallengerPool = async () => {
       if (showCreateDispute && publicKey) {
         try {
-          const [challengerPda] = getChallengerPDA(publicKey);
-          const account = await fetchChallengerAccount(challengerPda);
-          setChallengerAccount(account);
+          const [challengerPoolPda] = getChallengerPoolPDA(publicKey);
+          const account = await fetchChallengerPool(challengerPoolPda);
+          setUserChallengerPool(account);
         } catch {
-          // Account doesn't exist yet - new challenger
-          setChallengerAccount(null);
+          // Account doesn't exist yet - new user
+          setUserChallengerPool(null);
         }
       } else {
-        setChallengerAccount(null);
+        setUserChallengerPool(null);
       }
     };
-    fetchChallenger();
-  }, [showCreateDispute, publicKey, getChallengerPDA, fetchChallengerAccount]);
+    fetchUserChallengerPool();
+  }, [showCreateDispute, publicKey, getChallengerPoolPDA, fetchChallengerPool]);
 
-  // Calculate minimum bond based on challenger reputation
+  // Calculate minimum bond based on user's reputation from ChallengerPool
   // reputation is stored as u64 on-chain, which may come as number or BN
-  const rawRep = challengerAccount?.reputation;
+  const rawRep = userChallengerPool?.reputation;
   const challengerReputation = rawRep != null
     ? (typeof rawRep === 'number' ? rawRep : (rawRep as any).toNumber?.() ?? rawRep)
     : null;
@@ -1033,7 +1031,7 @@ export default function RegistryPage() {
                   <p className="text-steel text-xs text-center py-4 col-span-full">No active disputes</p>
                 ) : (
                   disputedItems.map((d, i) => {
-                    const subject = subjects.find(s => s.publicKey.toBase58() === d.account.subject.toBase58());
+                    const subject = subjects.find(s => s.account.subjectId.toBase58() === d.account.subjectId.toBase58());
                     if (!subject) return null;
                     return (
                       <SubjectCard
@@ -1064,7 +1062,7 @@ export default function RegistryPage() {
                 ) : (
                   restoringSubjects.map((s, i) => {
                     const restoreDispute = disputes.find(d =>
-                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
                       d.account.status.pending &&
                       d.account.isRestore
                     );
@@ -1097,7 +1095,7 @@ export default function RegistryPage() {
                 ) : (
                   invalidSubjects.map((s, i) => {
                     const invalidatingDispute = disputes.find(d =>
-                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
                       d.account.status.resolved &&
                       d.account.outcome.challengerWins
                     );
@@ -1130,7 +1128,7 @@ export default function RegistryPage() {
                 ) : (
                   dormantSubjects.map((s, i) => {
                     const lastDispute = disputes.find(d =>
-                      d.account.subject.toBase58() === s.publicKey.toBase58() &&
+                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
                       d.account.status.resolved
                     );
                     return (
@@ -1157,13 +1155,14 @@ export default function RegistryPage() {
         <SubjectModal
           subject={selectedItem.subject}
           subjectContent={subjectContents[selectedItem.subject.publicKey.toBase58()]}
-          jurorAccount={jurorAccount}
+          jurorPool={jurorPool}
           onClose={() => setSelectedItem(null)}
           onVote={handleVote}
-          onAddStake={handleAddStake}
+          onAddBond={handleAddBond}
           onJoinChallengers={handleJoinChallengers}
           onResolve={handleResolve}
           onClaimAll={handleClaimAll}
+          onCloseRecords={handleCloseRecords}
           onRefresh={loadData}
           actionLoading={actionLoading}
           showActions={true}

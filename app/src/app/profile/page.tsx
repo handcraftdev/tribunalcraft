@@ -12,6 +12,18 @@ import type { SubjectContent, DisputeContent } from "@/lib/content-types";
 import { SubjectCard, SubjectModal, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { ShieldIcon, CheckIcon, LockIcon, PlusIcon, MinusIcon, ClockIcon, ChevronDownIcon } from "@/components/Icons";
 
+// Safe BN to number conversion (handles overflow and undefined)
+const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
+  if (bn === undefined) return fallback;
+  if (typeof bn === "number") return bn;
+  try {
+    const num = bn.toNumber();
+    return Number.isSafeInteger(num) ? num : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ICONS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -205,34 +217,43 @@ export default function JurorPage() {
     addJurorStake,
     withdrawJurorStake,
     unregisterJuror,
-    fetchJurorAccount,
+    fetchJurorPool,
     fetchAllDisputes,
     fetchAllSubjects,
-    fetchVoteRecord,
-    fetchVotesByDispute,
-    fetchChallengersByDispute,
-    getJurorPDA,
-    getVoteRecordPDA,
+    fetchJurorRecord,
+    fetchJurorRecordsBySubject,
+    fetchChallengerRecordsBySubject,
+    getJurorPoolPDA,
+    getJurorRecordPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
     fetchChallengerRecord,
     fetchDefenderRecord,
     voteOnDispute,
     voteOnRestore,
-    addToVote,
     resolveDispute,
     batchClaimRewards,
-    addToStake,
-    addToDispute,
+    addBondDirect,
+    joinChallengers,
+    addChallengerStake,
+    withdrawChallengerStake,
+    unlockJurorStake,
     fetchDefenderPool,
     getDefenderPoolPDA,
-    getChallengerPDA,
-    fetchChallengerAccount,
-    createPool,
-    stakePool,
-    withdrawPool,
-    unlockJurorStake,
-    batchUnlockStake,
+    getChallengerPoolPDA,
+    fetchChallengerPool,
+    createDefenderPool,
+    depositDefenderPool,
+    withdrawDefenderPool,
+    closeJurorRecord,
+    closeChallengerRecord,
+    closeDefenderRecord,
+    batchCloseRecords,
+    scanCollectableRecords,
+    collectAll,
+    fetchChallengerRecordsByChallenger,
+    fetchDefenderRecordsByDefender,
+    fetchJurorRecordsByJuror,
   } = useTribunalcraft();
 
   const { fetchSubject: fetchSubjectContent, fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
@@ -242,17 +263,27 @@ export default function JurorPage() {
   const [subjects, setSubjects] = useState<SubjectData[]>([]);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
   const [userVotes, setUserVotes] = useState<Record<string, VoteData>>({});
+  const [allJurorRecords, setAllJurorRecords] = useState<VoteData[]>([]); // All juror records for locked stake display
   const [subjectContents, setSubjectContents] = useState<Record<string, SubjectContent | null>>({});
   const [disputeContents, setDisputeContents] = useState<Record<string, DisputeContent | null>>({});
   const [disputeCids, setDisputeCids] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collectableData, setCollectableData] = useState<{
+    claims: number;
+    unlocks: number;
+    closes: number;
+    estimatedRewards: number;
+    estimatedRent: number;
+    stakeToUnlock: number;
+  } | null>(null);
+  const [collectLoading, setCollectLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
   // Selected item state (vote can be null for defender-only items)
   const [selectedItem, setSelectedItem] = useState<{ subject: SubjectData; dispute: DisputeData; vote: VoteData | null; roles?: { juror: boolean; defender: boolean; challenger: boolean } } | null>(null);
-  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { favor: number; against: number }>>({});
+  const [disputeVoteCounts, setDisputeVoteCounts] = useState<Record<string, { forChallenger: number; forDefender: number }>>({});
   const [challengerRecords, setChallengerRecords] = useState<Record<string, any>>({});
   const [defenderRecords, setDefenderRecords] = useState<Record<string, any>>({});
 
@@ -270,6 +301,10 @@ export default function JurorPage() {
   const [poolWithdrawAmount, setPoolWithdrawAmount] = useState("0.1");
   const [showPoolDeposit, setShowPoolDeposit] = useState(false);
   const [showPoolWithdraw, setShowPoolWithdraw] = useState(false);
+  const [showChallengerDeposit, setShowChallengerDeposit] = useState(false);
+  const [showChallengerWithdraw, setShowChallengerWithdraw] = useState(false);
+  const [challengerStakeAmount, setChallengerStakeAmount] = useState("0.1");
+  const [challengerWithdrawAmount, setChallengerWithdrawAmount] = useState("0.1");
   const [copied, setCopied] = useState(false);
 
   // Expand/collapse state
@@ -287,29 +322,39 @@ export default function JurorPage() {
       setSubjects(subjectsData || []);
       setDisputes(disputesData || []);
 
-      // Fetch content for subjects
+      // Fetch content for subjects using detailsCid
       for (const s of subjectsData) {
         const key = s.publicKey.toBase58();
-        if (!subjectContents[key]) {
+        if (!subjectContents[key] && s.account.detailsCid) {
           fetchSubjectContent(s.account.detailsCid).then(content => {
             if (content) setSubjectContents(prev => ({ ...prev, [key]: content }));
           });
         }
       }
 
-      // Fetch dispute CIDs
+      // Fetch dispute content using detailsCid from dispute or first challenger
       for (const d of disputesData) {
         const disputeKey = d.publicKey.toBase58();
         if (!disputeCids[disputeKey]) {
-          fetchChallengersByDispute(d.publicKey).then(challengers => {
-            if (challengers && challengers.length > 0) {
-              const cid = challengers[0].account.detailsCid;
-              setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
-              fetchDisputeContent(cid).then(content => {
-                if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
-              });
-            }
-          });
+          // In V2, dispute has detailsCid directly, or fetch from first challenger
+          const cid = d.account.detailsCid;
+          if (cid) {
+            setDisputeCids(prev => ({ ...prev, [disputeKey]: cid }));
+            fetchDisputeContent(cid).then(content => {
+              if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
+            });
+          } else {
+            // Fallback: fetch from first challenger record
+            fetchChallengerRecordsBySubject(d.account.subjectId).then(challengers => {
+              if (challengers && challengers.length > 0) {
+                const challengerCid = challengers[0].account.detailsCid;
+                setDisputeCids(prev => ({ ...prev, [disputeKey]: challengerCid }));
+                fetchDisputeContent(challengerCid).then(content => {
+                  if (content) setDisputeContents(prev => ({ ...prev, [disputeKey]: content }));
+                });
+              }
+            });
+          }
         }
       }
 
@@ -320,119 +365,222 @@ export default function JurorPage() {
         let poolData = null;
         try {
           poolData = await fetchDefenderPool(poolPda);
+          console.log("[Profile] DefenderPool fetch result:", poolData ? "found" : "null", poolPda.toBase58());
           setPool(poolData);
-        } catch {
+        } catch (err) {
+          console.error("[Profile] DefenderPool fetch error:", err);
           setPool(null);
         }
 
         // Fetch challenger account
-        const [challengerPda] = getChallengerPDA(publicKey);
+        const [challengerPoolPda] = getChallengerPoolPDA(publicKey);
         try {
-          const challengerData = await fetchChallengerAccount(challengerPda);
-          setChallengerAccount(challengerData);
-        } catch {
+          const challengerPoolData = await fetchChallengerPool(challengerPoolPda);
+          console.log("[Profile] ChallengerPool fetch result:", challengerPoolData ? "found" : "null", challengerPoolPda.toBase58());
+          setChallengerAccount(challengerPoolData);
+        } catch (err) {
+          console.error("[Profile] ChallengerPool fetch error:", err);
           setChallengerAccount(null);
         }
 
-        // Find subjects linked to user's defender pool
-        const defendedSubjects = poolData
-          ? subjectsData.filter((s: SubjectData) => s.account.defenderPool.toBase58() === poolPda.toBase58())
-          : [];
-
-        // Find disputes on defended subjects
+        // In V2, find defended subjects via DefenderRecords (subjects user has bonded to)
         const defendedDisputeKeys: string[] = [];
-        for (const subject of defendedSubjects) {
-          const subjectDisputes = disputesData.filter(
-            (d: DisputeData) => d.account.subject.toBase58() === subject.publicKey.toBase58()
-          );
-          for (const d of subjectDisputes) {
-            defendedDisputeKeys.push(d.publicKey.toBase58());
+        const userDefenderRecords: Array<{ publicKey: PublicKey; account: any }> = [];
+        try {
+          const records = await fetchDefenderRecordsByDefender(publicKey);
+          userDefenderRecords.push(...records);
+          // Find disputes for subjects where user has defender records
+          for (const dr of records) {
+            const subjectIdKey = dr.account.subjectId.toBase58();
+            // Find dispute that matches this subject and round
+            const matchingDispute = disputesData.find(
+              (d: DisputeData) =>
+                d.account.subjectId.toBase58() === subjectIdKey &&
+                d.account.round === dr.account.round
+            );
+            if (matchingDispute && !defendedDisputeKeys.includes(matchingDispute.publicKey.toBase58())) {
+              defendedDisputeKeys.push(matchingDispute.publicKey.toBase58());
+            }
           }
+        } catch (err) {
+          console.error("[loadData] Failed to fetch defender records:", err);
         }
 
-        const [jurorPda] = getJurorPDA(publicKey);
+        // Fetch all challenger records for the user (disputes they challenged)
+        const challengedSubjectKeys: string[] = [];
+        const userChallengerRecordsData: Array<{ publicKey: PublicKey; account: any }> = [];
         try {
-          const jurorData = await fetchJurorAccount(jurorPda);
+          const userChallengerRecords = await fetchChallengerRecordsByChallenger(publicKey);
+          userChallengerRecordsData.push(...userChallengerRecords);
+          for (const cr of userChallengerRecords) {
+            challengedSubjectKeys.push(cr.account.subjectId.toBase58());
+          }
+        } catch (err) {
+          console.error("[loadData] Failed to fetch challenger records:", err);
+        }
+
+        const [jurorPda] = getJurorPoolPDA(publicKey);
+        try {
+          const jurorData = await fetchJurorPool(jurorPda);
           setJurorAccount(jurorData);
 
-          // Fetch vote records for all disputes
+          // Fetch all juror records for this user directly (more reliable than iterating disputes)
           const votes: Record<string, VoteData> = {};
           const votedDisputeKeys: string[] = [];
-          for (const d of disputesData) {
-            const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
-            try {
-              const voteRecord = await fetchVoteRecord(voteRecordPda);
-              if (voteRecord) {
-                votes[d.publicKey.toBase58()] = {
-                  publicKey: voteRecordPda,
-                  account: voteRecord,
+          const allRecords: VoteData[] = [];
+          try {
+            const userJurorRecords = await fetchJurorRecordsByJuror(publicKey);
+            console.log("[loadData] Found juror records:", userJurorRecords.length);
+            for (const jr of userJurorRecords) {
+              // Store all juror records for locked stake display
+              allRecords.push({ publicKey: jr.publicKey, account: jr.account });
+
+              // Find the matching dispute for this juror record
+              // Handle both BN and number types for round comparison
+              const jrRound = typeof jr.account.round === 'number' ? jr.account.round : (jr.account.round as any).toNumber?.() ?? jr.account.round;
+              const matchingDispute = disputesData.find((d: DisputeData) => {
+                const dRound = typeof d.account.round === 'number' ? d.account.round : (d.account.round as any).toNumber?.() ?? d.account.round;
+                return d.account.subjectId.toBase58() === jr.account.subjectId.toBase58() && dRound === jrRound;
+              });
+              if (matchingDispute) {
+                votes[matchingDispute.publicKey.toBase58()] = {
+                  publicKey: jr.publicKey,
+                  account: jr.account,
                 };
-                votedDisputeKeys.push(d.publicKey.toBase58());
+                votedDisputeKeys.push(matchingDispute.publicKey.toBase58());
+                console.log("[loadData] Matched juror record to dispute:", matchingDispute.publicKey.toBase58(), "round:", jr.account.round);
+              } else {
+                console.log("[loadData] Juror record has no matching dispute:", jr.account.subjectId.toBase58(), "round:", jr.account.round);
               }
-            } catch {}
+            }
+          } catch (err) {
+            console.error("[loadData] Failed to fetch juror records:", err);
           }
           setUserVotes(votes);
+          setAllJurorRecords(allRecords);
 
-          // Fetch vote counts for disputes user has voted on OR defended
-          const allRelevantDisputeKeys = [...new Set([...votedDisputeKeys, ...defendedDisputeKeys])];
-          const counts: Record<string, { favor: number; against: number }> = {};
+          // Fetch vote counts for disputes user has voted on, defended, OR challenged
+          // Map subject keys to dispute keys for comparison
+          const challengedDisputeKeys = challengedSubjectKeys.map(subjectKey => {
+            const d = disputesData.find((x: DisputeData) => x.account.subjectId.toBase58() === subjectKey);
+            return d ? d.publicKey.toBase58() : null;
+          }).filter(Boolean) as string[];
+          const allRelevantDisputeKeys = [...new Set([...votedDisputeKeys, ...defendedDisputeKeys, ...challengedDisputeKeys])];
+          const counts: Record<string, { forChallenger: number; forDefender: number }> = {};
           for (const dKey of allRelevantDisputeKeys) {
             const d = disputesData.find((x: DisputeData) => x.publicKey.toBase58() === dKey);
             if (!d) continue;
             try {
-              const allVotes = await fetchVotesByDispute(d.publicKey);
+              const allVotes = await fetchJurorRecordsBySubject(d.account.subjectId);
               if (allVotes) {
-                let favor = 0;
-                let against = 0;
+                let forChallenger = 0;
+                let forDefender = 0;
                 for (const v of allVotes) {
                   if (d.account.isRestore) {
-                    if ("forRestoration" in v.account.restoreChoice) favor++;
-                    else if ("againstRestoration" in v.account.restoreChoice) against++;
+                    if ("forRestoration" in v.account.restoreChoice) forChallenger++;
+                    else if ("againstRestoration" in v.account.restoreChoice) forDefender++;
                   } else {
-                    if ("forChallenger" in v.account.choice) favor++;
-                    else if ("forDefender" in v.account.choice) against++;
+                    if ("forChallenger" in v.account.choice) forChallenger++;
+                    else if ("forDefender" in v.account.choice) forDefender++;
                   }
                 }
-                counts[dKey] = { favor, against };
+                counts[dKey] = { forChallenger, forDefender };
               }
             } catch {}
           }
           setDisputeVoteCounts(counts);
 
-          // Fetch challenger/defender records for all relevant disputes (voted or defended)
-          const challRecords: Record<string, any> = {};
-          const defRecords: Record<string, any> = {};
-          for (const dKey of allRelevantDisputeKeys) {
-            const d = disputesData.find((x: DisputeData) => x.publicKey.toBase58() === dKey);
-            if (!d) continue;
-            const subject = subjectsData.find((s: SubjectData) => s.publicKey.toBase58() === d.account.subject.toBase58());
-            if (!subject) continue;
-
-            // Check challenger record
-            const [challengerRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
-            try {
-              const record = await fetchChallengerRecord(challengerRecordPda);
-              if (record) challRecords[dKey] = record;
-            } catch {}
-
-            // Check defender record (for both resolved and pending - to track involvement)
-            const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
-            try {
-              const record = await fetchDefenderRecord(defenderRecordPda);
-              if (record) defRecords[subject.publicKey.toBase58()] = record;
-            } catch {}
-          }
-          setChallengerRecords(challRecords);
-          setDefenderRecords(defRecords);
         } catch {
           setJurorAccount(null);
           setUserVotes({});
+          setAllJurorRecords([]);
         }
+
+        // Build challenger/defender records from already-fetched data
+        // This is OUTSIDE the juror try block so it always runs
+        // Key by dispute publicKey for lookup
+        const challRecords: Record<string, any> = {};
+        const defRecords: Record<string, any> = {};
+
+        // Use challenger records we already fetched - key by matching dispute
+        for (const cr of userChallengerRecordsData) {
+          const matchingDispute = disputesData.find((d: DisputeData) =>
+            d.account.subjectId.toBase58() === cr.account.subjectId.toBase58() &&
+            d.account.round === cr.account.round
+          );
+          if (matchingDispute) {
+            challRecords[matchingDispute.publicKey.toBase58()] = cr.account;
+          }
+        }
+
+        // Use defender records we already fetched - key by matching dispute
+        for (const dr of userDefenderRecords) {
+          const matchingDispute = disputesData.find((d: DisputeData) =>
+            d.account.subjectId.toBase58() === dr.account.subjectId.toBase58() &&
+            d.account.round === dr.account.round
+          );
+          if (matchingDispute) {
+            defRecords[matchingDispute.publicKey.toBase58()] = dr.account;
+          }
+        }
+
+        setChallengerRecords(challRecords);
+        setDefenderRecords(defRecords);
       }
     } catch (err: any) {
       setError(err.message || "Failed to load data");
     }
     setLoading(false);
+
+    // Scan for collectable rewards/closes (V2 - no unlocks)
+    if (publicKey && client) {
+      try {
+        console.log("[Scan collectables] Starting scan...");
+        const scan = await scanCollectableRecords();
+        console.log("[Scan collectables] Result:", {
+          jurorClaims: scan.claims.juror.length,
+          challengerClaims: scan.claims.challenger.length,
+          defenderClaims: scan.claims.defender.length,
+          jurorCloses: scan.closes.juror.length,
+          challengerCloses: scan.closes.challenger.length,
+          defenderCloses: scan.closes.defender.length,
+        });
+        setCollectableData({
+          claims: scan.claims.juror.length + scan.claims.challenger.length + scan.claims.defender.length,
+          unlocks: 0, // V2 doesn't have separate unlocks
+          closes: scan.closes.juror.length + scan.closes.challenger.length + scan.closes.defender.length,
+          estimatedRewards: scan.totals.estimatedRewards,
+          estimatedRent: scan.totals.estimatedRent,
+          stakeToUnlock: 0, // V2 doesn't track stakeToUnlock
+        });
+      } catch (err) {
+        console.error("[Scan collectables] Error:", err);
+        setCollectableData(null);
+      }
+    } else {
+      console.log("[Scan collectables] Skipped - publicKey:", !!publicKey, "client:", !!client);
+    }
+
+  };
+
+  const handleCollectAll = async () => {
+    if (!publicKey) return;
+    setCollectLoading(true);
+    setError(null);
+    try {
+      const result = await collectAll();
+      const total = result.summary.claimCount + result.summary.closeCount;
+      if (total > 0) {
+        setSuccess(`Collected: ${result.summary.claimCount} claims, ${result.summary.closeCount} records closed`);
+        await loadData(); // Refresh data
+      } else {
+        setSuccess("Nothing to collect");
+      }
+    } catch (err: any) {
+      console.error("[CollectAll]", err);
+      setError(err.message || "Failed to collect");
+    }
+    setCollectLoading(false);
   };
 
   useEffect(() => {
@@ -470,16 +618,16 @@ export default function JurorPage() {
 
       // Fetch challenger/defender records for resolved disputes (used for claim buttons in profile list)
       if (dispute.account.status.resolved) {
-        const [challengerRecordPda] = getChallengerRecordPDA(dispute.publicKey, publicKey);
+        const [challengerRecordPda] = getChallengerRecordPDA(dispute.account.subjectId, publicKey, dispute.account.round);
         try {
           const record = await fetchChallengerRecord(challengerRecordPda);
           if (record) setChallengerRecords(prev => ({ ...prev, [dispute.publicKey.toBase58()]: record }));
         } catch {}
 
-        const [defenderRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
+        const [defenderRecordPda] = getDefenderRecordPDA(dispute.account.subjectId, publicKey, dispute.account.round);
         try {
           const record = await fetchDefenderRecord(defenderRecordPda);
-          if (record) setDefenderRecords(prev => ({ ...prev, [subjectKey]: record }));
+          if (record) setDefenderRecords(prev => ({ ...prev, [dispute.publicKey.toBase58()]: record }));
         } catch {}
       }
     };
@@ -568,7 +716,7 @@ export default function JurorPage() {
     setSuccess(null);
     try {
       const amount = new BN(parseFloat(createAmount) * LAMPORTS_PER_SOL);
-      await createPool(amount);
+      await createDefenderPool(amount);
       setSuccess("Defender pool created successfully");
       await loadData();
     } catch (err: any) {
@@ -584,7 +732,7 @@ export default function JurorPage() {
     setSuccess(null);
     try {
       const amount = new BN(parseFloat(poolStakeAmount) * LAMPORTS_PER_SOL);
-      await stakePool(amount);
+      await depositDefenderPool(amount);
       setSuccess("Stake added to pool successfully");
       setShowPoolDeposit(false);
       await loadData();
@@ -601,12 +749,46 @@ export default function JurorPage() {
     setSuccess(null);
     try {
       const amount = new BN(parseFloat(poolWithdrawAmount) * LAMPORTS_PER_SOL);
-      await withdrawPool(amount);
+      await withdrawDefenderPool(amount);
       setSuccess("Withdrawal from pool successful");
       setShowPoolWithdraw(false);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to withdraw from pool");
+    }
+    setActionLoading(false);
+  };
+
+  const handleChallengerDeposit = async () => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const amount = new BN(parseFloat(challengerStakeAmount) * LAMPORTS_PER_SOL);
+      await addChallengerStake(amount);
+      setSuccess("Stake added to challenger pool successfully");
+      setShowChallengerDeposit(false);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to stake to challenger pool");
+    }
+    setActionLoading(false);
+  };
+
+  const handleChallengerWithdraw = async () => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const amount = new BN(parseFloat(challengerWithdrawAmount) * LAMPORTS_PER_SOL);
+      await withdrawChallengerStake(amount);
+      setSuccess("Withdrawal from challenger pool successful");
+      setShowChallengerWithdraw(false);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to withdraw from challenger pool");
     }
     setActionLoading(false);
   };
@@ -619,27 +801,24 @@ export default function JurorPage() {
     }
   };
 
-  // Handlers for dispute actions
-  const handleVote = useCallback(async (disputeKey: string, stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
+  // Handlers for dispute actions (V2 uses subjectId, not disputePubkey)
+  const handleVote = useCallback(async (subjectIdKey: string, round: number, stakeAmount: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => {
     if (!publicKey || !jurorAccount) return;
     setActionLoading(true);
     setError(null);
     try {
-      const disputePubkey = new PublicKey(disputeKey);
+      const subjectId = new PublicKey(subjectIdKey);
       const stake = new BN(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
-      const hasExistingVote = userVotes[disputeKey];
       const isRestore = choice === "forRestoration" || choice === "againstRestoration";
 
-      if (hasExistingVote) {
-        await addToVote(disputePubkey, stake);
-        setSuccess(`Added ${stakeAmount} SOL to vote`);
-      } else if (isRestore) {
+      // V2: No addToVote - users can only vote once per dispute round
+      if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
-        await voteOnRestore(disputePubkey, restoreChoice, stake, rationale);
+        await voteOnRestore(subjectId, restoreChoice, stake, rationale);
         setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
-        await voteOnDispute(disputePubkey, voteChoice, stake, rationale);
+        await voteOnDispute(subjectId, voteChoice, stake, rationale);
         setSuccess("Vote cast");
       }
       await loadData();
@@ -647,15 +826,15 @@ export default function JurorPage() {
       setError(err.message || "Failed to vote");
     }
     setActionLoading(false);
-  }, [publicKey, jurorAccount, userVotes, addToVote, voteOnDispute, voteOnRestore, loadData]);
+  }, [publicKey, jurorAccount, voteOnDispute, voteOnRestore, loadData]);
 
-  const handleResolve = useCallback(async (disputeKey: string) => {
+  const handleResolve = useCallback(async (subjectIdKey: string) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
-      const disputePubkey = new PublicKey(disputeKey);
-      await resolveDispute(disputePubkey, selectedItem.subject.publicKey);
+      const subjectId = new PublicKey(subjectIdKey);
+      await resolveDispute(subjectId);
       setSuccess("Dispute resolved");
       setSelectedItem(null);
       await loadData();
@@ -665,37 +844,33 @@ export default function JurorPage() {
     setActionLoading(false);
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
-  const handleClaimAll = useCallback(async (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
+  const handleClaimAll = useCallback(async (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     const claimedRewards: string[] = [];
     try {
-      const disputePubkey = new PublicKey(disputeKey);
-      const subjectPubkey = selectedItem.subject.publicKey;
+      const subjectId = new PublicKey(subjectIdKey);
 
-      // Build batch claim params
+      // V2: Build batch claim params with subjectId and round
       const batchParams: {
-        jurorClaims?: Array<{ dispute: PublicKey; subject: PublicKey; voteRecord: PublicKey }>;
-        challengerClaims?: Array<{ dispute: PublicKey; subject: PublicKey; challengerRecord: PublicKey }>;
-        defenderClaims?: Array<{ dispute: PublicKey; subject: PublicKey; defenderRecord: PublicKey }>;
+        jurorClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        challengerClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        defenderClaims?: Array<{ subjectId: PublicKey; round: number }>;
       } = {};
 
       if (claims.juror) {
-        const [voteRecordPda] = getVoteRecordPDA(disputePubkey, publicKey);
-        batchParams.jurorClaims = [{ dispute: disputePubkey, subject: subjectPubkey, voteRecord: voteRecordPda }];
+        batchParams.jurorClaims = [{ subjectId, round }];
         claimedRewards.push("Juror");
       }
 
       if (claims.challenger) {
-        const [challengerRecordPda] = getChallengerRecordPDA(disputePubkey, publicKey);
-        batchParams.challengerClaims = [{ dispute: disputePubkey, subject: subjectPubkey, challengerRecord: challengerRecordPda }];
+        batchParams.challengerClaims = [{ subjectId, round }];
         claimedRewards.push("Challenger");
       }
 
       if (claims.defender) {
-        const [defenderRecordPda] = getDefenderRecordPDA(subjectPubkey, publicKey);
-        batchParams.defenderClaims = [{ dispute: disputePubkey, subject: subjectPubkey, defenderRecord: defenderRecordPda }];
+        batchParams.defenderClaims = [{ subjectId, round }];
         claimedRewards.push("Defender");
       }
 
@@ -707,7 +882,42 @@ export default function JurorPage() {
       setError(err.message || "Failed to claim rewards");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, getVoteRecordPDA, getChallengerRecordPDA, getDefenderRecordPDA, batchClaimRewards, loadData]);
+  }, [publicKey, selectedItem, batchClaimRewards, loadData]);
+
+  // Close records to reclaim rent (after rewards claimed)
+  const handleCloseRecords = useCallback(async (subjectIdKey: string, round: number, recordTypes: { juror: boolean; challenger: boolean; defender: boolean }) => {
+    if (!publicKey || !selectedItem) return;
+    setActionLoading(true);
+    setError(null);
+    const closedRecords: string[] = [];
+    try {
+      const subjectId = new PublicKey(subjectIdKey);
+      const records: Array<{ type: "juror" | "challenger" | "defender"; subjectId: PublicKey; round: number }> = [];
+
+      if (recordTypes.juror) {
+        records.push({ type: "juror", subjectId, round });
+        closedRecords.push("Juror");
+      }
+      if (recordTypes.challenger) {
+        records.push({ type: "challenger", subjectId, round });
+        closedRecords.push("Challenger");
+      }
+      if (recordTypes.defender) {
+        records.push({ type: "defender", subjectId, round });
+        closedRecords.push("Defender");
+      }
+
+      if (records.length > 0) {
+        await batchCloseRecords(records);
+        setSuccess(`${closedRecords.join(", ")} record${closedRecords.length > 1 ? "s" : ""} closed! Rent reclaimed.`);
+        await loadData();
+      }
+    } catch (err: any) {
+      console.error("[CloseRecords] Error:", err);
+      setError(err.message || "Failed to close records");
+    }
+    setActionLoading(false);
+  }, [publicKey, selectedItem, batchCloseRecords, loadData]);
 
   const handleAddDefenderStake = useCallback(async (amount: string) => {
     if (!publicKey || !selectedItem) return;
@@ -715,97 +925,86 @@ export default function JurorPage() {
     setError(null);
     try {
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      await addToStake(selectedItem.subject.publicKey, stake);
-      setSuccess(`Added ${amount} SOL stake`);
+      await addBondDirect(selectedItem.subject.account.subjectId, stake);
+      setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to add stake");
+      setError(err.message || "Failed to add bond");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addToStake, loadData]);
+  }, [publicKey, selectedItem, addBondDirect, loadData]);
 
-  const handleJoinChallengers = useCallback(async (disputeKey: string, amount: string) => {
+  const handleJoinChallengers = useCallback(async (subjectIdKey: string, amount: string, detailsCid: string = "") => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
     setError(null);
     try {
-      const subject = selectedItem.subject;
-      const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      const disputePubkey = new PublicKey(disputeKey);
-      const defenderPool = subject.account.defenderPool.equals(PublicKey.default) ? null : subject.account.defenderPool;
+      const subjectId = selectedItem.subject.account.subjectId;
+      const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      // Get pool owner if subject is linked
-      let poolOwner: PublicKey | null = null;
-      if (defenderPool) {
-        const defenderPoolData = await fetchDefenderPool(defenderPool);
-        if (defenderPoolData) {
-          poolOwner = defenderPoolData.owner;
-        }
-      }
-
-      await addToDispute(subject.publicKey, disputePubkey, defenderPool, poolOwner, "", bond);
-      setSuccess(`Added ${amount} SOL bond`);
+      await joinChallengers({ subjectId, stake, detailsCid });
+      setSuccess(`Added ${amount} SOL stake as challenger`);
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to join challengers");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addToDispute, loadData, fetchDefenderPool]);
+  }, [publicKey, selectedItem, joinChallengers, loadData]);
 
-  const handleUnlockStake = useCallback(async (disputePubkey: PublicKey, voteRecordPubkey: PublicKey) => {
+  // Unlock juror stake (7 days after resolution)
+  const handleUnlockStake = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!publicKey) return;
     setActionLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      await unlockJurorStake(disputePubkey, voteRecordPubkey);
-      setSuccess("Stake unlocked successfully!");
+      await unlockJurorStake(subjectId, round);
+      setSuccess("Stake unlocked successfully");
       await loadData();
     } catch (err: any) {
+      console.error("[UnlockStake] Error:", err);
       setError(err.message || "Failed to unlock stake");
     }
     setActionLoading(false);
   }, [publicKey, unlockJurorStake, loadData]);
 
-  const handleBatchUnlock = useCallback(async () => {
+  // Batch unlock all ready stakes - takes items as parameter to avoid initialization order issues
+  const handleBatchUnlock = useCallback(async (items: Array<{
+    vote: VoteData;
+    round: number;
+    isResolved: boolean;
+    unlockAt: number;
+  }>) => {
     if (!publicKey) return;
-    // Find votes that haven't had stake unlocked yet
-    const votedDisputeKeys = Object.keys(userVotes);
-    const readyItems: Array<{ dispute: DisputeData; vote: VoteData; unlockAt: number }> = [];
-
-    for (const key of votedDisputeKeys) {
-      const vote = userVotes[key];
-      if (!vote || vote.account.stakeUnlocked) continue;
-
-      const dispute = disputes.find(d => d.publicKey.toBase58() === key);
-      if (!dispute) continue;
-
-      const unlockAt = vote.account.unlockAt?.toNumber?.() ||
-        (dispute.account.votingEndsAt.toNumber() + 604800);
-
-      if (Date.now() / 1000 >= unlockAt) {
-        readyItems.push({ dispute, vote, unlockAt });
-      }
-    }
-
-    if (readyItems.length === 0) {
-      setError("No stakes ready to unlock");
-      return;
-    }
     setActionLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      const unlocks = readyItems.map(item => ({
-        dispute: item.dispute.publicKey,
-        voteRecord: item.vote.publicKey,
-      }));
-      await batchUnlockStake(unlocks);
-      setSuccess(`Unlocked ${readyItems.length} stake${readyItems.length > 1 ? 's' : ''} successfully!`);
-      await loadData();
+      // Only unlock items where dispute is resolved AND time has passed
+      const readyItems = items.filter(item =>
+        item.isResolved && Date.now() / 1000 >= item.unlockAt
+      );
+      let unlockCount = 0;
+      for (const item of readyItems) {
+        try {
+          await unlockJurorStake(item.vote.account.subjectId, item.round);
+          unlockCount++;
+        } catch (err) {
+          console.error("[BatchUnlock] Failed to unlock:", err);
+        }
+      }
+      if (unlockCount > 0) {
+        setSuccess(`Unlocked ${unlockCount} stake${unlockCount > 1 ? 's' : ''}`);
+        await loadData();
+      } else {
+        setError("No stakes ready to unlock (must be resolved + 7 days)");
+      }
     } catch (err: any) {
-      setError(err.message || "Failed to batch unlock stakes");
+      console.error("[BatchUnlock] Error:", err);
+      setError(err.message || "Failed to unlock stakes");
     }
     setActionLoading(false);
-  }, [publicKey, userVotes, disputes, batchUnlockStake, loadData]);
+  }, [publicKey, unlockJurorStake, loadData]);
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // COMPUTED VALUES
@@ -827,10 +1026,6 @@ export default function JurorPage() {
     return `${mins}m`;
   };
 
-  // Calculate locked stake
-  const lockedStake = jurorAccount
-    ? jurorAccount.totalStake.toNumber() - jurorAccount.availableStake.toNumber()
-    : 0;
 
   // Type for activity items with separate role flags
   type ActivityItem = {
@@ -854,11 +1049,11 @@ export default function JurorPage() {
     const items = votedDisputeKeys.map(key => {
       const dispute = disputes.find(d => d.publicKey.toBase58() === key);
       if (!dispute) return null;
-      const subject = subjects.find(s => s.publicKey.toBase58() === dispute.account.subject.toBase58());
+      const subject = subjects.find(s => s.account.subjectId.toBase58() === dispute.account.subjectId.toBase58());
       if (!subject) return null;
       const vote = userVotes[key];
-      // Check all roles
-      const isDefender = poolPda && subject.account.defenderPool.toBase58() === poolPda.toBase58();
+      // Check all roles - defender has defender record for this subject
+      const isDefender = !!defenderRecords[subject.publicKey.toBase58()];
       const isChallenger = isUserChallenger(key);
       const item: ActivityItem = {
         subject,
@@ -877,15 +1072,15 @@ export default function JurorPage() {
     const result: ActivityItem[] = [];
     const addedDisputes = new Set<string>();
 
-    // Find subjects linked to user's defender pool
+    // Find subjects where user has defender records
     if (pool && poolPda) {
       const defendedSubjects = subjects.filter(
-        s => s.account.defenderPool.toBase58() === poolPda.toBase58()
+        s => !!defenderRecords[s.publicKey.toBase58()]
       );
 
       for (const subject of defendedSubjects) {
         const subjectDisputes = disputes.filter(
-          d => d.account.subject.toBase58() === subject.publicKey.toBase58()
+          d => d.account.subjectId.toBase58() === subject.publicKey.toBase58()
         );
         for (const dispute of subjectDisputes) {
           const disputeKey = dispute.publicKey.toBase58();
@@ -904,6 +1099,30 @@ export default function JurorPage() {
       }
     }
 
+    // Find disputes where user has defender records (staked on someone else's subject)
+    for (const subjectKey of Object.keys(defenderRecords)) {
+      const subject = subjects.find(s => s.publicKey.toBase58() === subjectKey);
+      if (!subject) continue;
+
+      const subjectDisputes = disputes.filter(
+        d => d.account.subjectId.toBase58() === subjectKey
+      );
+      for (const dispute of subjectDisputes) {
+        const disputeKey = dispute.publicKey.toBase58();
+        if (votedDisputeKeys.has(disputeKey)) continue;
+        if (addedDisputes.has(disputeKey)) continue;
+
+        const isChallenger = isUserChallenger(disputeKey);
+        result.push({
+          subject,
+          dispute,
+          vote: null,
+          roles: { juror: false, defender: true, challenger: isChallenger }
+        });
+        addedDisputes.add(disputeKey);
+      }
+    }
+
     // Find disputes where user is challenger (not already added)
     for (const disputeKey of Object.keys(challengerRecords)) {
       if (votedDisputeKeys.has(disputeKey)) continue;
@@ -911,10 +1130,10 @@ export default function JurorPage() {
 
       const dispute = disputes.find(d => d.publicKey.toBase58() === disputeKey);
       if (!dispute) continue;
-      const subject = subjects.find(s => s.publicKey.toBase58() === dispute.account.subject.toBase58());
+      const subject = subjects.find(s => s.account.subjectId.toBase58() === dispute.account.subjectId.toBase58());
       if (!subject) continue;
 
-      const isDefender = poolPda && subject.account.defenderPool.toBase58() === poolPda.toBase58();
+      const isDefender = !!defenderRecords[subject.publicKey.toBase58()];
       result.push({
         subject,
         dispute,
@@ -934,28 +1153,65 @@ export default function JurorPage() {
   const allUserDisputes = [...votedDisputes, ...otherDisputes];
 
   // Get locked stake items (votes where stake hasn't been unlocked yet)
+  // Uses allJurorRecords to include records from past rounds (where dispute moved to new round)
   const getLockedStakeItems = () => {
-    return votedDisputes
-      .filter(item => {
-        // Include any vote where stake is not yet unlocked
-        return item.vote && !item.vote.account.stakeUnlocked;
-      })
-      .map(item => {
-        const stakeAmount = item.vote!.account.stakeAllocated.toNumber();
-        // Use unlockAt from vote record if available, otherwise calculate from voting end
-        const unlockAt = item.vote!.account.unlockAt?.toNumber?.() ||
-          (item.dispute.account.votingEndsAt.toNumber() + 604800);
-        const subjectContent = subjectContents[item.subject.publicKey.toBase58()];
+    const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
+
+    return allJurorRecords
+      .filter(jr => !jr.account.stakeUnlocked)
+      .map(jr => {
+        const stakeAmount = safeToNumber(jr.account.stakeAllocation);
+        const jrSubjectId = jr.account.subjectId.toBase58();
+        const jrRound = typeof jr.account.round === 'number' ? jr.account.round : (jr.account.round as any).toNumber?.() ?? jr.account.round;
+
+        // Find the subject for this juror record
+        const subject = subjects.find(s => s.account.subjectId.toBase58() === jrSubjectId);
+
+        // Find the dispute for this subject (may be different round if dispute moved on)
+        const dispute = disputes.find(d => d.account.subjectId.toBase58() === jrSubjectId);
+
+        // Determine if this round is resolved
+        // If dispute exists and is on a different (higher) round, the old round is resolved
+        // If dispute exists and is on same round, check dispute status
+        // If dispute doesn't exist, consider it resolved (subject may have been invalidated)
+        let isResolved = true;
+        let unlockAt = safeToNumber(jr.account.votedAt) + SEVEN_DAYS_SECONDS; // Fallback estimate
+
+        if (dispute) {
+          const disputeRound = typeof dispute.account.round === 'number' ? dispute.account.round : (dispute.account.round as any).toNumber?.() ?? dispute.account.round;
+          if (disputeRound === jrRound) {
+            // Same round - check dispute status
+            isResolved = "resolved" in dispute.account.status;
+            unlockAt = safeToNumber(dispute.account.votingEndsAt) + SEVEN_DAYS_SECONDS;
+          } else if (disputeRound > jrRound) {
+            // Dispute moved to new round - old round is resolved
+            isResolved = true;
+            // Estimate unlock time based on votedAt + typical voting period + 7 days
+            // We don't have exact resolvedAt for past rounds without fetching escrow
+            unlockAt = safeToNumber(jr.account.votedAt) + (24 * 60 * 60) + SEVEN_DAYS_SECONDS; // votedAt + 1 day (voting) + 7 days
+          }
+        }
+
+        const subjectContent = subject ? subjectContents[subject.publicKey.toBase58()] : null;
+
         return {
-          ...item,
+          vote: jr,
+          subject: subject || null,
+          dispute: dispute || null,
           stakeAmount,
           unlockAt,
-          subjectName: subjectContent?.title || `Subject ${item.subject.publicKey.toBase58().slice(0, 8)}...`
+          isResolved,
+          round: jrRound,
+          subjectName: subjectContent?.title || (subject ? `Subject ${subject.publicKey.toBase58().slice(0, 8)}...` : `Round ${jrRound}`)
         };
-      });
+      })
+      .filter(item => item.stakeAmount > 0); // Only include items with actual stake
   };
 
   const lockedStakeItems = getLockedStakeItems();
+
+  // Calculate total locked stake from items
+  const lockedStake = lockedStakeItems.reduce((sum, item) => sum + item.stakeAmount, 0);
 
   // Categorize disputes - now includes defended subjects
   const activeDisputes = allUserDisputes.filter(item => {
@@ -989,6 +1245,7 @@ export default function JurorPage() {
     return jurorNeedsClaim || challengerNeedsClaim || defenderNeedsClaim;
   });
 
+  // Historical disputes (resolved, all claims processed) - PDA-based only
   const historicalDisputes = allUserDisputes.filter(item => {
     if (!("resolved" in item.dispute.account.status)) return false;
 
@@ -1011,7 +1268,7 @@ export default function JurorPage() {
     return acc;
   }, [] as typeof historicalDisputes);
 
-  // Batch claim handler - claims all pending rewards across all disputes
+  // Batch claim handler - claims all pending rewards across all disputes (V2)
   const handleBatchClaim = useCallback(async () => {
     if (!publicKey) return;
     setActionLoading(true);
@@ -1022,7 +1279,7 @@ export default function JurorPage() {
         const d = item.dispute.account;
         const totalPool = d.isRestore
           ? d.restoreStake?.toNumber() || 0
-          : (d.totalBond?.toNumber() || 0) + (d.stakeHeld?.toNumber() || 0) + (d.directStakeHeld?.toNumber() || 0);
+          : (d.totalStake?.toNumber() || 0) + (d.bondAtRisk?.toNumber() || 0);
         return totalPool > 0;
       };
 
@@ -1041,7 +1298,7 @@ export default function JurorPage() {
 
       // Find claimable defender rewards (excluding free cases)
       const claimableDefenderDisputes = allUserDisputes.filter(item => {
-        const defenderRecord = defenderRecords[item.subject.publicKey.toBase58()];
+        const defenderRecord = defenderRecords[item.dispute.publicKey.toBase58()];
         return defenderRecord && item.dispute.account.status.resolved && !defenderRecord.rewardClaimed && hasRewards(item);
       });
 
@@ -1053,32 +1310,32 @@ export default function JurorPage() {
         return;
       }
 
-      // Build batch claim params
+      // V2: Build batch claim params with subjectId and round
       const batchParams: {
-        jurorClaims?: { dispute: PublicKey; subject: PublicKey; voteRecord: PublicKey }[];
-        challengerClaims?: { dispute: PublicKey; subject: PublicKey; challengerRecord: PublicKey }[];
-        defenderClaims?: { dispute: PublicKey; subject: PublicKey; defenderRecord: PublicKey }[];
+        jurorClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        challengerClaims?: Array<{ subjectId: PublicKey; round: number }>;
+        defenderClaims?: Array<{ subjectId: PublicKey; round: number }>;
       } = {};
 
       if (claimableJurorDisputes.length > 0) {
-        batchParams.jurorClaims = claimableJurorDisputes.map(item => {
-          const [voteRecordPda] = getVoteRecordPDA(item.dispute.publicKey, publicKey);
-          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, voteRecord: voteRecordPda };
-        });
+        batchParams.jurorClaims = claimableJurorDisputes.map(item => ({
+          subjectId: item.dispute.account.subjectId,
+          round: item.dispute.account.round,
+        }));
       }
 
       if (claimableChallengerDisputes.length > 0) {
-        batchParams.challengerClaims = claimableChallengerDisputes.map(item => {
-          const [challengerRecordPda] = getChallengerRecordPDA(item.dispute.publicKey, publicKey);
-          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, challengerRecord: challengerRecordPda };
-        });
+        batchParams.challengerClaims = claimableChallengerDisputes.map(item => ({
+          subjectId: item.dispute.account.subjectId,
+          round: item.dispute.account.round,
+        }));
       }
 
       if (claimableDefenderDisputes.length > 0) {
-        batchParams.defenderClaims = claimableDefenderDisputes.map(item => {
-          const [defenderRecordPda] = getDefenderRecordPDA(item.subject.publicKey, publicKey);
-          return { dispute: item.dispute.publicKey, subject: item.subject.publicKey, defenderRecord: defenderRecordPda };
-        });
+        batchParams.defenderClaims = claimableDefenderDisputes.map(item => ({
+          subjectId: item.dispute.account.subjectId,
+          round: item.dispute.account.round,
+        }));
       }
 
       await batchClaimRewards(batchParams);
@@ -1095,12 +1352,12 @@ export default function JurorPage() {
       setError(err.message || "Failed to batch claim");
     }
     setActionLoading(false);
-  }, [publicKey, allUserDisputes, challengerRecords, defenderRecords, getVoteRecordPDA, getChallengerRecordPDA, getDefenderRecordPDA, batchClaimRewards, loadData]);
+  }, [publicKey, allUserDisputes, challengerRecords, defenderRecords, batchClaimRewards, loadData]);
 
   // Past disputes helper
   const getPastDisputes = (subjectKey: string, currentDisputeKey?: string) => {
     return disputes.filter(d =>
-      d.account.subject.toBase58() === subjectKey &&
+      d.account.subjectId.toBase58() === subjectKey &&
       d.account.status.resolved &&
       d.publicKey.toBase58() !== currentDisputeKey
     );
@@ -1109,7 +1366,7 @@ export default function JurorPage() {
   // Get current active dispute for a subject (pending and voting not ended)
   const getCurrentActiveDispute = (subjectKey: string): DisputeData | null => {
     return disputes.find(d =>
-      d.account.subject.toBase58() === subjectKey &&
+      d.account.subjectId.toBase58() === subjectKey &&
       d.account.status.pending &&
       Date.now() <= d.account.votingEndsAt.toNumber() * 1000
     ) || null;
@@ -1125,7 +1382,7 @@ export default function JurorPage() {
       // Find user's vote for the current dispute
       const currentVote = userVotes[currentDispute.publicKey.toBase58()] || null;
       // Check user roles for current dispute
-      const isDefender = poolPda && item.subject.account.defenderPool.toBase58() === poolPda.toBase58();
+      const isDefender = !!defenderRecords[item.subject.publicKey.toBase58()];
       const isChallenger = !!challengerRecords[currentDispute.publicKey.toBase58()];
       const isJuror = !!currentVote;
 
@@ -1146,20 +1403,19 @@ export default function JurorPage() {
     }
   }, [disputes, userVotes, poolPda, challengerRecords]);
 
-  // Calculate accuracy rate
-  const accuracyRate = jurorAccount && jurorAccount.votesCast.toNumber() > 0
-    ? (jurorAccount.correctVotes.toNumber() / jurorAccount.votesCast.toNumber()) * 100
-    : 0;
+  // Calculate accuracy rate (V2: stats not tracked on-chain, use 0)
+  const votesCast = safeToNumber((jurorAccount as any)?.votesCast);
+  const correctVotes = safeToNumber((jurorAccount as any)?.correctVotes);
+  const accuracyRate = votesCast > 0 ? (correctVotes / votesCast) * 100 : 0;
 
-  // Calculate challenger success rate
-  const challengerSuccessRate = challengerAccount && challengerAccount.disputesSubmitted.toNumber() > 0
-    ? (challengerAccount.disputesUpheld.toNumber() / challengerAccount.disputesSubmitted.toNumber()) * 100
-    : 0;
+  // Calculate challenger success rate (V2: stats not tracked on-chain, use 0)
+  const disputesSubmitted = safeToNumber((challengerAccount as any)?.disputesSubmitted);
+  const disputesUpheld = safeToNumber((challengerAccount as any)?.disputesUpheld);
+  const challengerSuccessRate = disputesSubmitted > 0 ? (disputesUpheld / disputesSubmitted) * 100 : 0;
 
-  // Calculate defender utilization
-  const defenderUtilization = pool && pool.totalStake.toNumber() > 0
-    ? (pool.held.toNumber() / pool.totalStake.toNumber()) * 100
-    : 0;
+  // Calculate defender utilization (V2: use balance as proxy)
+  const defenderBalance = safeToNumber(pool?.balance);
+  const defenderUtilization = 0; // V2: no held/totalStake tracking
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -1194,6 +1450,31 @@ export default function JurorPage() {
         {success && (
           <div className="bg-emerald-700/10 border border-emerald-700/50 p-4 mb-6 animate-slide-up">
             <p className="text-emerald text-sm">{success}</p>
+          </div>
+        )}
+
+        {/* Collect All Banner */}
+        {collectableData && (collectableData.claims > 0 || collectableData.unlocks > 0 || collectableData.closes > 0) && (
+          <div className="mb-6 p-4 bg-gold/10 border border-gold/30 animate-slide-up">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gold">Rewards Available</p>
+                <p className="text-xs text-steel mt-1">
+                  {collectableData.claims > 0 && `${collectableData.claims} claims`}
+                  {collectableData.claims > 0 && collectableData.unlocks > 0 && " • "}
+                  {collectableData.unlocks > 0 && `${collectableData.unlocks} unlocks`}
+                  {(collectableData.claims > 0 || collectableData.unlocks > 0) && collectableData.closes > 0 && " • "}
+                  {collectableData.closes > 0 && `${collectableData.closes} rent to reclaim`}
+                </p>
+              </div>
+              <button
+                onClick={handleCollectAll}
+                disabled={collectLoading}
+                className="btn btn-primary text-sm px-5 py-2"
+              >
+                {collectLoading ? "Collecting..." : "Collect All"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1273,35 +1554,35 @@ export default function JurorPage() {
                       <div className="mb-5">
                         <p className="text-[10px] uppercase tracking-wider text-steel mb-2">Pool Balance</p>
                         <p className="text-3xl font-display font-bold text-ivory">
-                          {(pool.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                          {(safeToNumber(pool.balance) / LAMPORTS_PER_SOL).toFixed(4)}
                           <span className="text-lg text-steel ml-2">SOL</span>
                         </p>
                         <div className="mt-3">
                           <div className="flex justify-between text-xs text-steel mb-1">
-                            <span>Utilization</span>
-                            <span className="text-sky-400">{defenderUtilization.toFixed(1)}%</span>
+                            <span>Max Bond</span>
+                            <span className="text-sky-400">{(safeToNumber(pool.maxBond) / LAMPORTS_PER_SOL).toFixed(4)} SOL</span>
                           </div>
-                          <ProgressBar value={pool.held.toNumber()} max={pool.totalStake.toNumber()} color="sky" />
+                          <ProgressBar value={safeToNumber(pool.balance)} max={safeToNumber(pool.maxBond) || 1} color="sky" />
                         </div>
                       </div>
 
                       {/* Stats */}
                       <div className="space-y-0 border-t border-slate-light/20 pt-3">
                         <StatRow
-                          label="Available"
-                          value={(pool.available.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                          label="Balance"
+                          value={(safeToNumber(pool.balance) / LAMPORTS_PER_SOL).toFixed(4)}
                           subValue="SOL"
                           color="emerald"
                         />
                         <StatRow
-                          label="Held in Disputes"
-                          value={(pool.held.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                          label="Max Bond"
+                          value={(safeToNumber(pool.maxBond) / LAMPORTS_PER_SOL).toFixed(4)}
                           subValue="SOL"
                           color="gold"
                         />
                         <StatRow
                           label="Linked Subjects"
-                          value={pool.subjectCount}
+                          value={safeToNumber((pool as any).subjectCount)}
                           color="parchment"
                         />
                       </div>
@@ -1350,7 +1631,7 @@ export default function JurorPage() {
                             </button>
                             <button
                               onClick={() => setShowPoolWithdraw(true)}
-                              disabled={pool.available.toNumber() === 0}
+                              disabled={safeToNumber(pool.balance) === 0}
                               className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-crimson bg-red-800/10 border border-red-800/30 hover:bg-red-800/20 transition-colors disabled:opacity-30"
                             >
                               <MinusIcon /> Withdraw
@@ -1416,12 +1697,12 @@ export default function JurorPage() {
                     <>
                       {/* Reputation Gauge */}
                       <div className="flex items-start gap-5 mb-5">
-                        <ReputationGauge value={jurorAccount.reputation} label="Reputation" />
+                        <ReputationGauge value={safeToNumber(jurorAccount.reputation)} label="Reputation" />
                         <div className="flex-1 pt-2">
                           <div className="mb-3">
-                            <p className="text-[10px] uppercase tracking-wider text-steel mb-1">Total Stake</p>
+                            <p className="text-[10px] uppercase tracking-wider text-steel mb-1">Balance</p>
                             <p className="text-2xl font-display font-bold text-ivory">
-                              {(jurorAccount.totalStake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                              {(safeToNumber(jurorAccount.balance) / LAMPORTS_PER_SOL).toFixed(4)}
                               <span className="text-sm text-steel ml-1">SOL</span>
                             </p>
                           </div>
@@ -1439,25 +1720,9 @@ export default function JurorPage() {
                       {/* Stats */}
                       <div className="space-y-0 border-t border-slate-light/20 pt-3">
                         <StatRow
-                          label="Available Stake"
-                          value={(jurorAccount.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                          label="Balance"
+                          value={(jurorAccount.balance.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
                           subValue="SOL"
-                          color="emerald"
-                        />
-                        <StatRow
-                          label="Locked Stake"
-                          value={(lockedStake / LAMPORTS_PER_SOL).toFixed(4)}
-                          subValue="SOL"
-                          color="gold"
-                        />
-                        <StatRow
-                          label="Votes Cast"
-                          value={jurorAccount.votesCast.toNumber()}
-                          color="parchment"
-                        />
-                        <StatRow
-                          label="Correct Votes"
-                          value={jurorAccount.correctVotes.toNumber()}
                           color="emerald"
                         />
                       </div>
@@ -1506,7 +1771,7 @@ export default function JurorPage() {
                             </button>
                             <button
                               onClick={() => setShowWithdraw(true)}
-                              disabled={jurorAccount.availableStake.toNumber() === 0}
+                              disabled={jurorAccount.balance.toNumber() === 0}
                               className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-crimson bg-red-800/10 border border-red-800/30 hover:bg-red-800/20 transition-colors disabled:opacity-30"
                             >
                               <MinusIcon /> Withdraw
@@ -1568,7 +1833,7 @@ export default function JurorPage() {
                     <>
                       {/* Reputation & Success Rate */}
                       <div className="flex items-start gap-5 mb-5">
-                        <ReputationGauge value={challengerAccount.reputation} label="Reputation" />
+                        <ReputationGauge value={safeToNumber(challengerAccount.reputation)} label="Reputation" />
                         <div className="flex-1 pt-2">
                           <div className="mb-3">
                             <p className="text-[10px] uppercase tracking-wider text-steel mb-1">Success Rate</p>
@@ -1582,7 +1847,7 @@ export default function JurorPage() {
                               {challengerSuccessRate >= 50 ? <TrendUpIcon /> : <TrendDownIcon />}
                             </span>
                             <span className="text-xs text-steel">
-                              {challengerAccount.disputesUpheld.toNumber()}/{challengerAccount.disputesSubmitted.toNumber()} upheld
+                              {disputesUpheld}/{disputesSubmitted} upheld
                             </span>
                           </div>
                         </div>
@@ -1591,30 +1856,73 @@ export default function JurorPage() {
                       {/* Stats */}
                       <div className="space-y-0 border-t border-slate-light/20 pt-3">
                         <StatRow
-                          label="Disputes Filed"
-                          value={challengerAccount.disputesSubmitted.toNumber()}
+                          label="Balance"
+                          value={(safeToNumber(challengerAccount.balance) / LAMPORTS_PER_SOL).toFixed(4)}
+                          subValue="SOL"
                           color="parchment"
                         />
                         <StatRow
-                          label="Upheld"
-                          value={challengerAccount.disputesUpheld.toNumber()}
+                          label="Reputation"
+                          value={safeToNumber(challengerAccount.reputation)}
                           color="emerald"
-                          trend={challengerAccount.disputesUpheld.toNumber() > 0 ? "up" : undefined}
-                        />
-                        <StatRow
-                          label="Dismissed"
-                          value={challengerAccount.disputesDismissed.toNumber()}
-                          color="crimson"
-                        />
-                        <StatRow
-                          label="Pending"
-                          value={challengerAccount.disputesSubmitted.toNumber() - challengerAccount.disputesUpheld.toNumber() - challengerAccount.disputesDismissed.toNumber()}
-                          color="gold"
                         />
                       </div>
 
-                      {/* CTA */}
+                      {/* Actions */}
                       <div className="mt-5 pt-4 border-t border-slate-light/20">
+                        {showChallengerDeposit ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={challengerStakeAmount}
+                              onChange={(e) => setChallengerStakeAmount(e.target.value)}
+                              className="input flex-1 text-sm"
+                              placeholder="Amount in SOL"
+                            />
+                            <button onClick={handleChallengerDeposit} disabled={actionLoading} className="btn btn-success text-xs px-3">
+                              {actionLoading ? "..." : "Add"}
+                            </button>
+                            <button onClick={() => setShowChallengerDeposit(false)} className="btn btn-secondary text-xs px-2">
+                              ✕
+                            </button>
+                          </div>
+                        ) : showChallengerWithdraw ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={challengerWithdrawAmount}
+                              onChange={(e) => setChallengerWithdrawAmount(e.target.value)}
+                              className="input flex-1 text-sm"
+                              placeholder="Amount in SOL"
+                            />
+                            <button onClick={handleChallengerWithdraw} disabled={actionLoading} className="btn btn-danger text-xs px-3">
+                              {actionLoading ? "..." : "Withdraw"}
+                            </button>
+                            <button onClick={() => setShowChallengerWithdraw(false)} className="btn btn-secondary text-xs px-2">
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setShowChallengerDeposit(true)}
+                              className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-emerald bg-emerald-700/10 border border-emerald-700/30 hover:bg-emerald-700/20 transition-colors"
+                            >
+                              <PlusIcon /> Deposit
+                            </button>
+                            <button
+                              onClick={() => setShowChallengerWithdraw(true)}
+                              disabled={safeToNumber(challengerAccount.balance) === 0}
+                              className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-crimson bg-red-800/10 border border-red-800/30 hover:bg-red-800/20 transition-colors disabled:opacity-30"
+                            >
+                              <MinusIcon /> Withdraw
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CTA */}
+                      <div className="mt-3">
                         <Link
                           href="/registry"
                           className="flex items-center justify-center gap-2 w-full py-2 text-xs font-medium text-gold bg-gold/10 border border-gold/30 hover:bg-gold/20 transition-colors"
@@ -1671,11 +1979,13 @@ export default function JurorPage() {
                           <span className="text-sm text-steel ml-1">SOL</span>
                         </p>
                       </div>
-                      {lockedStakeItems.some(item => Date.now() / 1000 >= item.unlockAt) && (
+                      {lockedStakeItems.some(item =>
+                        item.isResolved && Date.now() / 1000 >= item.unlockAt
+                      ) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleBatchUnlock();
+                            handleBatchUnlock(lockedStakeItems);
                           }}
                           disabled={actionLoading}
                           className="btn btn-primary text-xs py-1.5 px-4"
@@ -1694,23 +2004,28 @@ export default function JurorPage() {
                     <div className="p-5 border-t border-gold/20">
                       <div className="grid gap-3">
                         {lockedStakeItems.map((item, idx) => {
-                          const isReady = Date.now() / 1000 >= item.unlockAt;
+                          const timeReady = Date.now() / 1000 >= item.unlockAt;
+                          const canUnlock = item.isResolved && timeReady;
+                          const statusText = !item.isResolved
+                            ? "Awaiting resolution"
+                            : timeReady
+                              ? "Ready to unlock"
+                              : formatTimeRemaining(item.unlockAt);
+                          const isRestore = item.dispute?.account.isRestore ?? false;
+                          const subjectIdStr = item.vote.account.subjectId.toBase58();
                           return (
                             <div
                               key={idx}
                               className={`flex items-center justify-between py-3 px-4 bg-slate/30 border transition-colors ${
-                                isReady ? 'border-emerald-500/30 hover:border-emerald-500/50' : 'border-slate-light/20 hover:border-gold/30'
+                                canUnlock ? 'border-emerald-500/30 hover:border-emerald-500/50' : 'border-slate-light/20 hover:border-gold/30'
                               }`}
                             >
-                              <div
-                                className="flex items-center gap-3 flex-1 cursor-pointer"
-                                onClick={() => setSelectedItem(item)}
-                              >
-                                <div className={`w-2 h-2 rounded-full ${isReady ? 'bg-emerald' : 'bg-gold animate-pulse'}`} />
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className={`w-2 h-2 rounded-full ${canUnlock ? 'bg-emerald' : item.isResolved ? 'bg-gold' : 'bg-amber-500 animate-pulse'}`} />
                                 <div>
                                   <p className="text-sm text-parchment">{item.subjectName}</p>
                                   <p className="text-xs text-steel">
-                                    {item.dispute.account.isRestore ? "Restoration" : "Dispute"} #{item.dispute.account.disputeIndex + 1}
+                                    {isRestore ? "Restoration" : "Dispute"} R{item.round} · {subjectIdStr.slice(0, 8)}...
                                   </p>
                                 </div>
                               </div>
@@ -1719,16 +2034,16 @@ export default function JurorPage() {
                                   <p className="text-sm font-mono text-gold">
                                     {(item.stakeAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL
                                   </p>
-                                  <p className={`text-xs flex items-center gap-1 justify-end ${isReady ? 'text-emerald' : 'text-steel'}`}>
+                                  <p className={`text-xs flex items-center gap-1 justify-end ${canUnlock ? 'text-emerald' : 'text-steel'}`}>
                                     <ClockIcon size={10} />
-                                    {isReady ? 'Ready to unlock' : `Unlocks: ${formatTimeRemaining(item.unlockAt)}`}
+                                    {statusText}
                                   </p>
                                 </div>
-                                {isReady && (
+                                {canUnlock && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleUnlockStake(item.dispute.publicKey, item.vote!.publicKey);
+                                      handleUnlockStake(item.vote.account.subjectId, item.round);
                                     }}
                                     disabled={actionLoading}
                                     className="btn btn-primary text-xs py-1.5 px-3"
@@ -1742,7 +2057,7 @@ export default function JurorPage() {
                         })}
                       </div>
                       <p className="text-xs text-steel mt-4 text-center">
-                        Stake unlocks 7 days after voting ends. Click an item to view details.
+                        Stake unlocks 7 days after dispute resolution.
                       </p>
                     </div>
                   )}
@@ -1837,7 +2152,7 @@ export default function JurorPage() {
               </div>
             )}
 
-            {/* Historical Section */}
+            {/* Historical Section - PDA-based only */}
             {historicalSubjects.length > 0 && (
               <div className="bg-slate/30 border border-slate-light p-5 mb-6 animate-slide-up stagger-6">
                 <div className="flex items-center gap-3 mb-4">
@@ -1888,13 +2203,14 @@ export default function JurorPage() {
         <SubjectModal
           subject={selectedItem.subject}
           subjectContent={subjectContents[selectedItem.subject.publicKey.toBase58()]}
-          jurorAccount={jurorAccount}
+          jurorPool={jurorAccount}
           onClose={() => setSelectedItem(null)}
           onVote={handleVote}
-          onAddStake={handleAddDefenderStake}
+          onAddBond={handleAddDefenderStake}
           onJoinChallengers={handleJoinChallengers}
           onResolve={handleResolve}
           onClaimAll={handleClaimAll}
+          onCloseRecords={handleCloseRecords}
           onRefresh={loadData}
           actionLoading={actionLoading}
           showActions={true}

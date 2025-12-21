@@ -2,8 +2,21 @@
 
 import { memo, useState, useEffect } from "react";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import BN from "bn.js";
 import { ClockIcon } from "@/components/Icons";
 import { getStatusBadge, getDisputeTypeLabel, getOutcomeLabel, SUBJECT_CATEGORIES, SubjectCardProps } from "./types";
+
+// Safe BN to number conversion (handles overflow)
+const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
+  if (bn === undefined) return fallback;
+  if (typeof bn === "number") return bn;
+  try {
+    const num = bn.toNumber();
+    return Number.isSafeInteger(num) ? num : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 // Countdown component
 const Countdown = ({ endTime }: { endTime: number }) => {
@@ -58,35 +71,32 @@ export const SubjectCard = memo(function SubjectCard({
   // Show dispute info only for active (non-resolved) disputes
   const showDisputeInfo = dispute != null && !disputeResolved;
 
-  // Calculate vote percentages
+  // Calculate vote percentages (V2: forChallenger/forDefender instead of favor/against)
   const totalVotes = dispute
-    ? dispute.account.votesFavorWeight.toNumber() + dispute.account.votesAgainstWeight.toNumber()
+    ? dispute.account.votesForChallenger.toNumber() + dispute.account.votesForDefender.toNumber()
     : 0;
   const hasNoVotes = totalVotes === 0;
   const favorPercent = totalVotes > 0
-    ? (dispute!.account.votesFavorWeight.toNumber() / totalVotes) * 100
+    ? (dispute!.account.votesForChallenger.toNumber() / totalVotes) * 100
     : 50;
 
   // Juror fees display (19% of total pool - 95% of 20% fee)
   const PROTOCOL_FEE_BPS = 2000;
   const JUROR_SHARE_BPS = 9500;
   let jurorFees = "";
-  if (showDisputeInfo && !subject.account.freeCase && !disputeResolved) {
+  if (showDisputeInfo && !disputeResolved) {
     let totalPool: number;
     if (dispute!.account.isRestore) {
-      totalPool = dispute!.account.restoreStake.toNumber();
+      totalPool = safeToNumber(dispute!.account.restoreStake);
     } else {
-      const bondPool = dispute!.account.totalBond.toNumber();
-      const matchedStake = subject.account.matchMode
-        ? dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()
-        : dispute!.account.snapshotTotalStake.toNumber();
-      totalPool = bondPool + matchedStake;
+      // V2: totalPool = totalStake + bondAtRisk
+      const stakePool = safeToNumber(dispute!.account.totalStake);
+      const bondPool = safeToNumber(dispute!.account.bondAtRisk);
+      totalPool = stakePool + bondPool;
     }
     const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
     const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
     jurorFees = `${(jurorPot / LAMPORTS_PER_SOL).toFixed(6)}`;
-  } else if (showDisputeInfo && subject.account.freeCase && !disputeResolved) {
-    jurorFees = "FREE";
   }
 
   // Awaiting resolution state
@@ -129,7 +139,7 @@ export const SubjectCard = memo(function SubjectCard({
             {status.label}
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel">
-            {Math.floor(subject.account.votingPeriod.toNumber() / 3600)}h
+            {Math.floor(safeToNumber(subject.account.votingPeriod, 86400) / 3600)}h
           </span>
         </div>
       </div>
@@ -207,7 +217,7 @@ export const SubjectCard = memo(function SubjectCard({
                       </span>
                       <span className="text-steel"> · </span>
                       <span className="text-purple-400">
-                        {voteCounts ? voteCounts.favor : 0}
+                        {voteCounts ? voteCounts.forChallenger : 0}
                       </span>
                       <span className="text-steel"> · </span>
                       <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
@@ -220,7 +230,7 @@ export const SubjectCard = memo(function SubjectCard({
                       <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
                       <span className="text-steel"> · </span>
                       <span className="text-crimson">
-                        {voteCounts ? voteCounts.against : 0}
+                        {voteCounts ? voteCounts.forDefender : 0}
                       </span>
                     </span>
                   </>
@@ -228,28 +238,28 @@ export const SubjectCard = memo(function SubjectCard({
                   <>
                     <span>
                       <span className="text-sky">
-                        {((dispute!.account.stakeHeld.toNumber() + dispute!.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(4)}
+                        {(safeToNumber(dispute!.account.bondAtRisk) / LAMPORTS_PER_SOL).toFixed(4)}
                       </span>
                       <span className="text-steel"> · </span>
                       <span className="text-sky">
-                        {voteCounts ? voteCounts.against : 0}
+                        {voteCounts ? voteCounts.forDefender : 0}
                       </span>
                       <span className="text-steel"> · </span>
                       <span className="text-sky">{(100 - favorPercent).toFixed(0)}%</span>
                     </span>
                     <span className="text-steel flex items-center gap-1">
                       <ClockIcon />
-                      <Countdown endTime={dispute!.account.votingEndsAt.toNumber() * 1000} />
+                      <Countdown endTime={safeToNumber(dispute!.account.votingEndsAt) * 1000} />
                     </span>
                     <span>
                       <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
                       <span className="text-steel"> · </span>
                       <span className="text-crimson">
-                        {voteCounts ? voteCounts.favor : 0}
+                        {voteCounts ? voteCounts.forChallenger : 0}
                       </span>
                       <span className="text-steel"> · </span>
                       <span className="text-crimson">
-                        {(dispute!.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                        {(safeToNumber(dispute!.account.totalStake) / LAMPORTS_PER_SOL).toFixed(4)}
                       </span>
                     </span>
                   </>
@@ -264,7 +274,7 @@ export const SubjectCard = memo(function SubjectCard({
       {!showDisputeInfo && (
         <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-light/50">
           <span className="text-sky">
-            {(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(6)} SOL
+            {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)} SOL
           </span>
           <span className="text-sky">
             {subject.account.defenderCount} defender{subject.account.defenderCount !== 1 ? 's' : ''}

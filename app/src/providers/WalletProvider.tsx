@@ -6,7 +6,6 @@ import {
   WalletProvider as SolanaWalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { clusterApiUrl } from "@solana/web3.js";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -15,27 +14,30 @@ interface Props {
 }
 
 export const WalletProvider: FC<Props> = ({ children }) => {
-  const [mounted, setMounted] = useState(false);
+  // Use state to hold the endpoint - only set after mounting on client
+  const [endpoint, setEndpoint] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
+    // Only runs on client, so window is available
+    setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
-
-  // Use RPC proxy to keep API key server-side (client-side only)
-  // Falls back to public devnet during SSR/build
-  const endpoint = useMemo(() => {
-    if (mounted && typeof window !== "undefined") {
-      return `${window.location.origin}/api/rpc`;
-    }
-    // Fallback for SSR - won't actually be used since client will remount
-    return clusterApiUrl("devnet");
-  }, [mounted]);
 
   // Modern wallets (Phantom, Solflare, etc.) auto-register via Standard Wallet interface
   const wallets = useMemo(() => [], []);
 
+  // Use Helius WSS endpoint directly for transaction confirmations
+  const config = useMemo(() => ({
+    commitment: "confirmed" as const,
+    wsEndpoint: "wss://devnet.helius-rpc.com/?api-key=88ac54a3-8850-4686-a521-70d116779182",
+  }), []);
+
+  // Don't render children until endpoint is set to ensure we use the Helius RPC proxy
+  if (!endpoint) {
+    return null;
+  }
+
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={config}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>

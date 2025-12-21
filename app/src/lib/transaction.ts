@@ -12,34 +12,49 @@ import { AnchorError, ProgramError } from "@coral-xyz/anchor";
 const PROGRAM_ERRORS: Record<number, { name: string; message: string }> = {
   6000: { name: "Unauthorized", message: "You are not authorized to perform this action" },
   6001: { name: "InvalidConfig", message: "Invalid configuration parameter" },
+  // Stake errors
   6002: { name: "StakeBelowMinimum", message: "Stake amount is below the minimum required" },
   6003: { name: "InsufficientAvailableStake", message: "You don't have enough available stake" },
   6004: { name: "InsufficientHeldStake", message: "Insufficient held stake for this operation" },
-  6005: { name: "StakeStillLocked", message: "Your stake is still locked and cannot be withdrawn yet" },
-  6006: { name: "BondBelowMinimum", message: "Bond amount is below the minimum required" },
-  6007: { name: "BondExceedsAvailable", message: "Bond amount exceeds your available stake" },
-  6008: { name: "SubjectCannotBeStaked", message: "This subject cannot accept additional stakes" },
-  6009: { name: "SubjectCannotBeDisputed", message: "This subject cannot be disputed at this time" },
-  6010: { name: "SubjectCannotBeAppealed", message: "This subject cannot be appealed at this time" },
-  6011: { name: "AppealStakeBelowMinimum", message: "Appeal stake must match previous dispute total" },
-  6012: { name: "CannotSelfDispute", message: "You cannot dispute your own subject" },
-  6013: { name: "DisputeAlreadyExists", message: "A dispute already exists for this subject" },
-  6014: { name: "DisputeNotFound", message: "The dispute was not found" },
-  6015: { name: "DisputeAlreadyResolved", message: "This dispute has already been resolved" },
-  6016: { name: "VotingNotEnded", message: "The voting period has not ended yet" },
-  6017: { name: "VotingEnded", message: "The voting period has already ended" },
-  6018: { name: "CannotVoteOnOwnDispute", message: "You cannot vote on your own dispute" },
-  6019: { name: "AlreadyVoted", message: "You have already voted on this dispute" },
-  6020: { name: "VoteAllocationBelowMinimum", message: "Vote stake allocation is below the minimum" },
-  6021: { name: "InvalidVoteChoice", message: "Invalid vote choice" },
-  6022: { name: "JurorNotActive", message: "You must be an active juror to perform this action" },
-  6023: { name: "JurorAlreadyRegistered", message: "You are already registered as a juror" },
-  6024: { name: "ChallengerNotFound", message: "Challenger record not found" },
-  6025: { name: "RewardAlreadyClaimed", message: "This reward has already been claimed" },
-  6026: { name: "NotEligibleForReward", message: "You are not eligible for this reward" },
-  6027: { name: "ReputationAlreadyProcessed", message: "Reputation has already been processed for this vote" },
-  6028: { name: "ArithmeticOverflow", message: "Calculation error: arithmetic overflow" },
-  6029: { name: "DivisionByZero", message: "Calculation error: division by zero" },
+  6005: { name: "StakeStillLocked", message: "Your stake is still locked (7 days after resolution)" },
+  6006: { name: "StakeAlreadyUnlocked", message: "This stake has already been unlocked" },
+  // Bond errors
+  6007: { name: "BondBelowMinimum", message: "Bond amount is below the minimum required" },
+  6008: { name: "BondExceedsAvailable", message: "Bond amount exceeds your available stake" },
+  // Subject errors
+  6009: { name: "SubjectCannotBeStaked", message: "This subject cannot accept additional stakes" },
+  6010: { name: "SubjectCannotBeDisputed", message: "This subject cannot be disputed at this time" },
+  6011: { name: "SubjectCannotBeRestored", message: "This subject cannot be restored at this time" },
+  // Restoration errors
+  6012: { name: "RestoreStakeBelowMinimum", message: "Restore stake must match previous dispute total" },
+  6013: { name: "NotARestore", message: "This dispute is not a restoration request" },
+  // Dispute errors
+  6014: { name: "CannotSelfDispute", message: "You cannot dispute your own subject" },
+  6015: { name: "DisputeAlreadyExists", message: "A dispute already exists for this subject" },
+  6016: { name: "DisputeNotFound", message: "The dispute was not found" },
+  6017: { name: "DisputeAlreadyResolved", message: "This dispute has already been resolved" },
+  6018: { name: "VotingNotEnded", message: "The voting period has not ended yet" },
+  6019: { name: "VotingEnded", message: "The voting period has already ended" },
+  // Vote errors
+  6020: { name: "CannotVoteOnOwnDispute", message: "You cannot vote on your own dispute" },
+  6021: { name: "AlreadyVoted", message: "You have already voted on this dispute" },
+  6022: { name: "VoteAllocationBelowMinimum", message: "Vote stake allocation is below the minimum" },
+  6023: { name: "InvalidVoteChoice", message: "Invalid vote choice" },
+  // Juror errors
+  6024: { name: "JurorNotActive", message: "You must be an active juror to perform this action" },
+  6025: { name: "JurorAlreadyRegistered", message: "You are already registered as a juror" },
+  // Challenger errors
+  6026: { name: "ChallengerNotFound", message: "Challenger record not found" },
+  // Reward errors
+  6027: { name: "RewardAlreadyClaimed", message: "This reward has already been claimed" },
+  6028: { name: "RewardNotClaimed", message: "You must claim your reward first" },
+  6029: { name: "NotEligibleForReward", message: "You are not eligible for this reward" },
+  6030: { name: "ReputationAlreadyProcessed", message: "Reputation has already been processed for this vote" },
+  // Math errors
+  6031: { name: "ArithmeticOverflow", message: "Calculation error: arithmetic overflow" },
+  6032: { name: "DivisionByZero", message: "Calculation error: division by zero" },
+  // Escrow errors
+  6033: { name: "ClaimsNotComplete", message: "Not all claims have been processed" },
 };
 
 // Common Solana/Anchor errors with user-friendly messages
@@ -67,10 +82,14 @@ const SOLANA_ERRORS: Record<string, string> = {
   "insufficient funds": "Insufficient SOL balance to complete this transaction",
   "Transaction simulation failed": "Transaction simulation failed",
   "Account not found": "Required account not found on chain",
+  "Account does not exist": "Required account not found on chain",
   "custom program error": "Program execution error",
   "already in use": "This account is already in use",
   "Transaction was not confirmed": "Transaction was not confirmed. Please try again.",
   "block height exceeded": "Transaction expired. Please try again.",
+  "Wallet not connected": "Please connect your wallet to continue",
+  "Wallet disconnected": "Wallet disconnected. Please reconnect to continue",
+  "User rejected": "Transaction was cancelled",
 };
 
 export interface TransactionError {

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Increase max duration for long-running RPC requests (confirmTransaction polling)
+export const maxDuration = 60; // 60 seconds
+
 // RPC endpoint constructed from env vars (API key stays server-side)
 const RPC_URL = process.env.SOLANA_RPC_URL;
 const RPC_API_KEY = process.env.SOLANA_RPC_API_KEY;
@@ -35,21 +38,41 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    // Use AbortController for timeout (55 seconds to stay under maxDuration)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
-    const data = await response.json();
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-    return NextResponse.json(data, {
-      status: response.status,
-    });
+      clearTimeout(timeoutId);
+      const data = await response.json();
+
+      return NextResponse.json(data, {
+        status: response.status,
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      throw fetchError;
+    }
   } catch (error) {
     console.error("RPC proxy error:", error);
+
+    // Check if it's a timeout/abort error
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: "RPC request timed out" },
+        { status: 504 }
+      );
+    }
+
     return NextResponse.json(
       { error: "RPC request failed" },
       { status: 502 }

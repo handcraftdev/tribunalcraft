@@ -7,9 +7,30 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
 import { XIcon, ClockIcon, CheckIcon, ChevronDownIcon, LinkIcon } from "@/components/Icons";
 import { getStatusBadge, getOutcomeLabel, getDisputeTypeLabel, SUBJECT_CATEGORIES, DISPUTE_TYPES, SubjectModalProps, VoteData, DisputeData, UserRoles, ChallengerRecordData, DefenderRecordData } from "./types";
-import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION, DisputeType } from "@/hooks/useTribunalcraft";
+import {
+  useTribunalcraft,
+  calculateMinBond,
+  INITIAL_REPUTATION,
+  DisputeType,
+  type Escrow,
+  type RoundResult,
+  calculateUserRewards,
+  lamportsToSol,
+} from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import type { DisputeContent } from "@/lib/content-types";
+
+// Safe BN to number conversion (handles overflow)
+const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
+  if (bn === undefined) return fallback;
+  if (typeof bn === "number") return bn;
+  try {
+    const num = bn.toNumber();
+    return Number.isSafeInteger(num) ? num : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 // Role badges component - displays separate J, D, C badges
 const RoleBadges = ({ roles }: { roles?: UserRoles | null }) => {
@@ -143,7 +164,7 @@ const VoteForm = memo(function VoteForm({
         <div className="flex items-center justify-between text-sm">
           <span className="text-steel">Your Vote:</span>
           <span className={`font-medium ${getExistingVoteClass()}`}>
-            {getExistingVoteLabel()} - {(existingVote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL).toFixed(6)} SOL
+            {getExistingVoteLabel()} - {(safeToNumber(existingVote.account.stakeAllocation) / LAMPORTS_PER_SOL).toFixed(6)} SOL
           </span>
         </div>
       )}
@@ -213,7 +234,7 @@ const JoinForm = memo(function JoinForm({
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           className="input flex-1 min-w-0 text-sm py-1.5"
-          placeholder={type === "defender" ? "Amount" : "Bond"}
+          placeholder={type === "defender" ? "Bond" : "Stake"}
         />
         <span className="text-steel text-sm shrink-0">SOL</span>
       </div>
@@ -230,14 +251,14 @@ const JoinForm = memo(function JoinForm({
   );
 });
 
-// Claim data for a dispute
+// Claim data for a dispute (V2: uses wrapped record types with publicKey and account)
 interface ClaimData {
   voteRecord?: VoteData | null;
-  challengerRecord?: { bond: any; rewardClaimed: boolean } | null;
-  defenderRecord?: { stake: any; rewardClaimed: boolean } | null;
+  challengerRecord?: ChallengerRecordData | null;
+  defenderRecord?: DefenderRecordData | null;
 }
 
-// Collapsible History Item
+// Collapsible History Item (V2 data with V1 styling)
 const HistoryItem = memo(function HistoryItem({
   pastDispute,
   disputeContent,
@@ -245,23 +266,30 @@ const HistoryItem = memo(function HistoryItem({
   defaultExpanded = false,
   claimData,
   onClaimAll,
+  onCloseRecords,
   actionLoading = false,
+  escrowRound,
 }: {
   pastDispute: DisputeData;
   disputeContent: any;
   votes: VoteData[];
   defaultExpanded?: boolean;
   claimData?: ClaimData | null;
-  onClaimAll?: (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
+  onClaimAll?: (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
+  onCloseRecords?: (subjectIdKey: string, round: number, records: { juror: boolean; challenger: boolean; defender: boolean }) => void;
   actionLoading?: boolean;
+  escrowRound?: RoundResult | null;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showClaimModal, setShowClaimModal] = useState(false);
   const dOutcome = getOutcomeLabel(pastDispute.account.outcome);
-  const totalVotes = pastDispute.account.votesFavorWeight.toNumber() + pastDispute.account.votesAgainstWeight.toNumber();
-  const favorPercent = totalVotes > 0
-    ? (pastDispute.account.votesFavorWeight.toNumber() / totalVotes) * 100
-    : 50;
+
+  // V2: votesForChallenger/votesForDefender
+  const votesForChallenger = safeToNumber(pastDispute.account.votesForChallenger);
+  const votesForDefender = safeToNumber(pastDispute.account.votesForDefender);
+  const totalVoteWeight = votesForChallenger + votesForDefender;
+  const favorPercent = totalVoteWeight > 0 ? (votesForChallenger / totalVoteWeight) * 100 : 50;
+
   const isRestore = pastDispute.account.isRestore;
   const isPending = pastDispute.account.status.pending;
 
@@ -276,18 +304,23 @@ const HistoryItem = memo(function HistoryItem({
   const PROTOCOL_FEE_BPS = 2000; // 20%
   const JUROR_SHARE_BPS = 9500; // 95% of fees = 19% of total
   const TREASURY_SHARE_BPS = 500; // 5% of fees = 1% of total
+
+  // V2: totalStake (challenger) + bondAtRisk (defender)
+  const totalChallengerStake = safeToNumber(escrowRound?.totalStake ?? pastDispute.account.totalStake);
+  const totalDefenderBond = safeToNumber(escrowRound?.bondAtRisk ?? pastDispute.account.bondAtRisk);
+
   let totalPool: number;
   if (isRestore) {
-    totalPool = pastDispute.account.restoreStake.toNumber();
+    totalPool = safeToNumber(pastDispute.account.restoreStake);
   } else {
-    totalPool = pastDispute.account.totalBond.toNumber() +
-      pastDispute.account.stakeHeld.toNumber() +
-      pastDispute.account.directStakeHeld.toNumber();
+    totalPool = totalChallengerStake + totalDefenderBond;
   }
+
   const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
-  const winnerPot = totalPool - totalFees;
-  const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
-  const treasuryPot = totalFees * TREASURY_SHARE_BPS / 10000;
+  const winnerPot = escrowRound ? safeToNumber(escrowRound.winnerPool) : (totalPool - totalFees);
+  const jurorPot = escrowRound ? safeToNumber(escrowRound.jurorPool) : (totalFees * JUROR_SHARE_BPS / 10000);
+  const treasuryPot = totalFees - jurorPot;
+
   const winnerReward = (winnerPot / LAMPORTS_PER_SOL).toFixed(4);
   const jurorReward = (jurorPot / LAMPORTS_PER_SOL).toFixed(4);
   const treasuryReward = (treasuryPot / LAMPORTS_PER_SOL).toFixed(4);
@@ -296,8 +329,8 @@ const HistoryItem = memo(function HistoryItem({
   // Claim availability checks - no claims for free cases (no rewards)
   const isResolved = pastDispute.account.status.resolved;
   const hasJurorClaim = !isFreeCase && claimData?.voteRecord && !claimData.voteRecord.account.rewardClaimed;
-  const hasChallengerClaim = !isFreeCase && claimData?.challengerRecord && !claimData.challengerRecord.rewardClaimed;
-  const hasDefenderClaim = !isFreeCase && claimData?.defenderRecord && !claimData.defenderRecord.rewardClaimed;
+  const hasChallengerClaim = !isFreeCase && claimData?.challengerRecord && !claimData.challengerRecord.account.rewardClaimed;
+  const hasDefenderClaim = !isFreeCase && claimData?.defenderRecord && !claimData.defenderRecord.account.rewardClaimed;
   const hasAnyClaim = hasJurorClaim || hasChallengerClaim || hasDefenderClaim;
 
   // Check if user has any claim records at all (regardless of claimed status)
@@ -307,14 +340,14 @@ const HistoryItem = memo(function HistoryItem({
   // Determine outcome
   const challengerWins = "challengerWins" in pastDispute.account.outcome;
   const defenderWins = "defenderWins" in pastDispute.account.outcome;
-  const restorationWins = isRestore && "challengerWins" in pastDispute.account.outcome; // forRestoration maps to challengerWins
-  const restorationLoses = isRestore && "defenderWins" in pastDispute.account.outcome;
+  const restorationWins = isRestore && challengerWins;
+  const restorationLoses = isRestore && defenderWins;
 
-  // User's stake/bond amounts
-  const jurorStake = claimData?.voteRecord?.account.stakeAllocated?.toNumber() || 0;
-  const jurorVotingPower = claimData?.voteRecord?.account.votingPower?.toNumber() || 0;
-  const challengerBond = claimData?.challengerRecord?.bond?.toNumber() || 0;
-  const defenderStake = claimData?.defenderRecord?.stake?.toNumber() || 0;
+  // User's stake/bond amounts (V2: challenger has stake, defender has bond)
+  const jurorStake = safeToNumber(claimData?.voteRecord?.account.stakeAllocation);
+  const jurorVotingPower = safeToNumber(claimData?.voteRecord?.account.votingPower);
+  const challengerStake = safeToNumber(claimData?.challengerRecord?.account.stake);
+  const defenderBond = safeToNumber(claimData?.defenderRecord?.account.bond);
 
   // Check if user voted for the winning side
   const userVotedForChallenger = claimData?.voteRecord?.account.choice && "forChallenger" in claimData.voteRecord.account.choice;
@@ -323,27 +356,21 @@ const HistoryItem = memo(function HistoryItem({
     ? (restorationWins && userVotedForRestoration) || (restorationLoses && !userVotedForRestoration)
     : (challengerWins && userVotedForChallenger) || (defenderWins && !userVotedForChallenger);
 
-  // Calculate actual rewards (winner pot is 80% of total, already has fees deducted)
-  // Juror reward: ALL jurors share the pot proportionally by voting power (not just winners)
-  const totalVoteWeight = pastDispute.account.votesFavorWeight.toNumber() + pastDispute.account.votesAgainstWeight.toNumber();
-  const jurorRewardShare = totalVoteWeight > 0
-    ? (jurorVotingPower / totalVoteWeight) * jurorPot
-    : 0;
-  // Note: Stake is unlocked separately, reward is the only claimable amount
-  const jurorRewardAmount = jurorRewardShare;
+  // Calculate actual rewards using SDK if escrowRound available
+  const userRewards = escrowRound ? calculateUserRewards(escrowRound, {
+    jurorRecord: claimData?.voteRecord?.account,
+    challengerRecord: claimData?.challengerRecord?.account,
+    defenderRecord: claimData?.defenderRecord?.account,
+  }) : null;
 
-  // Challenger reward: share of winner pot (only if challenger wins)
-  // Winner pot (80%) is distributed proportionally - no need to add bond back
-  const totalBond = pastDispute.account.totalBond?.toNumber() || 0;
-  const challengerRewardAmount = challengerWins && totalBond > 0
-    ? (challengerBond / totalBond) * winnerPot
-    : 0; // Lose bond if defender wins
+  // Fallback calculations if no escrowRound
+  const jurorRewardShare = totalVoteWeight > 0 ? (jurorVotingPower / totalVoteWeight) * jurorPot : 0;
+  const challengerRewardShare = challengerWins && totalChallengerStake > 0 ? (challengerStake / totalChallengerStake) * winnerPot : 0;
+  const defenderRewardShare = defenderWins && totalDefenderBond > 0 ? (defenderBond / totalDefenderBond) * winnerPot : 0;
 
-  // Defender reward: share of winner pot (only if defender wins)
-  const totalDefenderStake = (pastDispute.account.stakeHeld?.toNumber() || 0) + (pastDispute.account.directStakeHeld?.toNumber() || 0);
-  const defenderRewardAmount = defenderWins && totalDefenderStake > 0
-    ? (defenderStake / totalDefenderStake) * winnerPot
-    : 0; // Lose stake if challenger wins
+  const jurorRewardAmount = userRewards?.juror?.total ?? jurorRewardShare;
+  const challengerRewardAmount = userRewards?.challenger?.total ?? challengerRewardShare;
+  const defenderRewardAmount = userRewards?.defender?.total ?? defenderRewardShare;
 
   // Total reward amount for user (sum of all applicable rewards)
   const totalUserReward = (claimData?.voteRecord ? jurorRewardAmount : 0)
@@ -351,14 +378,19 @@ const HistoryItem = memo(function HistoryItem({
     + (claimData?.defenderRecord ? defenderRewardAmount : 0);
   const totalUserRewardFormatted = (totalUserReward / LAMPORTS_PER_SOL).toFixed(4);
 
+  // Close record checks
+  const canCloseJuror = claimData?.voteRecord && claimData.voteRecord.account.rewardClaimed && claimData.voteRecord.account.stakeUnlocked;
+  const canCloseChallenger = claimData?.challengerRecord && claimData.challengerRecord.account.rewardClaimed;
+  const canCloseDefender = claimData?.defenderRecord && claimData.defenderRecord.account.rewardClaimed;
+  const hasClosableRecords = canCloseJuror || canCloseChallenger || canCloseDefender;
+
   const handleClaimAll = () => {
     if (onClaimAll) {
-      onClaimAll(pastDispute.publicKey.toBase58(), {
+      onClaimAll(pastDispute.account.subjectId.toBase58(), pastDispute.account.round, {
         juror: !!hasJurorClaim,
         challenger: !!hasChallengerClaim,
         defender: !!hasDefenderClaim,
       });
-      // Keep modal open to show claimed status
     }
   };
 
@@ -371,20 +403,25 @@ const HistoryItem = memo(function HistoryItem({
     return challengerWins ? 'border-red-800/50' : 'border-sky-500/50';
   };
 
+  // V2: defenderCount and challengerCount
+  const defenderCount = pastDispute.account.defenderCount || 0;
+  const challengerCount = pastDispute.account.challengerCount || 0;
+  const voteCount = pastDispute.account.voteCount || 0;
+
   return (
     <div className={`border ${getBorderClass()}`}>
-      {/* Clickable header - uses details aesthetic */}
+      {/* Clickable header - V1 style */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full p-3 bg-obsidian hover:bg-obsidian/80 transition-colors text-left"
       >
         <div className="flex items-center justify-between mb-2">
           <p className={`text-sm font-medium ${isRestore ? 'text-purple-400' : 'text-crimson'}`}>
-            {disputeContent?.title || (isRestore ? "Restoration Request" : "Dispute")}
+            {disputeContent?.title || (isRestore ? "Restoration Request" : `Dispute R${pastDispute.account.round}`)}
           </p>
           <div className="flex items-center gap-1">
             <span className={`text-[10px] px-1.5 py-0.5 rounded ${isRestore ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-light/30 text-steel'}`}>
-              {isRestore ? 'Restore' : getDisputeTypeLabel(pastDispute.account.disputeType)}
+              {isRestore ? 'Restore' : 'Dispute'}
             </span>
             {isFreeCase ? (
               <span className="text-[10px] text-emerald">Free</span>
@@ -424,23 +461,38 @@ const HistoryItem = memo(function HistoryItem({
                 +{totalUserRewardFormatted}
               </span>
             )}
+            {hasClosableRecords && !hasAnyClaim && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCloseRecords?.(pastDispute.account.subjectId.toBase58(), pastDispute.account.round, {
+                    juror: !!canCloseJuror,
+                    challenger: !!canCloseChallenger,
+                    defender: !!canCloseDefender,
+                  });
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel cursor-pointer hover:bg-steel/30"
+              >
+                Close
+              </span>
+            )}
             <ChevronDownIcon expanded={expanded} />
           </div>
         </div>
         <div className="flex items-center justify-between text-[10px]">
-          <span className="text-steel">{pastDispute.publicKey.toBase58()}</span>
+          <span className="text-steel">{pastDispute.publicKey.toBase58().slice(0, 20)}...</span>
           <div className="flex items-center gap-2">
             <span className={`font-medium ${dOutcome.class}`}>{isPending ? 'Voting' : dOutcome.label}</span>
             {!isPending && (
               <span className="text-steel">
-                {new Date(pastDispute.account.resolvedAt.toNumber() * 1000).toLocaleDateString()}
+                {new Date(safeToNumber(pastDispute.account.resolvedAt) * 1000).toLocaleDateString()}
               </span>
             )}
           </div>
         </div>
       </button>
 
-      {/* Claim Modal */}
+      {/* Claim Modal - V1 style */}
       {showClaimModal && (
         <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-[60] p-4" onClick={() => setShowClaimModal(false)}>
           <div className="bg-slate border border-gold/30 max-w-md w-full" onClick={e => e.stopPropagation()}>
@@ -478,33 +530,33 @@ const HistoryItem = memo(function HistoryItem({
                   {claimData?.voteRecord && jurorRewardAmount > 0 && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-steel">
-                        Juror <span className="text-steel/60">({(jurorVotingPower / totalVoteWeight * 100).toFixed(1)}% of votes)</span>
+                        Juror <span className="text-steel/60">({totalVoteWeight > 0 ? (jurorVotingPower / totalVoteWeight * 100).toFixed(1) : 0}% of votes)</span>
                       </span>
                       <span className={hasJurorClaim ? 'text-gold' : 'text-steel'}>
                         +{(jurorRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasJurorClaim && ' ✓'}
+                        {!hasJurorClaim && claimData?.voteRecord?.account.rewardClaimed && ' ✓'}
                       </span>
                     </div>
                   )}
                   {claimData?.challengerRecord && challengerWins && challengerRewardAmount > 0 && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-steel">
-                        Winner <span className="text-steel/60">({(totalBond > 0 ? challengerBond / totalBond * 100 : 0).toFixed(1)}% of winner pot)</span>
+                        Winner <span className="text-steel/60">({totalChallengerStake > 0 ? (challengerStake / totalChallengerStake * 100).toFixed(1) : 0}% of winner pot)</span>
                       </span>
                       <span className={hasChallengerClaim ? 'text-emerald' : 'text-steel'}>
                         +{(challengerRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasChallengerClaim && ' ✓'}
+                        {!hasChallengerClaim && claimData?.challengerRecord?.account.rewardClaimed && ' ✓'}
                       </span>
                     </div>
                   )}
                   {claimData?.defenderRecord && defenderWins && defenderRewardAmount > 0 && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-steel">
-                        Winner <span className="text-steel/60">({(totalDefenderStake > 0 ? defenderStake / totalDefenderStake * 100 : 0).toFixed(1)}% of winner pot)</span>
+                        Winner <span className="text-steel/60">({totalDefenderBond > 0 ? (defenderBond / totalDefenderBond * 100).toFixed(1) : 0}% of winner pot)</span>
                       </span>
                       <span className={hasDefenderClaim ? 'text-emerald' : 'text-steel'}>
                         +{(defenderRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasDefenderClaim && ' ✓'}
+                        {!hasDefenderClaim && claimData?.defenderRecord?.account.rewardClaimed && ' ✓'}
                       </span>
                     </div>
                   )}
@@ -532,7 +584,7 @@ const HistoryItem = memo(function HistoryItem({
         </div>
       )}
 
-      {/* Expandable content */}
+      {/* Expandable content - V1 style */}
       {expanded && (
         <>
           {/* Reason, requested outcome, and resolution info */}
@@ -554,19 +606,19 @@ const HistoryItem = memo(function HistoryItem({
               <div className="pt-2 border-t border-slate-light/30 grid grid-cols-2 gap-2 text-[10px]">
                 <div>
                   <span className="text-steel">Resolved: </span>
-                  <span className="text-parchment">{new Date(pastDispute.account.resolvedAt.toNumber() * 1000).toLocaleString()}</span>
+                  <span className="text-parchment">{new Date(safeToNumber(pastDispute.account.resolvedAt) * 1000).toLocaleString()}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-steel">Duration: </span>
                   <span className="text-parchment">
-                    {Math.round((pastDispute.account.votingEndsAt.toNumber() - pastDispute.account.votingStartsAt.toNumber()) / 3600)}h
+                    {Math.round((safeToNumber(pastDispute.account.votingEndsAt) - safeToNumber(pastDispute.account.createdAt)) / 3600)}h
                   </span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* VS / Power bar - after requested outcome */}
+          {/* VS / Power bar - V1 style with V2 data */}
           <div className="p-3 bg-obsidian space-y-2">
             {isRestore ? (
               <>
@@ -582,22 +634,18 @@ const HistoryItem = memo(function HistoryItem({
                 <div className="flex items-center justify-between text-[10px]">
                   <span>
                     <span className="text-purple-400">
-                      {(pastDispute.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
+                      {(safeToNumber(pastDispute.account.restoreStake) / LAMPORTS_PER_SOL).toFixed(6)}
                     </span>
                     <span className="text-steel"> · </span>
-                    <span className="text-purple-400">{votes.filter(v => "forRestoration" in v.account.restoreChoice).length}</span>
+                    <span className="text-purple-400">{votes.filter(v => v.account.restoreChoice && "forRestoration" in v.account.restoreChoice).length}</span>
                     <span className="text-steel"> · </span>
                     <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
                   </span>
-                  <span className="text-steel">{pastDispute.account.voteCount} votes</span>
+                  <span className="text-steel">{voteCount} votes</span>
                   <span>
                     <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
                     <span className="text-steel"> · </span>
-                    <span className="text-crimson">{votes.filter(v => "againstRestoration" in v.account.restoreChoice).length}</span>
-                    <span className="text-steel"> · </span>
-                    <span className="text-purple-400">
-                      {pastDispute.account.restorer.toBase58().slice(0, 4)}...
-                    </span>
+                    <span className="text-crimson">{votes.filter(v => v.account.restoreChoice && "againstRestoration" in v.account.restoreChoice).length}</span>
                   </span>
                 </div>
               </>
@@ -606,10 +654,10 @@ const HistoryItem = memo(function HistoryItem({
                 {/* Regular dispute bar */}
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-sky-400">
-                    {pastDispute.account.snapshotDefenderCount} Defender{pastDispute.account.snapshotDefenderCount !== 1 ? 's' : ''}
+                    {defenderCount} Defender{defenderCount !== 1 ? 's' : ''}
                   </span>
                   <span className="text-crimson">
-                    {pastDispute.account.challengerCount} Challenger{pastDispute.account.challengerCount !== 1 ? 's' : ''}
+                    {challengerCount} Challenger{challengerCount !== 1 ? 's' : ''}
                   </span>
                 </div>
                 <div className="h-1 rounded overflow-hidden flex bg-obsidian">
@@ -619,21 +667,21 @@ const HistoryItem = memo(function HistoryItem({
                 <div className="flex items-center justify-between text-[10px]">
                   <span>
                     <span className="text-sky-400">
-                      {((pastDispute.account.stakeHeld.toNumber() + pastDispute.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(6)}
+                      {(totalDefenderBond / LAMPORTS_PER_SOL).toFixed(6)}
                     </span>
                     <span className="text-steel"> · </span>
-                    <span className="text-sky-400">{votes.filter(v => "forDefender" in v.account.choice).length}</span>
+                    <span className="text-sky-400">{votes.filter(v => v.account.choice && "forDefender" in v.account.choice).length}</span>
                     <span className="text-steel"> · </span>
                     <span className="text-sky-400">{(100 - favorPercent).toFixed(0)}%</span>
                   </span>
-                  <span className="text-steel">{pastDispute.account.voteCount} votes</span>
+                  <span className="text-steel">{voteCount} votes</span>
                   <span>
                     <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
                     <span className="text-steel"> · </span>
-                    <span className="text-crimson">{votes.filter(v => "forChallenger" in v.account.choice).length}</span>
+                    <span className="text-crimson">{votes.filter(v => v.account.choice && "forChallenger" in v.account.choice).length}</span>
                     <span className="text-steel"> · </span>
                     <span className="text-crimson">
-                      {(pastDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
+                      {(totalChallengerStake / LAMPORTS_PER_SOL).toFixed(6)}
                     </span>
                   </span>
                 </div>
@@ -649,7 +697,7 @@ const HistoryItem = memo(function HistoryItem({
                 {votes.map((vote, i) => {
                   const hasRationale = vote.account.rationaleCid && vote.account.rationaleCid.length > 0;
                   const jurorAddress = vote.account.juror.toBase58();
-                  const stakeAmount = vote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL;
+                  const stakeAmount = safeToNumber(vote.account.stakeAllocation) / LAMPORTS_PER_SOL;
 
                   // Determine vote display based on whether it's a restore vote
                   const isRestoreVote = vote.account.isRestoreVote;
@@ -698,13 +746,14 @@ const HistoryItem = memo(function HistoryItem({
 export const SubjectModal = memo(function SubjectModal({
   subject,
   subjectContent,
-  jurorAccount,
+  jurorPool,
   onClose,
   onVote,
-  onAddStake,
+  onAddBond,
   onJoinChallengers,
   onResolve,
   onClaimAll,
+  onCloseRecords,
   onRefresh,
   actionLoading,
   showActions = true,
@@ -716,24 +765,28 @@ export const SubjectModal = memo(function SubjectModal({
   // Wallet for user-specific data
   const { publicKey } = useWallet();
 
-  // Hooks for internal data fetching
+  // Hooks for internal data fetching (V2 SDK)
   const {
-    submitDispute,
-    submitFreeDispute,
+    createDispute,
     submitRestore,
     fetchDefenderPool,
-    fetchChallengerAccount,
-    getChallengerPDA,
-    fetchVotesByDispute,
-    fetchDisputesBySubject,
-    fetchChallengersByDispute,
-    fetchVoteRecord,
+    fetchChallengerPool,
+    getChallengerPoolPDA,
+    fetchJurorRecordsBySubject,
+    fetchDispute,
+    getDisputePDA,
+    fetchChallengerRecordsBySubject,
+    fetchJurorRecord,
     fetchChallengerRecord,
     fetchDefenderRecord,
-    getVoteRecordPDA,
+    getJurorRecordPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
     getDefenderPoolPDA,
+    fetchJurorPool,
+    getJurorPoolPDA,
+    fetchEscrowBySubjectId,
+    getEscrowPDA,
   } = useTribunalcraft();
   const { uploadDispute, isUploading } = useUpload();
   const { fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
@@ -765,6 +818,9 @@ export const SubjectModal = memo(function SubjectModal({
   // Challenger reputation for active dispute creator
   const [activeDisputeCreatorRep, setActiveDisputeCreatorRep] = useState<number | null>(null);
 
+  // Escrow data for claim calculations (keyed by round)
+  const [escrowData, setEscrowData] = useState<Escrow | null>(null);
+
   // Derived: active dispute (pending, voting not ended) or waiting resolution
   const activeDispute = allDisputes.find(d =>
     d.account.status.pending
@@ -787,9 +843,8 @@ export const SubjectModal = memo(function SubjectModal({
   // Derived: content for active dispute
   const disputeContent = activeDispute ? allDisputeContents[activeDispute.publicKey.toBase58()] : null;
 
-  // Derived: user roles for active dispute
-  const [poolPda] = publicKey ? getDefenderPoolPDA(publicKey) : [null];
-  const isDefender = poolPda && subject.account.defenderPool.toBase58() === poolPda.toBase58();
+  // Derived: user roles for active dispute (V2: check DefenderRecord)
+  const isDefender = !!userDefenderRecord;
   const isChallenger = activeDispute ? !!userChallengerRecords[activeDispute.publicKey.toBase58()] : false;
   const isJuror = !!existingVote;
   const userRoles: UserRoles = { juror: isJuror, defender: !!isDefender, challenger: isChallenger };
@@ -802,50 +857,70 @@ export const SubjectModal = memo(function SubjectModal({
   const [internalSuccess, setInternalSuccess] = useState<string | null>(null);
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // DATA FETCHING - Load all disputes and related data for this subject
+  // DATA FETCHING - Load dispute and related data for this subject (V2)
   // ═══════════════════════════════════════════════════════════════════════════════
 
   const loadSubjectData = useCallback(async () => {
     setLoading(true);
+    console.log("[SubjectModal:loadSubjectData] Starting...");
     try {
-      // Fetch all disputes for this subject
-      const disputes = await fetchDisputesBySubject(subject.publicKey);
-      const disputeList = disputes || [];
+      const subjectId = subject.account.subjectId;
+      const round = subject.account.round;
+      console.log("[SubjectModal:loadSubjectData] subjectId:", subjectId.toBase58(), "round:", round);
+
+      // V2: Fetch the current dispute for this subject (one per subject at a time)
+      let dispute: DisputeData | null = null;
+      try {
+        const [disputePda] = getDisputePDA(subjectId);
+        console.log("[SubjectModal:loadSubjectData] Fetching dispute at:", disputePda.toBase58());
+        const disputeAccount = await fetchDispute(disputePda);
+        console.log("[SubjectModal:loadSubjectData] Dispute found:", !!disputeAccount);
+        if (disputeAccount) {
+          dispute = { publicKey: disputePda, account: disputeAccount };
+        }
+      } catch (err) {
+        console.log("[SubjectModal:loadSubjectData] No dispute found:", err);
+      }
+
+      const disputeList = dispute ? [dispute] : [];
       setAllDisputes(disputeList);
 
+      // Fetch escrow data for claim calculations (safe_bond, pools, etc.)
+      try {
+        const escrow = await fetchEscrowBySubjectId(subjectId);
+        setEscrowData(escrow);
+      } catch {
+        // No escrow yet
+        setEscrowData(null);
+      }
+
       if (disputeList.length === 0) {
+        console.log("[SubjectModal:loadSubjectData] No disputes found and no wallet, returning early");
         setLoading(false);
         return;
       }
 
-      // Fetch votes for all disputes in parallel
-      const votesPromises = disputeList.map(async (d) => {
-        try {
-          const votes = await fetchVotesByDispute(d.publicKey);
-          return { key: d.publicKey.toBase58(), votes: votes || [] };
-        } catch {
-          return { key: d.publicKey.toBase58(), votes: [] };
-        }
-      });
-      const votesResults = await Promise.all(votesPromises);
+      // V2: Fetch juror records for this subject (all rounds)
       const votesMap: Record<string, VoteData[]> = {};
-      for (const r of votesResults) {
-        votesMap[r.key] = r.votes;
+      try {
+        const jurorRecords = await fetchJurorRecordsBySubject(subjectId);
+        // Group by round (dispute)
+        const disputeKey = dispute!.publicKey.toBase58();
+        votesMap[disputeKey] = (jurorRecords || []).map(jr => ({
+          publicKey: jr.publicKey,
+          account: jr.account,
+        }));
+      } catch {
+        votesMap[dispute!.publicKey.toBase58()] = [];
       }
       setAllDisputeVotes(votesMap);
 
-      // Fetch content for all disputes (via challengers)
+      // V2: Fetch content from dispute's detailsCid directly
       const contentsMap: Record<string, DisputeContent | null> = {};
-      for (const d of disputeList) {
+      if (dispute && dispute.account.detailsCid) {
         try {
-          const challengers = await fetchChallengersByDispute(d.publicKey);
-          if (challengers && challengers.length > 0) {
-            const cid = challengers[0].account.detailsCid;
-            if (cid) {
-              const content = await fetchDisputeContent(cid);
-              contentsMap[d.publicKey.toBase58()] = content;
-            }
-          }
+          const content = await fetchDisputeContent(dispute.account.detailsCid);
+          contentsMap[dispute.publicKey.toBase58()] = content;
         } catch {
           // Ignore content fetch errors
         }
@@ -853,62 +928,60 @@ export const SubjectModal = memo(function SubjectModal({
       setAllDisputeContents(contentsMap);
 
       // Fetch user-specific data if wallet connected
-      if (publicKey) {
-        // Fetch user's vote records for all disputes
+      if (publicKey && dispute) {
+        const disputeRound = dispute.account.round;
+        const disputeKey = dispute.publicKey.toBase58();
+
+        // V2: Fetch user's juror record for this dispute (subjectId, user, round)
         const voteRecordsMap: Record<string, VoteData | null> = {};
-        for (const d of disputeList) {
-          try {
-            const [voteRecordPda] = getVoteRecordPDA(d.publicKey, publicKey);
-            const record = await fetchVoteRecord(voteRecordPda);
-            if (record) {
-              voteRecordsMap[d.publicKey.toBase58()] = {
-                publicKey: voteRecordPda,
-                account: record,
-              };
-            }
-          } catch {
-            // No vote record
+        try {
+          const [jurorRecordPda] = getJurorRecordPDA(subjectId, publicKey, disputeRound);
+          const record = await fetchJurorRecord(jurorRecordPda);
+          if (record) {
+            voteRecordsMap[disputeKey] = {
+              publicKey: jurorRecordPda,
+              account: record,
+            };
           }
+        } catch {
+          // No juror record
         }
         setUserVoteRecords(voteRecordsMap);
 
-        // Fetch user's challenger records for all disputes
+        // V2: Fetch user's challenger record (subjectId, user, round)
         const challRecordsMap: Record<string, ChallengerRecordData | null> = {};
-        for (const d of disputeList) {
-          try {
-            const [challRecordPda] = getChallengerRecordPDA(d.publicKey, publicKey);
-            const record = await fetchChallengerRecord(challRecordPda);
-            if (record) {
-              challRecordsMap[d.publicKey.toBase58()] = record;
-            }
-          } catch {
-            // No challenger record
+        try {
+          const [challRecordPda] = getChallengerRecordPDA(subjectId, publicKey, disputeRound);
+          const record = await fetchChallengerRecord(challRecordPda);
+          if (record) {
+            challRecordsMap[disputeKey] = { publicKey: challRecordPda, account: record };
           }
+        } catch {
+          // No challenger record
         }
         setUserChallengerRecords(challRecordsMap);
 
-        // Fetch user's defender record for this subject
+        // V2: Fetch user's defender record (subjectId, user, round)
         try {
-          const [defRecordPda] = getDefenderRecordPDA(subject.publicKey, publicKey);
+          const [defRecordPda] = getDefenderRecordPDA(subjectId, publicKey, disputeRound);
           const record = await fetchDefenderRecord(defRecordPda);
           if (record) {
-            setUserDefenderRecord(record);
+            setUserDefenderRecord({ publicKey: defRecordPda, account: record });
           }
         } catch {
           // No defender record
         }
 
-        // Fetch active dispute creator's reputation
-        const active = disputeList.find(d => "pending" in d.account.status);
-        if (active) {
+        // V2: Fetch dispute creator's reputation from their ChallengerPool
+        if (dispute.account.status.pending) {
           try {
-            const challengers = await fetchChallengersByDispute(active.publicKey);
+            const challengers = await fetchChallengerRecordsBySubject(subjectId);
             if (challengers && challengers.length > 0) {
               const creatorPubkey = challengers[0].account.challenger;
-              const [creatorPda] = getChallengerPDA(creatorPubkey);
-              const creatorAccount = await fetchChallengerAccount(creatorPda);
-              if (creatorAccount) {
-                const rep = creatorAccount.reputation;
+              const [creatorChallengerPoolPda] = getChallengerPoolPDA(creatorPubkey);
+              const creatorChallengerPool = await fetchChallengerPool(creatorChallengerPoolPda);
+              if (creatorChallengerPool) {
+                const rep = creatorChallengerPool.reputation;
                 setActiveDisputeCreatorRep(
                   typeof rep === 'number' ? rep : (rep as any).toNumber?.() ?? null
                 );
@@ -918,26 +991,31 @@ export const SubjectModal = memo(function SubjectModal({
             // Ignore
           }
         }
+
       }
     } catch (error) {
       console.error("Error loading subject data:", error);
     }
     setLoading(false);
   }, [
+    subject.account.subjectId,
+    subject.account.round,
     subject.publicKey,
     publicKey,
-    fetchDisputesBySubject,
-    fetchVotesByDispute,
-    fetchChallengersByDispute,
+    getDisputePDA,
+    fetchDispute,
+    fetchJurorRecordsBySubject,
+    fetchChallengerRecordsBySubject,
     fetchDisputeContent,
-    fetchVoteRecord,
+    fetchJurorRecord,
     fetchChallengerRecord,
     fetchDefenderRecord,
-    fetchChallengerAccount,
-    getVoteRecordPDA,
+    fetchJurorPool,
+    getJurorRecordPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
-    getChallengerPDA,
+    getJurorPoolPDA,
+    fetchEscrowBySubjectId,
   ]);
 
   // Load data when modal opens
@@ -945,16 +1023,27 @@ export const SubjectModal = memo(function SubjectModal({
     loadSubjectData();
   }, [loadSubjectData]);
 
-  // Wrapped claim handler that refreshes modal data after claiming
-  const handleClaimAllWithRefresh = useCallback(async (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
+  // Wrapped claim handler that refreshes modal data after claiming (V2: subjectIdKey, round, claims)
+  const handleClaimAllWithRefresh = useCallback(async (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
     if (onClaimAll) {
-      onClaimAll(disputeKey, claims);
+      onClaimAll(subjectIdKey, round, claims);
       // Wait a bit for the transaction to complete, then refresh
       setTimeout(() => {
         loadSubjectData();
       }, 2000);
     }
   }, [onClaimAll, loadSubjectData]);
+
+  // Wrapped close records handler that refreshes modal data after closing (V2: subjectIdKey, round, records)
+  const handleCloseRecordsWithRefresh = useCallback(async (subjectIdKey: string, round: number, records: { juror: boolean; challenger: boolean; defender: boolean }) => {
+    if (onCloseRecords) {
+      onCloseRecords(subjectIdKey, round, records);
+      // Wait a bit for the transaction to complete, then refresh
+      setTimeout(() => {
+        loadSubjectData();
+      }, 2000);
+    }
+  }, [onCloseRecords, loadSubjectData]);
 
   // Dispute form state
   const [disputeForm, setDisputeForm] = useState({
@@ -977,20 +1066,29 @@ export const SubjectModal = memo(function SubjectModal({
     stakeAmount: minRestoreStakeSol > 0 ? minRestoreStakeSol.toFixed(6) : "0.1",
   });
 
-  // Calculate min bond based on user's challenger reputation
+  // Calculate min bond based on user's reputation from ChallengerPool (V2)
   const [userChallengerRep, setUserChallengerRep] = useState<number | null>(null);
   useEffect(() => {
     const fetchRep = async () => {
-      try {
-        const [pda] = getChallengerPDA(subject.publicKey); // This won't work - need wallet
-        // We'll use INITIAL_REPUTATION as default since we can't easily get the wallet here
+      if (!publicKey) {
         setUserChallengerRep(INITIAL_REPUTATION);
+        return;
+      }
+      try {
+        const [challengerPoolPda] = getChallengerPoolPDA(publicKey);
+        const challengerPool = await fetchChallengerPool(challengerPoolPda);
+        if (challengerPool) {
+          const rep = challengerPool.reputation;
+          setUserChallengerRep(typeof rep === 'number' ? rep : (rep as any).toNumber?.() ?? INITIAL_REPUTATION);
+        } else {
+          setUserChallengerRep(INITIAL_REPUTATION);
+        }
       } catch {
         setUserChallengerRep(INITIAL_REPUTATION);
       }
     };
     fetchRep();
-  }, [getChallengerPDA, subject.publicKey]);
+  }, [publicKey, getChallengerPoolPDA, fetchChallengerPool]);
 
   const minBond = calculateMinBond(userChallengerRep ?? INITIAL_REPUTATION);
   const minBondSol = minBond / LAMPORTS_PER_SOL;
@@ -1041,23 +1139,20 @@ export const SubjectModal = memo(function SubjectModal({
         reason: disputeForm.reason,
         requestedOutcome: disputeForm.requestedOutcome,
         type: disputeType?.contentKey || "other",
-        subjectCid: subject.account.detailsCid,
+        subjectCid: subject.account.subjectId.toBase58(), // V2: Use subjectId as CID
       });
       if (!uploadResult) {
         throw new Error("Failed to upload dispute content");
       }
 
-      // Submit dispute on-chain
+      // V2: Submit dispute on-chain using createDispute with params object
       const disputeTypeEnum = { [disputeForm.type]: {} } as DisputeType;
-      const subjectData = {
-        disputeCount: subject.account.disputeCount,
-        defenderPool: subject.account.defenderPool,
-      };
-      if (subject.account.freeCase) {
-        await submitFreeDispute(subject.publicKey, subjectData, disputeTypeEnum, uploadResult.cid);
-      } else {
-        await submitDispute(subject.publicKey, subjectData, disputeTypeEnum, uploadResult.cid, new BN(bondLamports));
-      }
+      await createDispute({
+        subjectId: subject.account.subjectId,
+        disputeType: disputeTypeEnum,
+        detailsCid: uploadResult.cid,
+        stake: new BN(bondLamports),
+      });
 
       setInternalSuccess("Dispute submitted successfully");
       setShowCreateDispute(false);
@@ -1072,7 +1167,7 @@ export const SubjectModal = memo(function SubjectModal({
     } finally {
       setInternalLoading(false);
     }
-  }, [disputeForm, minBond, minBondSol, subject, uploadDispute, submitDispute, submitFreeDispute, onRefresh]);
+  }, [disputeForm, minBond, minBondSol, subject, uploadDispute, createDispute, onRefresh]);
 
   // Handle restore submission
   const handleSubmitRestore = useCallback(async () => {
@@ -1103,16 +1198,20 @@ export const SubjectModal = memo(function SubjectModal({
         reason: restoreForm.reason,
         requestedOutcome: "Restore subject to valid status",
         type: "other", // Restoration uses "other" as content type
-        subjectCid: subject.account.detailsCid,
+        subjectCid: subject.account.subjectId.toBase58(), // V2: Use subjectId as CID
       });
       if (!uploadResult) {
         throw new Error("Failed to upload restoration content");
       }
 
-      // Submit restore on-chain
-      const subjectData = { disputeCount: subject.account.disputeCount };
-      const restoreDisputeType = { other: {} } as DisputeType; // Restore uses "other" dispute type
-      await submitRestore(subject.publicKey, subjectData, restoreDisputeType, uploadResult.cid, new BN(stakeLamports));
+      // V2: Submit restore on-chain using params object
+      const restoreDisputeType = { other: {} } as DisputeType;
+      await submitRestore({
+        subjectId: subject.account.subjectId,
+        disputeType: restoreDisputeType,
+        detailsCid: uploadResult.cid,
+        stakeAmount: new BN(stakeLamports),
+      });
 
       setInternalSuccess("Restoration request submitted successfully");
       setShowRestoreForm(false);
@@ -1155,31 +1254,30 @@ export const SubjectModal = memo(function SubjectModal({
   const outcome = activeDispute ? getOutcomeLabel(activeDispute.account.outcome) : null;
   const votingEnded = activeDispute ? Date.now() > activeDispute.account.votingEndsAt.toNumber() * 1000 : false;
   const isPending = activeDispute?.account.status.pending;
-  const canVote = isPending && !votingEnded && jurorAccount;
+  const canVote = isPending && !votingEnded && jurorPool;
   const canResolve = isPending && votingEnded;
+  // V2: Use votesForChallenger/votesForDefender instead of favor/against
   const totalVotes = activeDispute
-    ? activeDispute.account.votesFavorWeight.toNumber() + activeDispute.account.votesAgainstWeight.toNumber()
+    ? activeDispute.account.votesForChallenger.toNumber() + activeDispute.account.votesForDefender.toNumber()
     : 0;
   const favorPercent = totalVotes > 0
-    ? (activeDispute!.account.votesFavorWeight.toNumber() / totalVotes) * 100
+    ? (activeDispute!.account.votesForChallenger.toNumber() / totalVotes) * 100
     : 50;
 
-  // Juror fees
+  // Juror fees (V2: all subjects have fees, no freeCase)
   const PROTOCOL_FEE_BPS = 2000;
   const JUROR_SHARE_BPS = 9500;
-  let disputeJurorFees = "FREE";
-  if (!subject.account.freeCase && activeDispute) {
+  let disputeJurorFees = "";
+  if (activeDispute) {
     let totalPool: number;
     if (activeDispute.account.isRestore) {
       // For restorations, juror pot is based on restore stake
-      totalPool = activeDispute.account.restoreStake.toNumber();
+      totalPool = safeToNumber(activeDispute.account.restoreStake);
     } else {
-      // For regular disputes, juror pot is based on bond + matched stake
-      const bondPool = activeDispute.account.totalBond.toNumber();
-      const matchedStake = subject.account.matchMode
-        ? activeDispute.account.stakeHeld.toNumber() + activeDispute.account.directStakeHeld.toNumber()
-        : activeDispute.account.snapshotTotalStake.toNumber();
-      totalPool = bondPool + matchedStake;
+      // V2: totalPool = totalStake + bondAtRisk
+      const stakePool = safeToNumber(activeDispute.account.totalStake);
+      const bondPool = safeToNumber(activeDispute.account.bondAtRisk);
+      totalPool = stakePool + bondPool;
     }
     const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
     const jurorPot = totalFees * JUROR_SHARE_BPS / 10000;
@@ -1231,9 +1329,6 @@ export const SubjectModal = memo(function SubjectModal({
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${subjectStatus.class}`}>
                       {subjectStatus.label}
                     </span>
-                    {subject.account.freeCase && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-700/20 text-emerald">Free</span>
-                    )}
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel">
                       {Math.floor(subject.account.votingPeriod.toNumber() / 3600)}h
                     </span>
@@ -1258,11 +1353,9 @@ export const SubjectModal = memo(function SubjectModal({
                 )}
                 <div className="flex flex-col gap-1 text-xs pt-2 border-t border-slate-light/50">
                   <div>
-                    <span className="text-steel">Stake: </span>
+                    <span className="text-steel">Bond: </span>
                     <span className="text-sky">
-                      {!subject.account.freeCase
-                        ? `${(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}`
-                        : "-"}
+                      {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
                     </span>
                   </div>
                   <div>
@@ -1273,10 +1366,10 @@ export const SubjectModal = memo(function SubjectModal({
                 {/* Subject Actions */}
                 {showActions && (
                   <div className="flex flex-col gap-2 pt-2 border-t border-slate-light/50">
-                    {!subject.account.freeCase && (subject.account.status.valid || subject.account.status.dormant) && onAddStake && (
+                    {(subject.account.status.valid || subject.account.status.dormant) && onAddBond && (
                       <JoinForm
                         type="defender"
-                        onJoin={onAddStake}
+                        onJoin={(amount) => onAddBond(subject.account.subjectId.toBase58(), amount, false)}
                         isLoading={actionLoading}
                         label={subject.account.status.dormant ? "Revive Subject" : undefined}
                       />
@@ -1431,20 +1524,18 @@ export const SubjectModal = memo(function SubjectModal({
                     placeholder="What outcome do you seek?"
                   />
                 </div>
-                {!subject.account.freeCase && (
-                  <div>
-                    <label className="text-[10px] text-steel uppercase tracking-wider">Bond Amount (min: {minBondSol.toFixed(6)} SOL)</label>
-                    <div className="flex gap-2 items-center mt-1">
-                      <input
-                        type="text"
-                        value={disputeForm.bondAmount}
-                        onChange={(e) => setDisputeForm({ ...disputeForm, bondAmount: e.target.value })}
-                        className="input flex-1 text-sm py-2"
-                      />
-                      <span className="text-steel text-sm">SOL</span>
-                    </div>
+                <div>
+                  <label className="text-[10px] text-steel uppercase tracking-wider">Bond Amount (min: {minBondSol.toFixed(6)} SOL)</label>
+                  <div className="flex gap-2 items-center mt-1">
+                    <input
+                      type="text"
+                      value={disputeForm.bondAmount}
+                      onChange={(e) => setDisputeForm({ ...disputeForm, bondAmount: e.target.value })}
+                      className="input flex-1 text-sm py-2"
+                    />
+                    <span className="text-steel text-sm">SOL</span>
                   </div>
-                )}
+                </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowCreateDispute(false)}
@@ -1494,9 +1585,6 @@ export const SubjectModal = memo(function SubjectModal({
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${subjectStatus.class}`}>
                         {subjectStatus.label}
                       </span>
-                      {subject.account.freeCase && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-700/20 text-emerald">Free</span>
-                      )}
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel">
                         {Math.floor(subject.account.votingPeriod.toNumber() / 3600)}h
                       </span>
@@ -1521,13 +1609,27 @@ export const SubjectModal = memo(function SubjectModal({
                   )}
                   <div className="flex flex-col gap-1 text-xs pt-2 border-t border-slate-light/50">
                     <div>
-                      <span className="text-steel">Stake: </span>
+                      <span className="text-steel">Total Bond: </span>
                       <span className="text-sky-400">
-                        {!subject.account.freeCase
-                          ? `${(subject.account.availableStake.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}`
-                          : "-"}
+                        {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
                       </span>
                     </div>
+                    {activeDispute && isPending && !isRestore && (
+                      <>
+                        <div>
+                          <span className="text-steel">At Risk: </span>
+                          <span className="text-crimson">
+                            {(safeToNumber(activeDispute.account.bondAtRisk) / LAMPORTS_PER_SOL).toFixed(6)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-steel">Safe: </span>
+                          <span className="text-emerald">
+                            {((subject.account.availableBond.toNumber() - safeToNumber(activeDispute.account.bondAtRisk)) / LAMPORTS_PER_SOL).toFixed(6)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <div>
                       <span className="text-steel">Defenders: </span>
                       <span className="text-sky-400">{subject.account.defenderCount}</span>
@@ -1536,10 +1638,10 @@ export const SubjectModal = memo(function SubjectModal({
                   {/* Defender Actions */}
                   {showActions && (
                     <div className="flex flex-col gap-2 pt-2 border-t border-slate-light/50">
-                      {!subject.account.freeCase && (subject.account.status.valid || (subject.account.status.disputed && !votingEnded) || subject.account.status.dormant) && onAddStake && (
+                      {(subject.account.status.valid || (subject.account.status.disputed && !votingEnded) || subject.account.status.dormant) && onAddBond && (
                         <JoinForm
                           type="defender"
-                          onJoin={onAddStake}
+                          onJoin={(amount) => onAddBond(subject.account.subjectId.toBase58(), amount, false)}
                           isLoading={actionLoading}
                           label={subject.account.status.dormant ? "Revive Subject" : undefined}
                         />
@@ -1626,9 +1728,9 @@ export const SubjectModal = memo(function SubjectModal({
                     ) : (
                       <>
                         <div>
-                          <span className="text-steel">Bond: </span>
+                          <span className="text-steel">Stake: </span>
                           <span className="text-crimson">
-                            {activeDispute ? (activeDispute.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6) : "-"}
+                            {activeDispute ? (safeToNumber(activeDispute.account.totalStake) / LAMPORTS_PER_SOL).toFixed(6) : "-"}
                           </span>
                         </div>
                         <div>
@@ -1641,10 +1743,10 @@ export const SubjectModal = memo(function SubjectModal({
                   {/* Challenger Actions - only for regular disputes */}
                   {showActions && !isRestore && (
                     <div className="flex flex-col gap-2 pt-2 border-t border-slate-light/50">
-                      {!subject.account.freeCase && activeDispute && isPending && !votingEnded && onJoinChallengers && (
+                      {activeDispute && isPending && !votingEnded && onJoinChallengers && (
                         <JoinForm
                           type="challenger"
-                          onJoin={(amount) => onJoinChallengers(activeDispute.publicKey.toBase58(), amount)}
+                          onJoin={(amount) => onJoinChallengers(subject.account.subjectId.toBase58(), amount, "")}
                           isLoading={actionLoading}
                         />
                       )}
@@ -1711,7 +1813,7 @@ export const SubjectModal = memo(function SubjectModal({
                     <div className="flex items-center justify-between text-xs">
                       <span>
                         <span className="text-sky-400">
-                          {((activeDispute!.account.stakeHeld.toNumber() + activeDispute!.account.directStakeHeld.toNumber()) / LAMPORTS_PER_SOL).toFixed(6)}
+                          {(safeToNumber(activeDispute!.account.bondAtRisk) / LAMPORTS_PER_SOL).toFixed(6)}
                         </span>
                         <span className="text-steel"> · </span>
                         <span className="text-sky-400">{disputeVotes.filter(v => "forDefender" in v.account.choice).length}</span>
@@ -1728,7 +1830,7 @@ export const SubjectModal = memo(function SubjectModal({
                         <span className="text-crimson">{disputeVotes.filter(v => "forChallenger" in v.account.choice).length}</span>
                         <span className="text-steel"> · </span>
                         <span className="text-crimson">
-                          {(activeDispute!.account.totalBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
+                          {(safeToNumber(activeDispute!.account.totalStake) / LAMPORTS_PER_SOL).toFixed(6)}
                         </span>
                       </span>
                     </div>
@@ -1737,7 +1839,7 @@ export const SubjectModal = memo(function SubjectModal({
                 {/* Resolve action */}
                 {showActions && canResolve && onResolve && activeDispute && (
                   <div className="pt-2 border-t border-slate-light/50">
-                    <button onClick={() => onResolve(activeDispute.publicKey.toBase58())} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm w-full">
+                    <button onClick={() => onResolve(subject.account.subjectId.toBase58())} disabled={actionLoading} className="btn btn-primary py-1.5 px-3 text-sm w-full">
                       {actionLoading ? "..." : isRestore ? "Resolve Restoration" : "Resolve Dispute"}
                     </button>
                   </div>
@@ -1751,14 +1853,14 @@ export const SubjectModal = memo(function SubjectModal({
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">Juror</h4>
               <div className="p-4 bg-obsidian border border-slate-light space-y-3">
-                {!jurorAccount ? (
+                {!jurorPool ? (
                   <p className="text-steel text-sm text-center">
                     <Link href="/profile" className="text-gold hover:text-gold-light">Register as juror</Link> to vote on this dispute
                   </p>
                 ) : (
                   <VoteForm
                     existingVote={existingVote}
-                    onVote={(stake, choice, rationale) => onVote(activeDispute!.publicKey.toBase58(), stake, choice, rationale)}
+                    onVote={(stake, choice, rationale) => onVote(subject.account.subjectId.toBase58(), activeDispute!.account.round, stake, choice, rationale)}
                     isLoading={actionLoading}
                     isRestore={activeDispute?.account.isRestore}
                   />
@@ -1775,7 +1877,7 @@ export const SubjectModal = memo(function SubjectModal({
                 {disputeVotes.map((vote, i) => {
                   const hasRationale = vote.account.rationaleCid && vote.account.rationaleCid.length > 0;
                   const jurorAddress = vote.account.juror.toBase58();
-                  const stakeAmount = vote.account.stakeAllocated.toNumber() / LAMPORTS_PER_SOL;
+                  const stakeAmount = safeToNumber(vote.account.stakeAllocation) / LAMPORTS_PER_SOL;
                   const votingPower = vote.account.votingPower.toNumber() / LAMPORTS_PER_SOL;
 
                   // Determine vote display based on whether it's a restore vote
@@ -1858,6 +1960,8 @@ export const SubjectModal = memo(function SubjectModal({
                     challengerRecord: userChallengerRecords?.[dKey] || null,
                     defenderRecord: userDefenderRecord, // Defender record is per-subject, applies to all disputes
                   };
+                  // Find the escrow round for this dispute
+                  const dEscrowRound = escrowData?.rounds?.find(r => r.round === historyDispute.account.round) || null;
                   return (
                     <HistoryItem
                       key={i}
@@ -1867,13 +1971,16 @@ export const SubjectModal = memo(function SubjectModal({
                       defaultExpanded={i === 0}
                       claimData={dClaimData}
                       onClaimAll={handleClaimAllWithRefresh}
+                      onCloseRecords={handleCloseRecordsWithRefresh}
                       actionLoading={actionLoading}
+                      escrowRound={dEscrowRound}
                     />
                   );
                 })}
               </div>
             </div>
           )}
+
         </div>
       </div>
     </div>

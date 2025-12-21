@@ -4,25 +4,14 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import type { SubjectData, DisputeData } from "@/components/subject/types";
+import type { SubjectData, DisputeData, JurorPoolData } from "@/components/subject/types";
 
 // Types
 type TimePeriod = "1d" | "7d" | "30d" | "all";
 type TabView = "overview" | "economics" | "participants" | "trends" | "leaderboard";
 
-interface JurorData {
-  publicKey: PublicKey;
-  account: {
-    totalStake: { toNumber: () => number };
-    availableStake: { toNumber: () => number };
-    reputation: number;
-    votesCast: { toNumber: () => number };
-    correctVotes: { toNumber: () => number };
-    isActive: boolean;
-    joinedAt: { toNumber: () => number };
-    lastVoteAt: { toNumber: () => number };
-  };
-}
+// Use JurorPoolData from types
+type JurorData = JurorPoolData;
 
 // Icons
 const ChartIcon = () => (
@@ -83,7 +72,7 @@ const TrophyIcon = () => (
 );
 
 export default function AnalyticsPage() {
-  const { client, fetchAllSubjects, fetchAllDisputes, fetchAllJurors } = useTribunalcraft();
+  const { client, fetchAllSubjects, fetchAllDisputes, fetchAllJurorPools } = useTribunalcraft();
 
   const [subjects, setSubjects] = useState<SubjectData[]>([]);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
@@ -101,7 +90,7 @@ export default function AnalyticsPage() {
       const [subjectsData, disputesData, jurorsData] = await Promise.all([
         fetchAllSubjects(),
         fetchAllDisputes(),
-        fetchAllJurors(),
+        fetchAllJurorPools(),
       ]);
       setSubjects(subjectsData || []);
       setDisputes(disputesData || []);
@@ -111,7 +100,7 @@ export default function AnalyticsPage() {
       console.error("Error loading analytics data:", error);
     }
     setLoading(false);
-  }, [client, fetchAllSubjects, fetchAllDisputes, fetchAllJurors]);
+  }, [client, fetchAllSubjects, fetchAllDisputes, fetchAllJurorPools]);
 
   useEffect(() => {
     loadData();
@@ -209,10 +198,10 @@ export default function AnalyticsPage() {
     const dormantCount = subjects.filter((s) => "dormant" in s.account.status).length;
     const restoringCount = subjects.filter((s) => "restoring" in s.account.status).length;
 
-    // Juror stats
-    const activeJurors = jurors.filter((j) => j.account.isActive).length;
-    const totalJurorStake = jurors.reduce((sum, j) => sum + j.account.totalStake.toNumber(), 0);
-    const totalAvailableJurorStake = jurors.reduce((sum, j) => sum + j.account.availableStake.toNumber(), 0);
+    // Juror stats (V2: balance instead of totalStake/availableStake)
+    const activeJurors = jurors.filter((j) => j.account.balance.toNumber() > 0).length;
+    const totalJurorStake = jurors.reduce((sum, j) => sum + j.account.balance.toNumber(), 0);
+    const totalAvailableJurorStake = totalJurorStake; // V2: all balance is available
 
     // Dispute type breakdown
     const disputeTypes = periodDisputes.reduce((acc, d) => {
@@ -245,12 +234,13 @@ export default function AnalyticsPage() {
     const noQuorumRate = resolvedDisputes.length > 0 ? (noQuorum.length / resolvedDisputes.length) * 100 : 0;
 
     // Controversial disputes (close votes)
+    // V2: Use votesForChallenger/votesForDefender
     const controversialDisputes = resolvedDisputes.filter((d) => {
-      const favor = d.account.votesFavorWeight.toNumber();
-      const against = d.account.votesAgainstWeight.toNumber();
-      const total = favor + against;
+      const forChallenger = d.account.votesForChallenger.toNumber();
+      const forDefender = d.account.votesForDefender.toNumber();
+      const total = forChallenger + forDefender;
       if (total === 0) return false;
-      const ratio = Math.abs(favor - against) / total;
+      const ratio = Math.abs(forChallenger - forDefender) / total;
       return ratio < 0.2; // Within 20% margin
     });
 
@@ -328,12 +318,12 @@ export default function AnalyticsPage() {
   const leaderboards = useMemo(() => {
     // Top jurors by reputation
     const topJurorsByRep = [...jurors]
-      .sort((a, b) => b.account.reputation - a.account.reputation)
+      .sort((a, b) => b.account.reputation.toNumber() - a.account.reputation.toNumber())
       .slice(0, 10)
       .map((j, index) => ({
         rank: index + 1,
         address: j.publicKey.toString(),
-        reputation: j.account.reputation,
+        reputation: j.account.reputation.toNumber(),
         votesCast: j.account.votesCast.toNumber(),
         correctVotes: j.account.correctVotes.toNumber(),
         stake: j.account.totalStake.toNumber(),
@@ -347,7 +337,7 @@ export default function AnalyticsPage() {
         rank: index + 1,
         address: j.publicKey.toString(),
         stake: j.account.totalStake.toNumber(),
-        reputation: j.account.reputation,
+        reputation: j.account.reputation.toNumber(),
         votesCast: j.account.votesCast.toNumber(),
       }));
 
@@ -363,7 +353,7 @@ export default function AnalyticsPage() {
         accuracy: j.account.votesCast.toNumber() > 0
           ? (j.account.correctVotes.toNumber() / j.account.votesCast.toNumber()) * 100
           : 0,
-        reputation: j.account.reputation,
+        reputation: j.account.reputation.toNumber(),
       }));
 
     // Top subjects by defender count
@@ -374,8 +364,8 @@ export default function AnalyticsPage() {
         rank: index + 1,
         address: s.publicKey.toString(),
         defenderCount: s.account.defenderCount,
-        disputeCount: s.account.disputeCount,
-        availableStake: s.account.availableStake.toNumber(),
+        disputeCount: s.account.round, // V2: round = number of dispute cycles
+        availableStake: s.account.availableBond.toNumber(),
         status: Object.keys(s.account.status)[0],
       }));
 

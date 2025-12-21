@@ -72,9 +72,9 @@ export default function Dashboard() {
     getDefenderPoolPDA,
     fetchAllSubjects,
     fetchAllDisputes,
-    fetchAllJurors,
-    fetchJurorAccount,
-    getJurorPDA
+    fetchAllJurorPools,
+    fetchJurorPool,
+    getJurorPoolPDA
   } = useTribunalcraft();
 
   const [pool, setPool] = useState<any>(null);
@@ -91,7 +91,7 @@ export default function Dashboard() {
       const [subjectsData, disputesData, jurorsData] = await Promise.all([
         fetchAllSubjects(),
         fetchAllDisputes(),
-        fetchAllJurors(),
+        fetchAllJurorPools(),
       ]);
       setSubjects(subjectsData || []);
       setDisputes(disputesData || []);
@@ -106,9 +106,9 @@ export default function Dashboard() {
           setPool(null);
         }
 
-        const [jurorPda] = getJurorPDA(publicKey);
+        const [jurorPda] = getJurorPoolPDA(publicKey);
         try {
-          const jurorData = await fetchJurorAccount(jurorPda);
+          const jurorData = await fetchJurorPool(jurorPda);
           setJurorAccount(jurorData);
         } catch {
           setJurorAccount(null);
@@ -153,8 +153,8 @@ export default function Dashboard() {
     // TVL
     const tvl = totalJurorStake + activePools;
 
-    // Defender stake
-    const totalDefenderStake = subjects.reduce((sum, s) => sum + (s.account.availableStake?.toNumber() || 0), 0);
+    // Defender stake (V2: availableBond)
+    const totalDefenderStake = subjects.reduce((sum, s) => sum + (s.account.availableBond?.toNumber() || 0), 0);
 
     return {
       totalSubjects: subjects.length,

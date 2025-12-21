@@ -46,22 +46,25 @@ export const getDisputeTypeLabel = (dt: any) => {
   return found ? found.label : "Unknown";
 };
 
-// Types for component props
+// V2 Types for component props
+
 export interface SubjectData {
   publicKey: PublicKey;
   account: {
     subjectId: PublicKey;
-    defenderPool: PublicKey;
-    detailsCid: string;
-    status: any;
-    availableStake: any;
-    maxStake: any;
-    votingPeriod: any;
+    creator: PublicKey;
+    round: number;
+    availableBond: any; // BN
     defenderCount: number;
-    disputeCount: number;
+    status: any;
     matchMode: boolean;
-    freeCase: boolean;
+    votingPeriod: any; // BN
     dispute: PublicKey;
+    bump: number;
+    createdAt: any; // BN
+    updatedAt: any; // BN
+    lastDisputeTotal: any; // BN
+    lastVotingPeriod: any; // BN
     [key: string]: any;
   };
 }
@@ -69,58 +72,94 @@ export interface SubjectData {
 export interface DisputeData {
   publicKey: PublicKey;
   account: {
-    subject: PublicKey;
-    disputeType: any;
-    totalBond: any;
-    stakeHeld: any;
-    directStakeHeld: any;
-    challengerCount: number;
+    subjectId: PublicKey;
+    round: number;
     status: any;
-    outcome: any;
-    votesFavorWeight: any;
-    votesAgainstWeight: any;
+    disputeType: any;
+    totalStake: any; // BN
+    challengerCount: number;
+    bondAtRisk: any; // BN
+    defenderCount: number;
+    votesForChallenger: any; // BN
+    votesForDefender: any; // BN
     voteCount: number;
-    votingStartsAt: any;
-    votingEndsAt: any;
-    resolvedAt: any;
-    createdAt?: any;
-    snapshotTotalStake: any;
-    snapshotDefenderCount: number;
+    votingStartsAt: any; // BN
+    votingEndsAt: any; // BN
+    outcome: any;
+    resolvedAt: any; // BN
+    isRestore: boolean;
+    restoreStake: any; // BN
+    restorer: PublicKey;
+    detailsCid: string;
+    bump: number;
+    createdAt: any; // BN
     [key: string]: any;
   };
 }
 
-export interface VoteData {
+export interface JurorRecordData {
   publicKey: PublicKey;
   account: {
-    dispute: PublicKey;
+    subjectId: PublicKey;
     juror: PublicKey;
+    round: number;
     choice: any;
-    stakeAllocated: any;
-    votingPower: any;
-    rationaleCid: string;
+    restoreChoice: any;
+    isRestoreVote: boolean;
+    votingPower: any; // BN
     rewardClaimed: boolean;
-    stakeUnlocked: boolean;
-    unlockAt: any;
+    bump: number;
+    votedAt: any; // BN
+    rationaleCid: string;
     [key: string]: any;
   };
 }
 
 export interface ChallengerRecordData {
-  bond: any;
-  rewardClaimed: boolean;
-  [key: string]: any;
+  publicKey: PublicKey;
+  account: {
+    subjectId: PublicKey;
+    challenger: PublicKey;
+    round: number;
+    stake: any; // BN
+    detailsCid: string;
+    rewardClaimed: boolean;
+    bump: number;
+    challengedAt: any; // BN
+    [key: string]: any;
+  };
 }
 
 export interface DefenderRecordData {
-  stake: any;
-  rewardClaimed: boolean;
-  [key: string]: any;
+  publicKey: PublicKey;
+  account: {
+    subjectId: PublicKey;
+    defender: PublicKey;
+    round: number;
+    bond: any; // BN
+    source: any; // BondSource enum
+    rewardClaimed: boolean;
+    bump: number;
+    bondedAt: any; // BN
+    [key: string]: any;
+  };
+}
+
+export interface JurorPoolData {
+  publicKey: PublicKey;
+  account: {
+    owner: PublicKey;
+    balance: any; // BN
+    reputation: any; // BN
+    bump: number;
+    createdAt: any; // BN
+    [key: string]: any;
+  };
 }
 
 export interface VoteCounts {
-  favor: number;
-  against: number;
+  forChallenger: number;
+  forDefender: number;
 }
 
 export interface UserRoles {
@@ -139,18 +178,33 @@ export interface SubjectCardProps {
   onClick: () => void;
 }
 
+export interface RoleHistoryItem {
+  type: string;
+  signature: string;
+  timestamp: number;
+  amount?: number;
+  rentReclaimed?: number;
+  voteChoice?: string;
+  outcome?: string;
+  disputeKey?: string;
+}
+
 export interface SubjectModalProps {
   subject: SubjectData;
   subjectContent?: SubjectContent | null;
-  jurorAccount?: any;
+  jurorPool?: JurorPoolData | null;
   onClose: () => void;
-  onVote?: (disputeKey: string, stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
-  onAddStake?: (amount: string) => void;
-  onJoinChallengers?: (disputeKey: string, amount: string) => void;
-  onResolve?: (disputeKey: string) => void;
-  onClaimAll?: (disputeKey: string, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
-  onRefresh?: () => void; // Called after dispute/restore submission to refresh data
+  onVote?: (subjectId: string, round: number, stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
+  onAddBond?: (subjectId: string, amount: string, fromPool: boolean) => void;
+  onJoinChallengers?: (subjectId: string, amount: string, detailsCid: string) => void;
+  onResolve?: (subjectId: string) => void;
+  onClaimAll?: (subjectId: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
+  onCloseRecords?: (subjectId: string, round: number, records: { juror: boolean; challenger: boolean; defender: boolean }) => void;
+  onRefresh?: () => void;
   actionLoading: boolean;
   showActions?: boolean;
   getIpfsUrl?: (cid: string) => string;
 }
+
+// Legacy type aliases for backward compatibility during migration
+export type VoteData = JurorRecordData;
