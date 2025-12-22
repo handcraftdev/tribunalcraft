@@ -65,10 +65,10 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ivory">File Dispute</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-lg font-semibold text-ivory">File Dispute</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
@@ -159,10 +159,10 @@ const RestoreModal = memo(function RestoreModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ivory">Restore Subject</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-lg font-semibold text-ivory">Restore Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
@@ -254,10 +254,10 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate border border-slate-light max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ivory">Create Subject</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-lg font-semibold text-ivory">Create Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">

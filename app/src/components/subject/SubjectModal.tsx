@@ -513,10 +513,10 @@ const HistoryItem = memo(function HistoryItem({
 
       {/* Claim Modal - V1 style */}
       {showClaimModal && (
-        <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-[60] p-4" onClick={() => setShowClaimModal(false)}>
-          <div className="bg-slate border border-gold/30 max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-slate-light flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gold">Claim Rewards</h3>
+        <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-[60] pt-28 px-4 pb-4" onClick={() => setShowClaimModal(false)}>
+          <div className="tribunal-modal max-w-md w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+              <h3 className="font-display text-sm font-semibold text-gold">Claim Rewards</h3>
               <button onClick={() => setShowClaimModal(false)} className="text-steel hover:text-parchment">
                 <XIcon />
               </button>
@@ -1311,10 +1311,10 @@ export const SubjectModal = memo(function SubjectModal({
   });
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
       <div
         ref={modalScrollRef}
-        className="bg-slate border border-slate-light max-w-4xl w-full max-h-[90vh] overflow-y-auto relative"
+        className="tribunal-modal max-w-4xl w-full max-h-[calc(100vh-8rem)] overflow-y-auto relative"
         onClick={e => e.stopPropagation()}
       >
         {/* Close button */}

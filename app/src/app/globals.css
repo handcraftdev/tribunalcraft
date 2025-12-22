@@ -162,6 +162,25 @@ h4 {
   opacity: 1;
 }
 
+/* Modal variant - allows scrolling */
+.tribunal-modal {
+  background: var(--slate);
+  border: var(--border-thin) solid var(--slate-light);
+  position: relative;
+}
+
+.tribunal-modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--gold-dark) 100%);
+  opacity: 1;
+  z-index: 20;
+}
+
 /* Gold accent card */
 .tribunal-card-gold {
   background: var(--slate);
