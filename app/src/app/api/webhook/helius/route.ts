@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac, timingSafeEqual } from "crypto";
 import { createServerClient } from "@/lib/supabase/client";
 import {
   parseSubject,
@@ -58,16 +59,16 @@ const DISCRIMINATORS: Record<string, string> = {
   escrow: "escrow",
 };
 
-// Verify webhook signature from Helius
+// Verify webhook signature from Helius using HMAC-SHA256
 function verifyWebhookSignature(
   payload: string,
   signature: string | null,
   secret: string | undefined
 ): boolean {
-  // If no secret configured, skip verification (development mode)
+  // If no secret configured, reject in production
   if (!secret) {
-    console.warn("HELIUS_WEBHOOK_SECRET not configured, skipping signature verification");
-    return true;
+    console.error("HELIUS_WEBHOOK_SECRET not configured - webhook verification failed");
+    return false;
   }
 
   if (!signature) {
@@ -75,11 +76,26 @@ function verifyWebhookSignature(
     return false;
   }
 
-  // Helius uses HMAC-SHA256 for webhook signatures
-  // In production, implement proper HMAC verification here
-  // For now, we'll do a simple comparison if the secret matches
-  // TODO: Implement proper HMAC verification
-  return true;
+  try {
+    // Helius uses HMAC-SHA256 for webhook signatures
+    const hmac = createHmac("sha256", secret);
+    hmac.update(payload);
+    const expectedSignature = hmac.digest("hex");
+
+    // Use timing-safe comparison to prevent timing attacks
+    const signatureBuffer = Buffer.from(signature, "hex");
+    const expectedBuffer = Buffer.from(expectedSignature, "hex");
+
+    if (signatureBuffer.length !== expectedBuffer.length) {
+      console.error("Signature length mismatch");
+      return false;
+    }
+
+    return timingSafeEqual(signatureBuffer, expectedBuffer);
+  } catch (error) {
+    console.error("Error verifying webhook signature:", error);
+    return false;
+  }
 }
 
 // Parse account data based on account type
@@ -162,7 +178,8 @@ async function syncAccountsFromRPC(
   accountPubkeys: string[],
   slot: number
 ): Promise<{ synced: number; errors: number }> {
-  const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+  // Use server-side RPC URL, fall back to public if not set
+  const rpcUrl = process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
   if (!rpcUrl) {
     console.error("RPC URL not configured");
     return { synced: 0, errors: accountPubkeys.length };

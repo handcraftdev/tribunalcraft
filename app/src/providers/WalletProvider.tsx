@@ -25,10 +25,10 @@ export const WalletProvider: FC<Props> = ({ children }) => {
   // Modern wallets (Phantom, Solflare, etc.) auto-register via Standard Wallet interface
   const wallets = useMemo(() => [], []);
 
-  // Use Helius WSS endpoint directly for transaction confirmations
+  // Use Helius WSS endpoint for transaction confirmations
   const config = useMemo(() => ({
     commitment: "confirmed" as const,
-    wsEndpoint: "wss://devnet.helius-rpc.com/?api-key=88ac54a3-8850-4686-a521-70d116779182",
+    wsEndpoint: process.env.NEXT_PUBLIC_SOLANA_WSS_URL,
   }), []);
 
   // Don't render children until endpoint is set to ensure we use the Helius RPC proxy

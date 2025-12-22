@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, RATE_LIMIT_CONFIGS, getClientId, checkRateLimit, addRateLimitHeaders } from "@/lib/rate-limit";
 
 // Increase max duration for long-running RPC requests (confirmTransaction polling)
 export const maxDuration = 60; // 60 seconds
@@ -26,6 +27,12 @@ function getRpcEndpoint(): string | null {
  * This keeps the API key server-side
  */
 export async function POST(request: NextRequest) {
+  // Apply rate limiting
+  const rateLimitResponse = await rateLimit(request, RATE_LIMIT_CONFIGS.rpc);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const endpoint = getRpcEndpoint();
 
   if (!endpoint) {
@@ -34,6 +41,10 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  // Get rate limit info for headers
+  const clientId = getClientId(request);
+  const rateLimitInfo = await checkRateLimit(clientId, RATE_LIMIT_CONFIGS.rpc);
 
   try {
     const body = await request.json();
@@ -55,9 +66,17 @@ export async function POST(request: NextRequest) {
       clearTimeout(timeoutId);
       const data = await response.json();
 
-      return NextResponse.json(data, {
+      const jsonResponse = NextResponse.json(data, {
         status: response.status,
       });
+
+      // Add rate limit headers
+      return addRateLimitHeaders(
+        jsonResponse,
+        RATE_LIMIT_CONFIGS.rpc,
+        rateLimitInfo.remaining,
+        rateLimitInfo.resetAt
+      );
     } catch (fetchError) {
       clearTimeout(timeoutId);
       throw fetchError;
