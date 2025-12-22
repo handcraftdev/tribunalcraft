@@ -53,6 +53,7 @@ export const SubjectCard = memo(function SubjectCard({
   subjectContent,
   disputeContent,
   voteCounts,
+  creatorPoolBacking,
   onClick,
 }: SubjectCardProps) {
   const subjectKey = subject.publicKey.toBase58();
@@ -131,14 +132,14 @@ export const SubjectCard = memo(function SubjectCard({
             </span>
           )}
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-            subject.account.matchMode ? "bg-gold/20 text-gold" : "bg-steel/20 text-steel"
+            subject.account.matchMode ? "bg-gold-20 text-gold" : "bg-steel-20 text-steel"
           }`}>
             {subject.account.matchMode ? "Match" : "Prop"}
           </span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${status.class}`}>
             {status.label}
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel-20 text-steel">
             {Math.floor(safeToNumber(subject.account.votingPeriod, 86400) / 3600)}h
           </span>
         </div>
@@ -160,7 +161,7 @@ export const SubjectCard = memo(function SubjectCard({
               }
             </span>
             {jurorFees && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/20 text-gold">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold-20 text-gold">
                 {jurorFees}
               </span>
             )}
@@ -274,7 +275,17 @@ export const SubjectCard = memo(function SubjectCard({
       {!showDisputeInfo && (
         <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-light/50">
           <span className="text-sky">
-            {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)} SOL
+            {/* Pool backing only shown when available_bond == 0 */}
+            {(() => {
+              const availableBond = subject.account.availableBond.toNumber();
+              const poolBacking = creatorPoolBacking ?? 0;
+              if (availableBond > 0) {
+                return `${(availableBond / LAMPORTS_PER_SOL).toFixed(6)} SOL`;
+              } else if (poolBacking > 0) {
+                return `${(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} SOL (pool)`;
+              }
+              return "0 SOL";
+            })()}
           </span>
           <span className="text-sky">
             {subject.account.defenderCount} defender{subject.account.defenderCount !== 1 ? 's' : ''}

@@ -663,23 +663,48 @@ h4 {
    UTILITY CLASSES
    ============================================ */
 
-.text-gold { color: var(--gold); }
-.text-crimson { color: var(--crimson-light); }
-.text-emerald { color: var(--emerald-light); }
-.text-steel { color: var(--steel); }
-.text-parchment { color: var(--parchment); }
-.text-ivory { color: var(--ivory); }
-.text-sky { color: #38bdf8; }
+@layer utilities {
+  .text-gold { color: var(--gold); }
+  .text-crimson { color: var(--crimson-light); }
+  .text-emerald { color: var(--emerald-light); }
+  .text-steel { color: var(--steel); }
+  .text-parchment { color: var(--parchment); }
+  .text-ivory { color: var(--ivory); }
+  .text-sky { color: #38bdf8; }
 
-.bg-obsidian { background: var(--obsidian); }
-.bg-slate { background: var(--slate); }
-.bg-slate-light { background: var(--slate-light); }
-.bg-crimson { background: var(--crimson); }
-.bg-sky { background: #0ea5e9; }
-.bg-sky-light { background: rgba(14, 165, 233, 0.2); }
+  .bg-obsidian { background: var(--obsidian); }
+  .bg-slate { background: var(--slate); }
+  .bg-slate-light { background: var(--slate-light); }
+  .bg-crimson { background: var(--crimson); }
+  .bg-sky { background: #0ea5e9; }
+  .bg-sky-light { background: rgba(14, 165, 233, 0.2); }
+  .bg-gold { background: var(--gold); }
+  .bg-emerald { background: var(--emerald); }
 
-.border-gold { border-color: var(--gold); }
-.border-slate { border-color: var(--slate-light); }
-.border-steel { border-color: var(--steel); }
+  /* Status badge backgrounds with opacity */
+  .bg-gold-20 { background: rgba(201, 162, 39, 0.2); }
+  .bg-gold-30 { background: rgba(201, 162, 39, 0.3); }
+  .bg-emerald-20 { background: rgba(45, 106, 79, 0.2); }
+  .bg-crimson-20 { background: rgba(139, 38, 53, 0.2); }
+  .bg-steel-20 { background: rgba(107, 107, 115, 0.2); }
 
-.glow-gold { box-shadow: var(--shadow-gold); }
+  .border-gold { border-color: var(--gold); }
+  .border-slate { border-color: var(--slate-light); }
+  .border-steel { border-color: var(--steel); }
+
+  .glow-gold { box-shadow: var(--shadow-gold); }
+
+  /* Gradient color stops */
+  .from-gold { --tw-gradient-from: var(--gold); --tw-gradient-to: transparent; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+  .from-gold-dark { --tw-gradient-from: var(--gold-dark); --tw-gradient-to: transparent; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+  .to-gold { --tw-gradient-to: var(--gold); }
+  .to-gold-light { --tw-gradient-to: var(--gold-light); }
+  .from-emerald { --tw-gradient-from: var(--emerald); --tw-gradient-to: transparent; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+  .to-emerald { --tw-gradient-to: var(--emerald); }
+  .to-emerald-light { --tw-gradient-to: var(--emerald-light); }
+  .from-crimson { --tw-gradient-from: var(--crimson); --tw-gradient-to: transparent; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+  .to-crimson { --tw-gradient-to: var(--crimson); }
+  .to-crimson-light { --tw-gradient-to: var(--crimson-light); }
+  .from-sky { --tw-gradient-from: #0ea5e9; --tw-gradient-to: transparent; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+  .to-sky-light { --tw-gradient-to: rgba(14, 165, 233, 0.5); }
+}

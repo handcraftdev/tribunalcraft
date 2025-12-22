@@ -11,6 +11,7 @@ import {
   useTribunalcraft,
   calculateMinBond,
   INITIAL_REPUTATION,
+  MIN_DEFENDER_STAKE,
   DisputeType,
   type Escrow,
   type RoundResult,
@@ -18,7 +19,7 @@ import {
   lamportsToSol,
 } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
-import type { DisputeContent } from "@/lib/content-types";
+import type { DisputeContent } from "@tribunalcraft/sdk";
 
 // Safe BN to number conversion (handles overflow)
 const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
@@ -216,18 +217,36 @@ const VoteForm = memo(function VoteForm({
 const JoinForm = memo(function JoinForm({
   type,
   onJoin,
+  onJoinFromPool,
   isLoading,
   label,
+  showPoolOption,
+  poolBacking,
 }: {
   type: "defender" | "challenger";
   onJoin: (amount: string) => void;
+  onJoinFromPool?: () => void;
   isLoading: boolean;
   label?: string;
+  showPoolOption?: boolean;
+  poolBacking?: number;
 }) {
   const [amount, setAmount] = useState(type === "defender" ? "0.1" : "0.05");
 
   return (
     <div className="flex flex-col gap-2 flex-1">
+      {/* Pool revive option for dormant subjects */}
+      {showPoolOption && onJoinFromPool && poolBacking && poolBacking > 0 && (
+        <button
+          onClick={onJoinFromPool}
+          disabled={isLoading}
+          className="btn btn-secondary py-1.5 px-3 text-sm w-full border-emerald-500/50 hover:border-emerald-400"
+        >
+          <span className="text-emerald">
+            Revive from Pool ({(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} SOL)
+          </span>
+        </button>
+      )}
       <div className="flex gap-2 items-center">
         <input
           type="text"
@@ -240,7 +259,7 @@ const JoinForm = memo(function JoinForm({
       </div>
       {type === "defender" ? (
         <button onClick={() => onJoin(amount)} disabled={isLoading} className="btn btn-secondary py-1.5 px-3 text-sm w-full border-sky-500/50 hover:border-sky-400">
-          <span className="text-sky-400">{label || "Join Defenders"}</span>
+          <span className="text-sky-400">{label ? (showPoolOption ? "Revive with Direct Bond" : label) : "Join Defenders"}</span>
         </button>
       ) : (
         <button onClick={() => onJoin(amount)} disabled={isLoading} className="btn btn-secondary py-1.5 px-3 text-sm w-full border-red-800/50 hover:border-red-700">
@@ -448,7 +467,7 @@ const HistoryItem = memo(function HistoryItem({
             {isResolved && hasAnyClaim && (
               <span
                 onClick={(e) => { e.stopPropagation(); setShowClaimModal(true); }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-gold/20 text-gold cursor-pointer hover:bg-gold/30"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-gold-20 text-gold cursor-pointer hover:bg-gold-30"
               >
                 Claim +{totalUserRewardFormatted}
               </span>
@@ -747,6 +766,8 @@ export const SubjectModal = memo(function SubjectModal({
   subject,
   subjectContent,
   jurorPool,
+  creatorPoolBacking,
+  userPoolBacking,
   onClose,
   onVote,
   onAddBond,
@@ -1322,14 +1343,14 @@ export const SubjectModal = memo(function SubjectModal({
                       </span>
                     )}
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      subject.account.matchMode ? "bg-gold/20 text-gold" : "bg-steel/20 text-steel"
+                      subject.account.matchMode ? "bg-gold-20 text-gold" : "bg-steel-20 text-steel"
                     }`}>
                       {subject.account.matchMode ? "Match" : "Prop"}
                     </span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${subjectStatus.class}`}>
                       {subjectStatus.label}
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel/20 text-steel">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-steel-20 text-steel">
                       {Math.floor(subject.account.votingPeriod.toNumber() / 3600)}h
                     </span>
                     {pastDisputes.length > 0 && (
@@ -1355,7 +1376,17 @@ export const SubjectModal = memo(function SubjectModal({
                   <div>
                     <span className="text-steel">Bond: </span>
                     <span className="text-sky">
-                      {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
+                      {/* Pool backing only shown when available_bond == 0 */}
+                      {(() => {
+                        const availableBond = subject.account.availableBond.toNumber();
+                        const poolBacking = creatorPoolBacking ?? 0;
+                        if (availableBond > 0) {
+                          return (availableBond / LAMPORTS_PER_SOL).toFixed(6);
+                        } else if (poolBacking > 0) {
+                          return `${(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} (pool)`;
+                        }
+                        return "0";
+                      })()}
                     </span>
                   </div>
                   <div>
@@ -1370,8 +1401,11 @@ export const SubjectModal = memo(function SubjectModal({
                       <JoinForm
                         type="defender"
                         onJoin={(amount) => onAddBond(subject.account.subjectId.toBase58(), amount, false)}
+                        onJoinFromPool={subject.account.status.dormant && userPoolBacking && userPoolBacking >= MIN_DEFENDER_STAKE ? () => onAddBond(subject.account.subjectId.toBase58(), "0", true) : undefined}
                         isLoading={actionLoading}
                         label={subject.account.status.dormant ? "Revive Subject" : undefined}
+                        showPoolOption={subject.account.status.dormant && userPoolBacking !== undefined && userPoolBacking >= MIN_DEFENDER_STAKE}
+                        poolBacking={userPoolBacking}
                       />
                     )}
                     {subject.account.status.valid && !showCreateDispute && (
@@ -1611,6 +1645,7 @@ export const SubjectModal = memo(function SubjectModal({
                     <div>
                       <span className="text-steel">Total Bond: </span>
                       <span className="text-sky-400">
+                        {/* For disputed subjects: just available_bond (pool already transferred) */}
                         {(subject.account.availableBond.toNumber() / LAMPORTS_PER_SOL).toFixed(6)}
                       </span>
                     </div>
@@ -1642,8 +1677,11 @@ export const SubjectModal = memo(function SubjectModal({
                         <JoinForm
                           type="defender"
                           onJoin={(amount) => onAddBond(subject.account.subjectId.toBase58(), amount, false)}
+                          onJoinFromPool={subject.account.status.dormant && userPoolBacking && userPoolBacking >= MIN_DEFENDER_STAKE ? () => onAddBond(subject.account.subjectId.toBase58(), "0", true) : undefined}
                           isLoading={actionLoading}
                           label={subject.account.status.dormant ? "Revive Subject" : undefined}
+                          showPoolOption={subject.account.status.dormant && userPoolBacking !== undefined && userPoolBacking >= MIN_DEFENDER_STAKE}
+                          poolBacking={userPoolBacking}
                         />
                       )}
                     </div>
