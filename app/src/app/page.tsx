@@ -249,7 +249,7 @@ export default function LandingPage() {
         <div className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 w-full">
           <div className="grid lg:grid-cols-2 gap-12 items-start min-h-[calc(100vh-10rem)]">
             <div className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-8">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-8 mt-8">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald"></span>
