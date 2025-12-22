@@ -444,10 +444,8 @@ export default function JurorPage() {
         let poolData = null;
         try {
           poolData = await fetchDefenderPool(poolPda);
-          console.log("[Profile] DefenderPool fetch result:", poolData ? "found" : "null", poolPda.toBase58());
           setPool(poolData);
-        } catch (err) {
-          console.error("[Profile] DefenderPool fetch error:", err);
+        } catch {
           setPool(null);
         }
 
@@ -455,10 +453,8 @@ export default function JurorPage() {
         const [challengerPoolPda] = getChallengerPoolPDA(publicKey);
         try {
           const challengerPoolData = await fetchChallengerPool(challengerPoolPda);
-          console.log("[Profile] ChallengerPool fetch result:", challengerPoolData ? "found" : "null", challengerPoolPda.toBase58());
           setChallengerAccount(challengerPoolData);
-        } catch (err) {
-          console.error("[Profile] ChallengerPool fetch error:", err);
+        } catch {
           setChallengerAccount(null);
         }
 
@@ -481,8 +477,8 @@ export default function JurorPage() {
               defendedDisputeKeys.push(matchingDispute.publicKey.toBase58());
             }
           }
-        } catch (err) {
-          console.error("[loadData] Failed to fetch defender records:", err);
+        } catch {
+          // Defender records fetch failed
         }
 
         // Fetch all challenger records for the user (disputes they challenged)
@@ -494,8 +490,8 @@ export default function JurorPage() {
           for (const cr of userChallengerRecords) {
             challengedSubjectKeys.push(cr.account.subjectId.toBase58());
           }
-        } catch (err) {
-          console.error("[loadData] Failed to fetch challenger records:", err);
+        } catch {
+          // Challenger records fetch failed
         }
 
         const [jurorPda] = getJurorPoolPDA(publicKey);
@@ -509,7 +505,6 @@ export default function JurorPage() {
           const allRecords: VoteData[] = [];
           try {
             const userJurorRecords = await fetchJurorRecordsByJuror(publicKey);
-            console.log("[loadData] Found juror records:", userJurorRecords.length);
             for (const jr of userJurorRecords) {
               // Store all juror records for locked stake display
               allRecords.push({ publicKey: jr.publicKey, account: jr.account });
@@ -527,13 +522,10 @@ export default function JurorPage() {
                   account: jr.account,
                 };
                 votedDisputeKeys.push(matchingDispute.publicKey.toBase58());
-                console.log("[loadData] Matched juror record to dispute:", matchingDispute.publicKey.toBase58(), "round:", jr.account.round);
-              } else {
-                console.log("[loadData] Juror record has no matching dispute:", jr.account.subjectId.toBase58(), "round:", jr.account.round);
               }
             }
-          } catch (err) {
-            console.error("[loadData] Failed to fetch juror records:", err);
+          } catch {
+            // Juror records fetch failed - user may not have voted yet
           }
           setUserVotes(votes);
           setAllJurorRecords(allRecords);
@@ -614,16 +606,7 @@ export default function JurorPage() {
     // Scan for collectable rewards/closes (V2 - no unlocks)
     if (publicKey && client) {
       try {
-        console.log("[Scan collectables] Starting scan...");
         const scan = await scanCollectableRecords();
-        console.log("[Scan collectables] Result:", {
-          jurorClaims: scan.claims.juror.length,
-          challengerClaims: scan.claims.challenger.length,
-          defenderClaims: scan.claims.defender.length,
-          jurorCloses: scan.closes.juror.length,
-          challengerCloses: scan.closes.challenger.length,
-          defenderCloses: scan.closes.defender.length,
-        });
         setCollectableData({
           claims: scan.claims.juror.length + scan.claims.challenger.length + scan.claims.defender.length,
           unlocks: 0, // V2 doesn't have separate unlocks
@@ -632,12 +615,9 @@ export default function JurorPage() {
           estimatedRent: scan.totals.estimatedRent,
           stakeToUnlock: 0, // V2 doesn't track stakeToUnlock
         });
-      } catch (err) {
-        console.error("[Scan collectables] Error:", err);
+      } catch {
         setCollectableData(null);
       }
-    } else {
-      console.log("[Scan collectables] Skipped - publicKey:", !!publicKey, "client:", !!client);
     }
 
   };
@@ -919,11 +899,11 @@ export default function JurorPage() {
       // V2: No addToVote - users can only vote once per dispute round
       if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
-        await voteOnRestore(subjectId, restoreChoice, stake, rationale);
+        await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
         setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
-        await voteOnDispute(subjectId, voteChoice, stake, rationale);
+        await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
         setSuccess("Vote cast");
       }
       await loadData();
@@ -1029,8 +1009,10 @@ export default function JurorPage() {
     setActionLoading(true);
     setError(null);
     try {
+      const subject = selectedItem.subject;
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
-      await addBondDirect(selectedItem.subject.account.subjectId, stake);
+      const round = subject.account.round;
+      await addBondDirect(subject.account.subjectId, stake, round);
       setSuccess(`Added ${amount} SOL bond`);
       await loadData();
     } catch (err: any) {
@@ -1044,10 +1026,12 @@ export default function JurorPage() {
     setActionLoading(true);
     setError(null);
     try {
-      const subjectId = selectedItem.subject.account.subjectId;
+      const subject = selectedItem.subject;
+      const subjectId = subject.account.subjectId;
+      const round = subject.account.round;
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      await joinChallengers({ subjectId, stake, detailsCid });
+      await joinChallengers({ subjectId, stake, detailsCid, round });
       setSuccess(`Added ${amount} SOL stake as challenger`);
       await loadData();
     } catch (err: any) {

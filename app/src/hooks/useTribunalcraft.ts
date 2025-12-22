@@ -210,20 +210,20 @@ export const useTribunalcraft = () => {
     return result;
   }, [client, connection, wallet.publicKey]);
 
-  const addBondDirect = useCallback(async (subjectId: PublicKey, amount: BN) => {
+  const addBondDirect = useCallback(async (subjectId: PublicKey, amount: BN, round: number = 0) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.addBondDirect(subjectId, amount);
     if (wallet.publicKey) {
-      syncAfterAddBond(connection, subjectId, wallet.publicKey, 0);
+      syncAfterAddBond(connection, subjectId, wallet.publicKey, round);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
 
-  const addBondFromPool = useCallback(async (subjectId: PublicKey, amount: BN) => {
+  const addBondFromPool = useCallback(async (subjectId: PublicKey, amount: BN, round: number = 0) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.addBondFromPool(subjectId, amount);
     if (wallet.publicKey) {
-      syncAfterAddBond(connection, subjectId, wallet.publicKey, 0);
+      syncAfterAddBond(connection, subjectId, wallet.publicKey, round);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -277,11 +277,12 @@ export const useTribunalcraft = () => {
     disputeType: DisputeType;
     detailsCid: string;
     stake: BN;
+    round?: number;
   }) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.createDispute(params);
     if (wallet.publicKey) {
-      syncAfterCreateDispute(connection, params.subjectId, wallet.publicKey, 0);
+      syncAfterCreateDispute(connection, params.subjectId, wallet.publicKey, params.round ?? 0);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -290,11 +291,12 @@ export const useTribunalcraft = () => {
     subjectId: PublicKey;
     detailsCid: string;
     stake: BN;
+    round?: number;
   }) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.joinChallengers(params);
     if (wallet.publicKey) {
-      syncAfterJoinChallengers(connection, params.subjectId, wallet.publicKey, 0);
+      syncAfterJoinChallengers(connection, params.subjectId, wallet.publicKey, params.round ?? 0);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -339,7 +341,8 @@ export const useTribunalcraft = () => {
     subjectId: PublicKey,
     choice: VoteChoice,
     stakeAllocation: BN,
-    rationaleCid: string = ""
+    rationaleCid: string = "",
+    round: number = 0
   ) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.voteOnDispute({
@@ -349,7 +352,7 @@ export const useTribunalcraft = () => {
       rationaleCid,
     });
     if (wallet.publicKey) {
-      syncAfterVote(connection, subjectId, wallet.publicKey, 0);
+      syncAfterVote(connection, subjectId, wallet.publicKey, round);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -358,7 +361,8 @@ export const useTribunalcraft = () => {
     subjectId: PublicKey,
     choice: RestoreVoteChoice,
     stakeAllocation: BN,
-    rationaleCid: string = ""
+    rationaleCid: string = "",
+    round: number = 0
   ) => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.voteOnRestore({
@@ -368,7 +372,7 @@ export const useTribunalcraft = () => {
       rationaleCid,
     });
     if (wallet.publicKey) {
-      syncAfterVote(connection, subjectId, wallet.publicKey, 0);
+      syncAfterVote(connection, subjectId, wallet.publicKey, round);
     }
     return result;
   }, [client, connection, wallet.publicKey]);

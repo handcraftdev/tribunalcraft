@@ -19,6 +19,7 @@ import {
   lamportsToSol,
 } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
+import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import type { DisputeContent } from "@tribunalcraft/sdk";
 
 // Safe BN to number conversion (handles overflow)
@@ -883,24 +884,19 @@ export const SubjectModal = memo(function SubjectModal({
 
   const loadSubjectData = useCallback(async () => {
     setLoading(true);
-    console.log("[SubjectModal:loadSubjectData] Starting...");
     try {
       const subjectId = subject.account.subjectId;
-      const round = subject.account.round;
-      console.log("[SubjectModal:loadSubjectData] subjectId:", subjectId.toBase58(), "round:", round);
 
       // V2: Fetch the current dispute for this subject (one per subject at a time)
       let dispute: DisputeData | null = null;
       try {
         const [disputePda] = getDisputePDA(subjectId);
-        console.log("[SubjectModal:loadSubjectData] Fetching dispute at:", disputePda.toBase58());
         const disputeAccount = await fetchDispute(disputePda);
-        console.log("[SubjectModal:loadSubjectData] Dispute found:", !!disputeAccount);
         if (disputeAccount) {
           dispute = { publicKey: disputePda, account: disputeAccount };
         }
-      } catch (err) {
-        console.log("[SubjectModal:loadSubjectData] No dispute found:", err);
+      } catch {
+        // No dispute found - expected for non-disputed subjects
       }
 
       const disputeList = dispute ? [dispute] : [];
@@ -916,7 +912,6 @@ export const SubjectModal = memo(function SubjectModal({
       }
 
       if (disputeList.length === 0) {
-        console.log("[SubjectModal:loadSubjectData] No disputes found and no wallet, returning early");
         setLoading(false);
         return;
       }
@@ -1173,6 +1168,7 @@ export const SubjectModal = memo(function SubjectModal({
         disputeType: disputeTypeEnum,
         detailsCid: uploadResult.cid,
         stake: new BN(bondLamports),
+        round: subject.account.round,
       });
 
       setInternalSuccess("Dispute submitted successfully");
@@ -1184,7 +1180,13 @@ export const SubjectModal = memo(function SubjectModal({
       }
     } catch (err: any) {
       console.error("Failed to submit dispute:", err);
-      setInternalError(err.message || "Failed to submit dispute");
+      if (isUserCancellation(err)) {
+        // Don't show error for user cancellations
+        return;
+      }
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setInternalError(help ? `${message} ${help}` : message);
     } finally {
       setInternalLoading(false);
     }
@@ -1243,7 +1245,13 @@ export const SubjectModal = memo(function SubjectModal({
       }
     } catch (err: any) {
       console.error("Failed to submit restore:", err);
-      setInternalError(err.message || "Failed to submit restoration request");
+      if (isUserCancellation(err)) {
+        // Don't show error for user cancellations
+        return;
+      }
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setInternalError(help ? `${message} ${help}` : message);
     } finally {
       setInternalLoading(false);
     }
