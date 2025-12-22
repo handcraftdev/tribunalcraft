@@ -13,6 +13,7 @@ import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectDa
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
 import { getSubjects, getDisputes } from "@/lib/supabase/queries";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
 // Create Dispute Modal
@@ -418,6 +419,12 @@ export default function RegistryPage() {
   const [showRestore, setShowRestore] = useState<string | null>(null);
   const [userChallengerPool, setUserChallengerPool] = useState<ChallengerPool | null>(null);
 
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [showMySubjects, setShowMySubjects] = useState(false);
+
   // Convert Supabase subject to SubjectData format
   const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
     try {
@@ -786,12 +793,68 @@ export default function RegistryPage() {
     fetchSelectedData();
   }, [selectedItem, publicKey, disputes]);
 
+  // Filter function for search and category
+  const filterSubject = useCallback((s: SubjectData): boolean => {
+    // Search filter - check title and description from content
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      const content = subjectContents[s.publicKey.toBase58()];
+      const titleMatch = content?.title?.toLowerCase().includes(query);
+      const descMatch = content?.description?.toLowerCase().includes(query);
+      const idMatch = s.publicKey.toBase58().toLowerCase().includes(query);
+      if (!titleMatch && !descMatch && !idMatch) return false;
+    }
+
+    // Category filter
+    if (categoryFilter !== "all") {
+      const content = subjectContents[s.publicKey.toBase58()];
+      if (content?.category !== categoryFilter) return false;
+    }
+
+    // My subjects filter
+    if (showMySubjects && publicKey) {
+      if (s.account.creator.toBase58() !== publicKey.toBase58()) return false;
+    }
+
+    return true;
+  }, [searchQuery, categoryFilter, showMySubjects, publicKey, subjectContents]);
+
   // Filter data for sections
-  const validSubjects = subjects.filter(s => s.account.status.valid);
-  const disputedItems = disputes.filter(d => d.account.status.pending && !d.account.isRestore);
-  const invalidSubjects = subjects.filter(s => s.account.status.invalid);
-  const dormantSubjects = subjects.filter(s => s.account.status.dormant);
-  const restoringSubjects = subjects.filter(s => s.account.status.restoring);
+  const allValidSubjects = subjects.filter(s => s.account.status.valid);
+  const allDisputedItems = disputes.filter(d => d.account.status.pending && !d.account.isRestore);
+  const allInvalidSubjects = subjects.filter(s => s.account.status.invalid);
+  const allDormantSubjects = subjects.filter(s => s.account.status.dormant);
+  const allRestoringSubjects = subjects.filter(s => s.account.status.restoring);
+
+  // Apply search/filter
+  const validSubjects = allValidSubjects.filter(filterSubject);
+  const disputedSubjectsForFilter = allDisputedItems.map(d =>
+    subjects.find(s => s.account.subjectId.toBase58() === d.account.subjectId.toBase58())
+  ).filter((s): s is SubjectData => s !== undefined);
+  const disputedItems = allDisputedItems.filter(d => {
+    const subject = subjects.find(s => s.account.subjectId.toBase58() === d.account.subjectId.toBase58());
+    return subject ? filterSubject(subject) : false;
+  });
+  const invalidSubjects = allInvalidSubjects.filter(filterSubject);
+  const dormantSubjects = allDormantSubjects.filter(filterSubject);
+  const restoringSubjects = allRestoringSubjects.filter(filterSubject);
+
+  // Get unique categories from loaded content
+  const availableCategories = [...new Set(
+    Object.values(subjectContents)
+      .filter((c): c is SubjectContent => c !== null)
+      .map(c => c.category)
+  )];
+
+  // Count totals for status filter badges
+  const statusCounts = {
+    all: subjects.length,
+    valid: allValidSubjects.length,
+    disputed: allDisputedItems.length,
+    invalid: allInvalidSubjects.length,
+    dormant: allDormantSubjects.length,
+    restoring: allRestoringSubjects.length,
+  };
 
   // Get past disputes for history (only for selected subject)
   const getPastDisputes = (subjectKey: string, currentDisputeKey?: string) => {
@@ -834,7 +897,10 @@ export default function RegistryPage() {
       setShowCreateSubject(false);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to create subject");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, uploadSubject, createSubject, loadData]);
@@ -875,7 +941,10 @@ export default function RegistryPage() {
       setShowCreateDispute(null);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to submit dispute");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, showCreateDispute, subjects, uploadDispute, createDispute, loadData]);
@@ -913,7 +982,10 @@ export default function RegistryPage() {
       setShowRestore(null);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to submit restoration request");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, showRestore, subjects, uploadDispute, submitRestore, loadData]);
@@ -931,16 +1003,19 @@ export default function RegistryPage() {
       // V2: No addToVote - users vote once per dispute round
       if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
-        await voteOnRestore(subjectId, restoreChoice, stake, rationale);
+        await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
         setSuccess("Vote cast on restoration request");
       } else {
         const voteChoice = { [choice]: {} } as any;
-        await voteOnDispute(subjectId, voteChoice, stake, rationale);
+        await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
         setSuccess("Vote cast");
       }
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to vote");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, jurorPool, voteOnDispute, voteOnRestore, loadData]);
@@ -955,19 +1030,23 @@ export default function RegistryPage() {
       const isDormant = subject.account.status.dormant;
       const bond = new BN(parseFloat(amount || "0") * LAMPORTS_PER_SOL);
 
+      const round = subject.account.round;
       if (fromPool) {
         // Revive from pool - just link pool, no fund transfer (funds transfer on dispute)
-        await addBondFromPool(subject.account.subjectId, new BN(0));
+        await addBondFromPool(subject.account.subjectId, new BN(0), round);
         const poolBacking = creatorPoolBackings[subject.publicKey.toBase58()] ?? 0;
         setSuccess(isDormant ? `Subject revived (backed by pool: ${(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} SOL)` : "Linked to pool");
       } else {
         // Direct bond from wallet
-        await addBondDirect(subject.account.subjectId, bond);
+        await addBondDirect(subject.account.subjectId, bond, round);
         setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL bond`);
       }
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to add bond");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, selectedItem, addBondDirect, addBondFromPool, creatorPoolBackings, loadData]);
@@ -978,14 +1057,19 @@ export default function RegistryPage() {
     setActionLoading(true);
     setError(null);
     try {
-      const subjectId = selectedItem.subject.account.subjectId;
+      const subject = selectedItem.subject;
+      const subjectId = subject.account.subjectId;
+      const round = subject.account.round;
       const stake = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      await joinChallengers({ subjectId, stake, detailsCid });
+      await joinChallengers({ subjectId, stake, detailsCid, round });
       setSuccess(`Added ${amount} SOL stake as challenger`);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to join challengers");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, selectedItem, joinChallengers, loadData]);
@@ -1002,7 +1086,10 @@ export default function RegistryPage() {
       setSelectedItem(null);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to resolve");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, selectedItem, resolveDispute, loadData]);
@@ -1044,7 +1131,10 @@ export default function RegistryPage() {
       setSuccess(`${claimedRewards.join(", ")} reward${claimedRewards.length > 1 ? "s" : ""} claimed!`);
       await loadData();
     } catch (err: any) {
-      setError(err.message || "Failed to claim rewards");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, selectedItem, batchClaimRewards, loadData]);
@@ -1079,7 +1169,10 @@ export default function RegistryPage() {
       }
     } catch (err: any) {
       console.error("[CloseRecords] Error:", err);
-      setError(err.message || "Failed to close records");
+      if (isUserCancellation(err)) return;
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setError(help ? `${message} ${help}` : message);
     }
     setActionLoading(false);
   }, [publicKey, selectedItem, batchCloseRecords, loadData]);
@@ -1132,7 +1225,7 @@ export default function RegistryPage() {
 
       <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 pt-28 pb-12">
         {/* Header */}
-        <div className="mb-10 animate-slide-up">
+        <div className="mb-6 animate-slide-up">
           <div className="flex items-center justify-between mb-4">
             <h1 className="font-display text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight">
               Subject <span className="text-gold">Registry</span>
@@ -1143,9 +1236,127 @@ export default function RegistryPage() {
               </button>
             )}
           </div>
-          <p className="text-steel text-sm max-w-lg leading-relaxed">
+          <p className="text-steel text-sm max-w-lg leading-relaxed mb-4">
             Browse and manage registered subjects, disputes, and restorations
           </p>
+
+          {/* Search and Filter Bar */}
+          <div className="tribunal-card p-4">
+            <div className="flex flex-col md:flex-row gap-3 md:items-center">
+              {/* Search Input - takes remaining space */}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by title, description, or ID..."
+                  className="input w-full !pl-10"
+                />
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-steel" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-steel hover:text-parchment"
+                  >
+                    <XIcon />
+                  </button>
+                )}
+              </div>
+
+              {/* Filters row */}
+              <div className="flex gap-2 flex-none">
+                {/* Category Filter */}
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="input w-24"
+                >
+                  <option value="all">All</option>
+                  {SUBJECT_CATEGORIES.map(c => (
+                    <option key={c.key} value={c.key}>{c.label}</option>
+                  ))}
+                </select>
+
+                {/* My Subjects Toggle */}
+                {publicKey && (
+                  <button
+                    onClick={() => setShowMySubjects(!showMySubjects)}
+                    className={`px-3 py-2 text-sm font-medium transition-all border whitespace-nowrap ${
+                      showMySubjects
+                        ? "bg-gold/20 border-gold text-gold"
+                        : "bg-slate-light/20 border-slate-light text-steel hover:text-parchment"
+                    }`}
+                  >
+                    Mine
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Status Filter Pills */}
+            <div className="flex flex-wrap gap-2 mt-3">
+              {[
+                { key: "all", label: "All", count: statusCounts.all },
+                { key: "valid", label: "Valid", count: statusCounts.valid },
+                { key: "disputed", label: "Disputed", count: statusCounts.disputed },
+                { key: "restoring", label: "Restoring", count: statusCounts.restoring },
+                { key: "invalid", label: "Invalid", count: statusCounts.invalid },
+                { key: "dormant", label: "Dormant", count: statusCounts.dormant },
+              ].map(status => (
+                <button
+                  key={status.key}
+                  onClick={() => setStatusFilter(status.key)}
+                  className={`px-3 py-1 text-xs font-medium transition-all border ${
+                    statusFilter === status.key
+                      ? "bg-gold/20 border-gold text-gold"
+                      : "bg-slate-light/10 border-slate-light/50 text-steel hover:text-parchment hover:border-steel"
+                  }`}
+                >
+                  {status.label} ({status.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Active Filters Summary */}
+            {(searchQuery || categoryFilter !== "all" || showMySubjects || statusFilter !== "all") && (
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-light/30">
+                <span className="text-xs text-steel">Active filters:</span>
+                {searchQuery && (
+                  <span className="px-2 py-0.5 bg-sky/20 text-sky text-xs rounded">
+                    Search: "{searchQuery}"
+                  </span>
+                )}
+                {categoryFilter !== "all" && (
+                  <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded">
+                    {SUBJECT_CATEGORIES.find(c => c.key === categoryFilter)?.label}
+                  </span>
+                )}
+                {showMySubjects && (
+                  <span className="px-2 py-0.5 bg-gold/20 text-gold text-xs rounded">
+                    My Subjects
+                  </span>
+                )}
+                {statusFilter !== "all" && (
+                  <span className="px-2 py-0.5 bg-emerald/20 text-emerald text-xs rounded">
+                    {statusFilter}
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setCategoryFilter("all");
+                    setShowMySubjects(false);
+                    setStatusFilter("all");
+                  }}
+                  className="ml-auto text-xs text-steel hover:text-crimson"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Alerts */}
@@ -1168,159 +1379,194 @@ export default function RegistryPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Valid Section */}
-            <div className="tribunal-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <FileIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Valid</h2>
-                <span className="text-xs text-steel ml-auto">{validSubjects.length}</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {validSubjects.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No valid subjects</p>
-                ) : (
-                  validSubjects.map((s, i) => (
-                    <SubjectCard
-                      key={i}
-                      subject={s}
-                      dispute={null}
-                      subjectContent={subjectContents[s.publicKey.toBase58()]}
-                      creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
-                      onClick={() => setSelectedItem({ subject: s, dispute: null })}
-                    />
-                  ))
+            {/* No Results Message */}
+            {statusFilter !== "all" && (
+              (statusFilter === "valid" && validSubjects.length === 0) ||
+              (statusFilter === "disputed" && disputedItems.length === 0) ||
+              (statusFilter === "restoring" && restoringSubjects.length === 0) ||
+              (statusFilter === "invalid" && invalidSubjects.length === 0) ||
+              (statusFilter === "dormant" && dormantSubjects.length === 0)
+            ) && (
+              <div className="tribunal-card p-8 text-center">
+                <p className="text-steel">No {statusFilter} subjects found matching your filters</p>
+                {(searchQuery || categoryFilter !== "all" || showMySubjects) && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setCategoryFilter("all");
+                      setShowMySubjects(false);
+                    }}
+                    className="mt-2 text-gold text-sm hover:text-gold-light"
+                  >
+                    Clear search filters
+                  </button>
                 )}
               </div>
-            </div>
+            )}
+
+            {/* Valid Section */}
+            {(statusFilter === "all" || statusFilter === "valid") && (
+              <div className="tribunal-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <FileIcon />
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Valid</h2>
+                  <span className="text-xs text-steel ml-auto">{validSubjects.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {validSubjects.length === 0 ? (
+                    <p className="text-steel text-xs text-center py-4 col-span-full">No valid subjects</p>
+                  ) : (
+                    validSubjects.map((s, i) => (
+                      <SubjectCard
+                        key={i}
+                        subject={s}
+                        dispute={null}
+                        subjectContent={subjectContents[s.publicKey.toBase58()]}
+                        creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
+                        onClick={() => setSelectedItem({ subject: s, dispute: null })}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Disputed Section */}
-            <div className="tribunal-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <GavelIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Disputed</h2>
-                <span className="text-xs text-steel ml-auto">{disputedItems.length}</span>
+            {(statusFilter === "all" || statusFilter === "disputed") && (
+              <div className="tribunal-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <GavelIcon />
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Disputed</h2>
+                  <span className="text-xs text-steel ml-auto">{disputedItems.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {disputedItems.length === 0 ? (
+                    <p className="text-steel text-xs text-center py-4 col-span-full">No active disputes</p>
+                  ) : (
+                    disputedItems.map((d, i) => {
+                      const subject = subjects.find(s => s.account.subjectId.toBase58() === d.account.subjectId.toBase58());
+                      if (!subject) return null;
+                      return (
+                        <SubjectCard
+                          key={i}
+                          subject={subject}
+                          dispute={d}
+                          subjectContent={subjectContents[subject.publicKey.toBase58()]}
+                          disputeContent={disputeContents[d.publicKey.toBase58()]}
+                          voteCounts={disputeVoteCounts[d.publicKey.toBase58()]}
+                          onClick={() => setSelectedItem({ subject, dispute: d })}
+                        />
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {disputedItems.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No active disputes</p>
-                ) : (
-                  disputedItems.map((d, i) => {
-                    const subject = subjects.find(s => s.account.subjectId.toBase58() === d.account.subjectId.toBase58());
-                    if (!subject) return null;
-                    return (
-                      <SubjectCard
-                        key={i}
-                        subject={subject}
-                        dispute={d}
-                        subjectContent={subjectContents[subject.publicKey.toBase58()]}
-                        disputeContent={disputeContents[d.publicKey.toBase58()]}
-                        voteCounts={disputeVoteCounts[d.publicKey.toBase58()]}
-                        onClick={() => setSelectedItem({ subject, dispute: d })}
-                      />
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            )}
 
             {/* Restoring Section */}
-            <div className="tribunal-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <GavelIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Restoring</h2>
-                <span className="text-xs text-steel ml-auto">{restoringSubjects.length}</span>
+            {(statusFilter === "all" || statusFilter === "restoring") && (
+              <div className="tribunal-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <GavelIcon />
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Restoring</h2>
+                  <span className="text-xs text-steel ml-auto">{restoringSubjects.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {restoringSubjects.length === 0 ? (
+                    <p className="text-steel text-xs text-center py-4 col-span-full">No subjects being restored</p>
+                  ) : (
+                    restoringSubjects.map((s, i) => {
+                      const restoreDispute = disputes.find(d =>
+                        d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
+                        d.account.status.pending &&
+                        d.account.isRestore
+                      );
+                      return (
+                        <SubjectCard
+                          key={i}
+                          subject={s}
+                          dispute={restoreDispute}
+                          subjectContent={subjectContents[s.publicKey.toBase58()]}
+                          disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
+                          voteCounts={restoreDispute ? disputeVoteCounts[restoreDispute.publicKey.toBase58()] : null}
+                          onClick={() => setSelectedItem({ subject: s, dispute: restoreDispute || null })}
+                        />
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {restoringSubjects.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No subjects being restored</p>
-                ) : (
-                  restoringSubjects.map((s, i) => {
-                    const restoreDispute = disputes.find(d =>
-                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
-                      d.account.status.pending &&
-                      d.account.isRestore
-                    );
-                    return (
-                      <SubjectCard
-                        key={i}
-                        subject={s}
-                        dispute={restoreDispute}
-                        subjectContent={subjectContents[s.publicKey.toBase58()]}
-                        disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
-                        voteCounts={restoreDispute ? disputeVoteCounts[restoreDispute.publicKey.toBase58()] : null}
-                        onClick={() => setSelectedItem({ subject: s, dispute: restoreDispute || null })}
-                      />
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            )}
 
             {/* Invalid Section */}
-            <div className="tribunal-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <GavelIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalid</h2>
-                <span className="text-xs text-steel ml-auto">{invalidSubjects.length}</span>
+            {(statusFilter === "all" || statusFilter === "invalid") && (
+              <div className="tribunal-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <GavelIcon />
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalid</h2>
+                  <span className="text-xs text-steel ml-auto">{invalidSubjects.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {invalidSubjects.length === 0 ? (
+                    <p className="text-steel text-xs text-center py-4 col-span-full">No invalid subjects</p>
+                  ) : (
+                    invalidSubjects.map((s, i) => {
+                      const invalidatingDispute = disputes.find(d =>
+                        d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
+                        d.account.status.resolved &&
+                        d.account.outcome.challengerWins
+                      );
+                      return (
+                        <SubjectCard
+                          key={i}
+                          subject={s}
+                          dispute={invalidatingDispute}
+                          isResolved={true}
+                          subjectContent={subjectContents[s.publicKey.toBase58()]}
+                          disputeContent={invalidatingDispute ? disputeContents[invalidatingDispute.publicKey.toBase58()] : null}
+                          onClick={() => setSelectedItem({ subject: s, dispute: invalidatingDispute || null })}
+                        />
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {invalidSubjects.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No invalid subjects</p>
-                ) : (
-                  invalidSubjects.map((s, i) => {
-                    const invalidatingDispute = disputes.find(d =>
-                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
-                      d.account.status.resolved &&
-                      d.account.outcome.challengerWins
-                    );
-                    return (
-                      <SubjectCard
-                        key={i}
-                        subject={s}
-                        dispute={invalidatingDispute}
-                        isResolved={true}
-                        subjectContent={subjectContents[s.publicKey.toBase58()]}
-                        disputeContent={invalidatingDispute ? disputeContents[invalidatingDispute.publicKey.toBase58()] : null}
-                        onClick={() => setSelectedItem({ subject: s, dispute: invalidatingDispute || null })}
-                      />
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            )}
 
             {/* Dormant Section */}
-            <div className="tribunal-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <MoonIcon />
-                <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dormant</h2>
-                <span className="text-xs text-steel ml-auto">{dormantSubjects.length}</span>
+            {(statusFilter === "all" || statusFilter === "dormant") && (
+              <div className="tribunal-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <MoonIcon />
+                  <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dormant</h2>
+                  <span className="text-xs text-steel ml-auto">{dormantSubjects.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {dormantSubjects.length === 0 ? (
+                    <p className="text-steel text-xs text-center py-4 col-span-full">No dormant subjects</p>
+                  ) : (
+                    dormantSubjects.map((s, i) => {
+                      const lastDispute = disputes.find(d =>
+                        d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
+                        d.account.status.resolved
+                      );
+                      return (
+                        <SubjectCard
+                          key={i}
+                          subject={s}
+                          dispute={lastDispute}
+                          isResolved={true}
+                          subjectContent={subjectContents[s.publicKey.toBase58()]}
+                          disputeContent={lastDispute ? disputeContents[lastDispute.publicKey.toBase58()] : null}
+                          creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
+                          onClick={() => setSelectedItem({ subject: s, dispute: lastDispute || null })}
+                        />
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {dormantSubjects.length === 0 ? (
-                  <p className="text-steel text-xs text-center py-4 col-span-full">No dormant subjects</p>
-                ) : (
-                  dormantSubjects.map((s, i) => {
-                    const lastDispute = disputes.find(d =>
-                      d.account.subjectId.toBase58() === s.account.subjectId.toBase58() &&
-                      d.account.status.resolved
-                    );
-                    return (
-                      <SubjectCard
-                        key={i}
-                        subject={s}
-                        dispute={lastDispute}
-                        isResolved={true}
-                        subjectContent={subjectContents[s.publicKey.toBase58()]}
-                        disputeContent={lastDispute ? disputeContents[lastDispute.publicKey.toBase58()] : null}
-                        creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
-                        onClick={() => setSelectedItem({ subject: s, dispute: lastDispute || null })}
-                      />
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            )}
           </div>
         )}
       </main>
