@@ -581,10 +581,16 @@ export default function AnalyticsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-obsidian">
+    <div className="min-h-screen bg-obsidian relative overflow-hidden">
+      {/* Atmospheric Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-1/4 right-1/4 w-[600px] h-[400px] bg-gradient-radial from-gold/[0.02] to-transparent blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-[500px] h-[300px] bg-gradient-radial from-emerald/[0.02] to-transparent blur-3xl" />
+      </div>
+
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-6">
@@ -595,14 +601,14 @@ export default function AnalyticsPage() {
             <span className="text-xs text-steel">Protocol Intelligence</span>
           </div>
           <h1 className="font-display mb-4">
-            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight">
               Advanced
             </span>
-            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight tracking-tight">
               Analytics
             </span>
           </h1>
-          <p className="text-steel text-sm max-w-md">
+          <p className="text-steel text-sm max-w-md leading-relaxed">
             Comprehensive protocol metrics, economic health, and participant insights
           </p>
         </div>
@@ -654,7 +660,7 @@ export default function AnalyticsPage() {
               <div className="space-y-8">
                 {/* Key Metrics with Comparison */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-slide-up">
-                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                  <div className="tribunal-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Disputes Filed</p>
                     <p className="font-display text-2xl text-ivory">{stats.totalDisputes}</p>
                     {period !== "all" && (
@@ -664,7 +670,7 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                  <div className="tribunal-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Total Volume</p>
                     <p className="font-display text-2xl text-gold">{formatSOL(stats.totalInflow)}</p>
                     <p className="text-xs text-steel mt-1">SOL</p>
@@ -675,12 +681,12 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                  <div className="tribunal-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">TVL</p>
                     <p className="font-display text-2xl text-emerald">{formatSOL(stats.tvl)}</p>
                     <p className="text-xs text-steel mt-1">Total Value Locked</p>
                   </div>
-                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                  <div className="tribunal-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Resolution Rate</p>
                     <p className="font-display text-2xl text-ivory">{formatPercent(stats.resolvedCount, stats.totalDisputes)}%</p>
                     <p className="text-xs text-steel mt-1">{stats.resolvedCount} / {stats.totalDisputes}</p>
@@ -688,7 +694,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Protocol Health Indicators */}
-                <div className="p-5 bg-slate/30 border border-slate-light/20 animate-slide-up stagger-1">
+                <div className="tribunal-card p-5 animate-slide-up stagger-1">
                   <h2 className="font-display text-base text-ivory mb-6">Protocol Health</h2>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Utilization Rate */}

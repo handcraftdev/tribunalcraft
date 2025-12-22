@@ -1121,10 +1121,16 @@ export default function RegistryPage() {
   const restoreSubjectContent = restoreSubject ? subjectContents[restoreSubject.publicKey.toBase58()] : null;
 
   return (
-    <div className="min-h-screen bg-obsidian">
+    <div className="min-h-screen bg-obsidian relative overflow-hidden">
+      {/* Atmospheric Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 right-1/3 w-[500px] h-[350px] bg-gradient-radial from-gold/[0.025] to-transparent blur-3xl" />
+        <div className="absolute bottom-1/3 left-1/4 w-[400px] h-[300px] bg-gradient-radial from-crimson/[0.015] to-transparent blur-3xl" />
+      </div>
+
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
           <div className="flex items-center justify-between mb-6">
@@ -1142,14 +1148,14 @@ export default function RegistryPage() {
             )}
           </div>
           <h1 className="font-display mb-4">
-            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight">
               Subject
             </span>
-            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight tracking-tight">
               Registry
             </span>
           </h1>
-          <p className="text-steel text-sm max-w-md">
+          <p className="text-steel text-sm max-w-md leading-relaxed">
             Browse and manage registered subjects, disputes, and restorations
           </p>
         </div>
@@ -1175,7 +1181,7 @@ export default function RegistryPage() {
         ) : (
           <div className="space-y-6">
             {/* Valid Section */}
-            <div className="bg-slate/30 border border-slate-light p-4">
+            <div className="tribunal-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <FileIcon />
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Valid</h2>
@@ -1200,7 +1206,7 @@ export default function RegistryPage() {
             </div>
 
             {/* Disputed Section */}
-            <div className="bg-slate/30 border border-slate-light p-4">
+            <div className="tribunal-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <GavelIcon />
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Disputed</h2>
@@ -1230,7 +1236,7 @@ export default function RegistryPage() {
             </div>
 
             {/* Restoring Section */}
-            <div className="bg-slate/30 border border-slate-light p-4">
+            <div className="tribunal-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <GavelIcon />
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Restoring</h2>
@@ -1263,7 +1269,7 @@ export default function RegistryPage() {
             </div>
 
             {/* Invalid Section */}
-            <div className="bg-slate/30 border border-slate-light p-4">
+            <div className="tribunal-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <GavelIcon />
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalid</h2>
@@ -1296,7 +1302,7 @@ export default function RegistryPage() {
             </div>
 
             {/* Dormant Section */}
-            <div className="bg-slate/30 border border-slate-light p-4">
+            <div className="tribunal-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <MoonIcon />
                 <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dormant</h2>

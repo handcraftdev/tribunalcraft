@@ -1551,10 +1551,16 @@ export default function JurorPage() {
   // ═══════════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen bg-obsidian">
+    <div className="min-h-screen bg-obsidian relative overflow-hidden">
+      {/* Atmospheric Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[350px] bg-gradient-radial from-gold/[0.02] to-transparent blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-[400px] h-[300px] bg-gradient-radial from-sky-400/[0.015] to-transparent blur-3xl" />
+      </div>
+
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-6">
@@ -1565,14 +1571,14 @@ export default function JurorPage() {
             <span className="text-xs text-steel">Your Dashboard</span>
           </div>
           <h1 className="font-display mb-4">
-            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight">
               Your
             </span>
-            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight tracking-tight">
               Profile
             </span>
           </h1>
-          <p className="text-steel text-sm max-w-md">
+          <p className="text-steel text-sm max-w-md leading-relaxed">
             Manage your accounts, track your activity, and claim rewards
           </p>
         </div>
@@ -2244,7 +2250,7 @@ export default function JurorPage() {
 
             {/* Active Section */}
             {activeDisputes.length > 0 && (
-              <div className="bg-slate/30 border border-slate-light p-5 mb-6 animate-slide-up stagger-4">
+              <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-4">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-emerald-700/10 flex items-center justify-center text-emerald">
                     <ActivityIcon />
@@ -2327,7 +2333,7 @@ export default function JurorPage() {
 
             {/* Historical Section - PDA-based only */}
             {historicalSubjects.length > 0 && (
-              <div className="bg-slate/30 border border-slate-light p-5 mb-6 animate-slide-up stagger-6">
+              <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-slate/30 flex items-center justify-center text-steel">
                     <CheckIcon />

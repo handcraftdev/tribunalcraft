@@ -177,10 +177,16 @@ export default function Dashboard() {
   const formatReputation = (rep: number) => `${rep.toFixed(1)}%`;
 
   return (
-    <div className="min-h-screen bg-obsidian">
+    <div className="min-h-screen bg-obsidian relative overflow-hidden">
+      {/* Atmospheric Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[400px] bg-gradient-radial from-gold/[0.03] to-transparent blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[300px] bg-gradient-radial from-emerald/[0.02] to-transparent blur-3xl" />
+      </div>
+
       <Navigation />
 
-      <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Hero Section */}
         <div className="mb-12 animate-slide-up">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-6">
@@ -191,14 +197,14 @@ export default function Dashboard() {
             <span className="text-xs text-steel">Protocol Overview</span>
           </div>
           <h1 className="font-display mb-4">
-            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight">
               The Digital
             </span>
-            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight tracking-tight">
               Tribunal
             </span>
           </h1>
-          <p className="text-steel text-sm max-w-md">
+          <p className="text-steel text-sm max-w-md leading-relaxed">
             A sovereign court for the digital age. Stake, challenge, arbitrate, and enforce
             agreements through decentralized consensus.
           </p>
@@ -213,8 +219,8 @@ export default function Dashboard() {
           <>
             {/* Key Metrics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 animate-slide-up stagger-1">
-              <div className="p-5 bg-slate/30 border border-slate-light/20">
-                <div className="w-9 h-9 bg-gold/10 flex items-center justify-center mb-4">
+              <div className="tribunal-card p-5 group">
+                <div className="w-10 h-10 border border-gold/30 flex items-center justify-center mb-4 text-gold group-hover:border-gold/50 transition-colors">
                   <CoinsIcon />
                 </div>
                 <p className="text-xs text-steel uppercase tracking-wider mb-1">Total Value Locked</p>
@@ -222,8 +228,8 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">SOL</p>
               </div>
 
-              <div className="p-5 bg-slate/30 border border-slate-light/20">
-                <div className="w-9 h-9 bg-crimson/10 flex items-center justify-center mb-4">
+              <div className="tribunal-card p-5 group">
+                <div className="w-10 h-10 border border-crimson/30 flex items-center justify-center mb-4 text-crimson group-hover:border-crimson/50 transition-colors">
                   <GavelIcon />
                 </div>
                 <p className="text-xs text-steel uppercase tracking-wider mb-1">Active Disputes</p>
@@ -231,8 +237,8 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">{formatSOL(stats.activePools)} SOL at stake</p>
               </div>
 
-              <div className="p-5 bg-slate/30 border border-slate-light/20">
-                <div className="w-9 h-9 bg-emerald/10 flex items-center justify-center mb-4">
+              <div className="tribunal-card p-5 group">
+                <div className="w-10 h-10 border border-emerald/30 flex items-center justify-center mb-4 text-emerald group-hover:border-emerald/50 transition-colors">
                   <UsersIcon />
                 </div>
                 <p className="text-xs text-steel uppercase tracking-wider mb-1">Active Jurors</p>
@@ -240,8 +246,8 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">of {stats.totalJurors} registered</p>
               </div>
 
-              <div className="p-5 bg-slate/30 border border-slate-light/20">
-                <div className="w-9 h-9 bg-sky/10 flex items-center justify-center mb-4">
+              <div className="tribunal-card p-5 group">
+                <div className="w-10 h-10 border border-sky-400/30 flex items-center justify-center mb-4 text-sky-400 group-hover:border-sky-400/50 transition-colors">
                   <ShieldIcon />
                 </div>
                 <p className="text-xs text-steel uppercase tracking-wider mb-1">Subjects</p>
@@ -251,15 +257,15 @@ export default function Dashboard() {
             </div>
 
             {/* Protocol Health */}
-            <div className="p-5 bg-slate/30 border border-slate-light/20 mb-8 animate-slide-up stagger-2">
+            <div className="tribunal-card p-6 mb-8 animate-slide-up stagger-2">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 bg-gold/10 flex items-center justify-center">
+                  <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold">
                     <ScaleIcon />
                   </div>
-                  <h2 className="font-display text-base text-ivory">Protocol Health</h2>
+                  <h2 className="font-display text-lg text-ivory">Protocol Health</h2>
                 </div>
-                <Link href="/analytics" className="text-xs text-gold hover:text-gold-light flex items-center gap-1">
+                <Link href="/analytics" className="text-xs text-gold hover:text-gold-light flex items-center gap-1 uppercase tracking-wider">
                   View Analytics <ChevronRight />
                 </Link>
               </div>
@@ -324,33 +330,32 @@ export default function Dashboard() {
 
             {/* Quick Actions */}
             {!publicKey ? (
-              <div className="p-5 bg-slate/30 border border-gold/30 text-center animate-slide-up stagger-3">
-                <div className="w-10 h-10 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
+              <div className="tribunal-card-gold p-8 text-center animate-slide-up stagger-3">
+                <div className="w-12 h-12 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
                   <ShieldIcon />
                 </div>
-                <h2 className="font-display text-xl text-ivory mb-2">
+                <h2 className="font-display text-2xl text-ivory mb-3">
                   Enter the Tribunal
                 </h2>
-                <p className="text-steel text-sm mb-6 max-w-md mx-auto">
+                <p className="text-steel text-sm mb-6 max-w-md mx-auto leading-relaxed">
                   Connect your wallet to participate in decentralized arbitration as a staker, challenger, or juror.
                 </p>
-                <span className="text-xs uppercase tracking-wider text-steel">
+                <span className="text-xs uppercase tracking-wider text-gold/70">
                   Use the button above to connect
                 </span>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-slide-up stagger-3">
-                <Link
-                  href="/profile"
-                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
-                >
+                <Link href="/profile" className="tribunal-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                    <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
                       <UsersIcon />
                     </div>
-                    <ChevronRight />
+                    <span className="text-steel group-hover:text-gold transition-colors">
+                      <ChevronRight />
+                    </span>
                   </div>
-                  <h3 className="font-display text-base text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1 group-hover:text-gold transition-colors">
                     {pool ? "Manage Accounts" : "Setup Account"}
                   </h3>
                   <p className="text-steel text-xs">
@@ -358,17 +363,16 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link
-                  href="/registry"
-                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
-                >
+                <Link href="/registry" className="tribunal-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                    <div className="w-10 h-10 border border-crimson/30 flex items-center justify-center text-crimson group-hover:border-crimson/50 transition-colors">
                       <GavelIcon />
                     </div>
-                    <ChevronRight />
+                    <span className="text-steel group-hover:text-gold transition-colors">
+                      <ChevronRight />
+                    </span>
                   </div>
-                  <h3 className="font-display text-base text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1 group-hover:text-gold transition-colors">
                     Registry
                   </h3>
                   <p className="text-steel text-xs">
@@ -376,17 +380,16 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link
-                  href="/analytics"
-                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
-                >
+                <Link href="/analytics" className="tribunal-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                    <div className="w-10 h-10 border border-emerald/30 flex items-center justify-center text-emerald group-hover:border-emerald/50 transition-colors">
                       <ChartIcon />
                     </div>
-                    <ChevronRight />
+                    <span className="text-steel group-hover:text-gold transition-colors">
+                      <ChevronRight />
+                    </span>
                   </div>
-                  <h3 className="font-display text-base text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1 group-hover:text-gold transition-colors">
                     Analytics
                   </h3>
                   <p className="text-steel text-xs">
@@ -394,17 +397,16 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link
-                  href="/profile"
-                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
-                >
+                <Link href="/profile" className="tribunal-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                    <div className="w-10 h-10 border border-sky-400/30 flex items-center justify-center text-sky-400 group-hover:border-sky-400/50 transition-colors">
                       <ShieldIcon />
                     </div>
-                    <ChevronRight />
+                    <span className="text-steel group-hover:text-gold transition-colors">
+                      <ChevronRight />
+                    </span>
                   </div>
-                  <h3 className="font-display text-base text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1 group-hover:text-gold transition-colors">
                     {jurorAccount ? "Juror Dashboard" : "Become a Juror"}
                   </h3>
                   <p className="text-steel text-xs">
@@ -418,11 +420,16 @@ export default function Dashboard() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-light mt-24 py-8">
+      <footer className="relative z-10 border-t border-slate-light/50 mt-24 py-10">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between text-xs text-steel">
-            <span>TribunalCraft Protocol v2.0</span>
-            <span>Powered by Solana</span>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 border border-gold/30 flex items-center justify-center">
+                <span className="font-display text-gold text-xs font-semibold">T</span>
+              </div>
+              <span>TribunalCraft Protocol v2.0</span>
+            </div>
+            <span className="text-steel/70">Powered by Solana</span>
           </div>
         </div>
       </footer>
