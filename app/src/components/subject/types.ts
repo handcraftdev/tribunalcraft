@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import type { SubjectContent, DisputeContent } from "@/lib/content-types";
+import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 
 // Dispute types for display
 export const DISPUTE_TYPES = [
@@ -25,12 +25,12 @@ export const SUBJECT_CATEGORIES = [
 
 // Helper functions
 export const getStatusBadge = (status: any) => {
-  if (status.valid) return { label: "Valid", class: "bg-emerald-700/20 text-emerald" };
-  if (status.disputed) return { label: "Disputed", class: "bg-gold/20 text-gold" };
-  if (status.invalid) return { label: "Invalid", class: "bg-red-800/20 text-crimson" };
+  if (status.valid) return { label: "Valid", class: "bg-emerald-20 text-emerald" };
+  if (status.disputed) return { label: "Disputed", class: "bg-gold-20 text-gold" };
+  if (status.invalid) return { label: "Invalid", class: "bg-crimson-20 text-crimson" };
   if (status.dormant) return { label: "Dormant", class: "bg-purple-500/20 text-purple-400" };
   if (status.restoring) return { label: "Restoring", class: "bg-violet-500/20 text-violet-400" };
-  return { label: "Unknown", class: "bg-steel/20 text-steel" };
+  return { label: "Unknown", class: "bg-steel-20 text-steel" };
 };
 
 export const getOutcomeLabel = (outcome: any) => {
@@ -175,6 +175,7 @@ export interface SubjectCardProps {
   subjectContent?: SubjectContent | null;
   disputeContent?: DisputeContent | null;
   voteCounts?: VoteCounts | null;
+  creatorPoolBacking?: number; // min(pool.balance, pool.maxBond) in lamports
   onClick: () => void;
 }
 
@@ -193,6 +194,8 @@ export interface SubjectModalProps {
   subject: SubjectData;
   subjectContent?: SubjectContent | null;
   jurorPool?: JurorPoolData | null;
+  creatorPoolBacking?: number; // min(pool.balance, pool.maxBond) in lamports
+  userPoolBacking?: number; // Current user's pool backing for revive
   onClose: () => void;
   onVote?: (subjectId: string, round: number, stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
   onAddBond?: (subjectId: string, amount: string, fromPool: boolean) => void;

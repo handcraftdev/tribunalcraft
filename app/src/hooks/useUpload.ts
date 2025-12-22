@@ -8,7 +8,7 @@ import {
   createSubjectContent,
   createDisputeContent,
   Evidence,
-} from "@/lib/content-types";
+} from "@tribunalcraft/sdk";
 
 export interface UploadState {
   isUploading: boolean;
