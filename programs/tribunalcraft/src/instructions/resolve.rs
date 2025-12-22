@@ -144,23 +144,45 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     dispute.resolved_at = clock.unix_timestamp;
 
     // Update subject based on outcome
-    match outcome {
-        ResolutionOutcome::ChallengerWins => {
-            // Subject is invalidated
-            subject.status = SubjectStatus::Invalid;
-            subject.last_dispute_total = total_pool;
-            subject.last_voting_period = subject.voting_period;
-            // Reset bond tracking (bond is now in escrow for claims)
-            subject.available_bond = 0;
-            subject.defender_count = 0;
+    // Handle restoration disputes differently - outcomes have reversed meaning
+    if dispute.is_restore {
+        match outcome {
+            ResolutionOutcome::ChallengerWins => {
+                // Restoration succeeded - subject is restored to valid
+                // Note: In restorations, "challenger" is the restorer
+                subject.reset_for_next_round();
+                subject.status = SubjectStatus::Valid;
+            }
+            ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
+                // Restoration failed - subject stays invalid
+                // Reset tracking for potential future restoration attempts
+                subject.last_dispute_total = total_pool;
+                subject.dispute = Pubkey::default();
+                subject.status = SubjectStatus::Invalid;
+            }
+            ResolutionOutcome::None => {
+                return Err(TribunalCraftError::InvalidConfig.into());
+            }
         }
-        ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
-            // Subject continues to next round
-            subject.reset_for_next_round();
-        }
-        ResolutionOutcome::None => {
-            // Should not happen
-            return Err(TribunalCraftError::InvalidConfig.into());
+    } else {
+        // Normal dispute resolution
+        match outcome {
+            ResolutionOutcome::ChallengerWins => {
+                // Subject is invalidated
+                subject.status = SubjectStatus::Invalid;
+                subject.last_dispute_total = total_pool;
+                subject.last_voting_period = subject.voting_period;
+                // Reset bond tracking (bond is now in escrow for claims)
+                subject.available_bond = 0;
+                subject.defender_count = 0;
+            }
+            ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
+                // Subject continues to next round
+                subject.reset_for_next_round();
+            }
+            ResolutionOutcome::None => {
+                return Err(TribunalCraftError::InvalidConfig.into());
+            }
         }
     }
 
