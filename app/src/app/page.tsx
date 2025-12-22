@@ -191,9 +191,9 @@ export default function LandingPage() {
     <div className="min-h-screen bg-obsidian overflow-x-hidden">
       {/* NAVIGATION */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-        scrolled ? "bg-obsidian/98 backdrop-blur-md border-b border-gold/10" : "bg-transparent"
+        scrolled ? "bg-obsidian/98 backdrop-blur-md border-b border-slate-light/30" : "bg-transparent"
       }`}>
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 group">
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
               <span className="font-display text-gold text-sm font-semibold">T</span>
