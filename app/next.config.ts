@@ -27,12 +27,32 @@ const securityHeaders = [
   },
 ];
 
+// CORS headers for API routes
+const corsHeaders = [
+  {
+    key: "Access-Control-Allow-Origin",
+    value: process.env.NEXT_PUBLIC_APP_URL || "*",
+  },
+  {
+    key: "Access-Control-Allow-Methods",
+    value: "GET, POST, OPTIONS",
+  },
+  {
+    key: "Access-Control-Allow-Headers",
+    value: "Content-Type, Authorization",
+  },
+];
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      {
+        source: "/api/:path*",
+        headers: [...securityHeaders, ...corsHeaders],
       },
     ];
   },
