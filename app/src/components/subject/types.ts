@@ -24,12 +24,14 @@ export const SUBJECT_CATEGORIES = [
 ] as const;
 
 // Helper functions
+// Priority order: restoring > disputed > invalid > valid > dormant
+// This ensures the most actionable status is shown when data may be stale
 export const getStatusBadge = (status: any) => {
-  if (status.valid) return { label: "Valid", class: "bg-emerald-20 text-emerald" };
+  if (status.restoring) return { label: "Restoring", class: "bg-violet-500/20 text-violet-400" };
   if (status.disputed) return { label: "Disputed", class: "bg-gold-20 text-gold" };
   if (status.invalid) return { label: "Invalid", class: "bg-crimson-20 text-crimson" };
+  if (status.valid) return { label: "Valid", class: "bg-emerald-20 text-emerald" };
   if (status.dormant) return { label: "Dormant", class: "bg-purple-500/20 text-purple-400" };
-  if (status.restoring) return { label: "Restoring", class: "bg-violet-500/20 text-violet-400" };
   return { label: "Unknown", class: "bg-steel-20 text-steel" };
 };
 
