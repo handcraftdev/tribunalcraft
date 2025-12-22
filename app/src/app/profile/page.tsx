@@ -1641,9 +1641,9 @@ export default function JurorPage() {
         ) : (
           <>
             {/* Wallet Info Bar */}
-            <div className="flex items-center justify-between bg-slate/30 border border-slate-light/50 px-5 py-3 mb-8 animate-slide-up stagger-1">
+            <div className="tribunal-card flex items-center justify-between px-5 py-4 mb-8 animate-slide-up stagger-1">
               <div className="flex items-center gap-4">
-                <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold">
                   <UserIcon />
                 </div>
                 <div>
@@ -1668,12 +1668,12 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   DEFENDER CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="bg-gradient-to-b from-slate/40 to-slate/20 border border-slate-light/50 overflow-hidden">
+              <div className="tribunal-card overflow-hidden">
                 {/* Card Header */}
-                <div className="px-5 py-4 border-b border-slate-light/30 bg-slate/30">
+                <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-sky-400/10 border border-sky-400/30 flex items-center justify-center text-sky-400">
+                      <div className="w-10 h-10 border border-sky-400/30 flex items-center justify-center text-sky-400">
                         <VaultIcon />
                       </div>
                       <div>
@@ -1821,10 +1821,10 @@ export default function JurorPage() {
                     </>
                   ) : (
                     <div className="text-center py-6">
-                      <div className="w-10 h-10 mx-auto mb-4 bg-slate/50 flex items-center justify-center text-steel">
+                      <div className="w-12 h-12 mx-auto mb-4 border border-sky-400/30 flex items-center justify-center text-sky-400">
                         <VaultIcon />
                       </div>
-                      <p className="text-steel text-sm mb-4">Create a defender pool to back subjects and earn from successful defenses</p>
+                      <p className="text-steel text-sm mb-4 leading-relaxed">Create a defender pool to back subjects and earn from successful defenses</p>
                       <div className="flex gap-2 justify-center">
                         <input
                           type="text"
@@ -1845,12 +1845,12 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   JUROR CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="bg-gradient-to-b from-slate/40 to-slate/20 border border-slate-light/50 overflow-hidden">
+              <div className="tribunal-card overflow-hidden">
                 {/* Card Header */}
-                <div className="px-5 py-4 border-b border-slate-light/30 bg-slate/30">
+                <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
+                      <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold">
                         <ScaleIcon />
                       </div>
                       <div>
@@ -1961,10 +1961,10 @@ export default function JurorPage() {
                     </>
                   ) : (
                     <div className="text-center py-6">
-                      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-slate/50 flex items-center justify-center text-steel">
+                      <div className="w-12 h-12 mx-auto mb-4 border border-gold/30 flex items-center justify-center text-gold">
                         <ScaleIcon />
                       </div>
-                      <p className="text-steel text-sm mb-4">Register as a juror to vote on disputes and earn rewards for correct verdicts</p>
+                      <p className="text-steel text-sm mb-4 leading-relaxed">Register as a juror to vote on disputes and earn rewards for correct verdicts</p>
                       <div className="flex gap-2 justify-center">
                         <input
                           type="text"
@@ -1985,12 +1985,12 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   CHALLENGER CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="bg-gradient-to-b from-slate/40 to-slate/20 border border-slate-light/50 overflow-hidden">
+              <div className="tribunal-card overflow-hidden">
                 {/* Card Header */}
-                <div className="px-5 py-4 border-b border-slate-light/30 bg-slate/30">
+                <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-red-800/10 flex items-center justify-center text-crimson">
+                      <div className="w-10 h-10 border border-crimson/30 flex items-center justify-center text-crimson">
                         <SwordIcon />
                       </div>
                       <div>
@@ -2112,7 +2112,7 @@ export default function JurorPage() {
                     </>
                   ) : (
                     <div className="text-center py-6">
-                      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-slate/50 flex items-center justify-center text-steel">
+                      <div className="w-12 h-12 mx-auto mb-4 border border-crimson/30 flex items-center justify-center text-crimson">
                         <SwordIcon />
                       </div>
                       <p className="text-steel text-sm mb-2">No challenger account yet</p>
@@ -2252,14 +2252,14 @@ export default function JurorPage() {
             {activeDisputes.length > 0 && (
               <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-4">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-700/10 flex items-center justify-center text-emerald">
+                  <div className="w-9 h-9 border border-emerald/30 flex items-center justify-center text-emerald">
                     <ActivityIcon />
                   </div>
                   <div className="flex-1">
                     <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Active</h2>
                     <p className="text-xs text-steel">Ongoing disputes - voting in progress</p>
                   </div>
-                  <span className="text-xs text-emerald bg-emerald-700/10 px-2 py-1 rounded">{activeDisputes.length}</span>
+                  <span className="text-xs text-emerald border border-emerald/30 px-2 py-1">{activeDisputes.length}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {activeDisputes.map((item, i) => (
@@ -2279,16 +2279,16 @@ export default function JurorPage() {
 
             {/* Pending Action Section */}
             {pendingActionDisputes.length > 0 && (
-              <div className="bg-slate/30 border border-gold/30 p-5 mb-6 animate-slide-up stagger-5">
+              <div className="tribunal-card-gold p-5 mb-6 animate-slide-up stagger-5">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-gold/10 flex items-center justify-center text-gold">
+                  <div className="w-9 h-9 border border-gold/50 flex items-center justify-center text-gold">
                     <ShieldIcon />
                   </div>
                   <div className="flex-1">
                     <h2 className="text-sm font-semibold text-gold uppercase tracking-wider">Pending Action</h2>
                     <p className="text-xs text-steel">Requires your attention: resolve disputes or claim rewards</p>
                   </div>
-                  <span className="text-xs text-gold bg-gold/10 px-2 py-1 rounded">{pendingActionDisputes.length}</span>
+                  <span className="text-xs text-gold border border-gold/30 px-2 py-1">{pendingActionDisputes.length}</span>
                   {pendingActionDisputes.some(item => {
                     const isResolved = item.dispute.account.status.resolved;
                     if (!isResolved) return false;
@@ -2335,14 +2335,14 @@ export default function JurorPage() {
             {historicalSubjects.length > 0 && (
               <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-6">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-slate/30 flex items-center justify-center text-steel">
+                  <div className="w-9 h-9 border border-emerald/30 flex items-center justify-center text-emerald">
                     <CheckIcon />
                   </div>
                   <div className="flex-1">
                     <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">History</h2>
                     <p className="text-xs text-steel">Completed disputes with rewards claimed</p>
                   </div>
-                  <span className="text-xs text-steel bg-slate/30 px-2 py-1 rounded">{historicalSubjects.length}</span>
+                  <span className="text-xs text-steel border border-slate-light/50 px-2 py-1">{historicalSubjects.length}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {historicalSubjects.map((item, i) => (
@@ -2362,10 +2362,10 @@ export default function JurorPage() {
             {/* Empty State CTA */}
             {activeDisputes.length === 0 && pendingActionDisputes.length === 0 && historicalSubjects.length === 0 && (jurorAccount || pool) && (
               <div className="tribunal-card-gold p-8 text-center animate-slide-up stagger-4">
-                <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gold/10 flex items-center justify-center text-gold">
+                <div className="w-12 h-12 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
                   <ScaleIcon />
                 </div>
-                <p className="text-steel mb-4">
+                <p className="text-steel mb-4 leading-relaxed">
                   No active disputes. Browse subjects in the registry to participate.
                 </p>
                 <Link href="/registry" className="btn btn-primary">
