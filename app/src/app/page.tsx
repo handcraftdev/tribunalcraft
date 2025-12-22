@@ -165,6 +165,22 @@ const UsersIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   </svg>
 );
 
+const CoinsIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <circle cx="9" cy="9" r="6" />
+    <path d="M15 9a6 6 0 1 1 0 12 6 6 0 0 1 0-12z" />
+  </svg>
+);
+
+const FileIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+  </svg>
+);
+
 const ArrowIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="5" y1="12" x2="19" y2="12" />
@@ -252,7 +268,7 @@ export default function LandingPage() {
 
               <p className="text-base text-steel max-w-md mb-8 leading-relaxed">
                 Trustless dispute resolution where economic consensus reveals truth.
-                No intermediaries. No bias. Just stakes and outcomes.
+                No intermediaries. Just stakes and outcomes.
               </p>
 
               <div className="flex flex-wrap gap-3 mb-10">
@@ -270,9 +286,9 @@ export default function LandingPage() {
 
               <div className="flex gap-10 pt-6 border-t border-slate-light/30">
                 {[
-                  { value: "80%", label: "To Winners" },
-                  { value: "~400ms", label: "Finality" },
-                  { value: "$0", label: "Legal Fees" },
+                  { value: "100%", label: "On-Chain" },
+                  { value: "Open", label: "All Records" },
+                  { value: "Zero", label: "Hidden Data" },
                 ].map((stat, i) => (
                   <div key={i}>
                     <div className="font-display text-2xl text-ivory font-medium">{stat.value}</div>
@@ -294,7 +310,8 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <div className="font-display text-xl md:text-2xl text-parchment/90 leading-relaxed italic">
             &ldquo;In matters of dispute, let not authority decide, but the collective wisdom
-            of those with <span className="text-gold not-italic">stake</span> in the outcome.&rdquo;
+            of those with <span className="text-gold not-italic">stake</span> in the outcome—where
+            all evidence is <span className="text-gold not-italic">open</span> and nothing hidden.&rdquo;
           </div>
         </div>
       </section>
@@ -372,20 +389,43 @@ export default function LandingPage() {
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">Trust & Security</h2>
             <p className="mt-3 text-steel text-sm max-w-lg mx-auto">
-              Multiple layers of protection ensure fair outcomes and prevent manipulation
+              Built on two principles: everyone sees the same information, and everyone has skin in the game.
             </p>
           </div>
 
+          {/* Core Principles */}
+          <div className="grid md:grid-cols-2 gap-4 max-w-3xl mx-auto mb-8">
+            <div className="p-5 bg-slate/30 border border-slate-light/20">
+              <div className="w-9 h-9 border border-gold/30 flex items-center justify-center mb-4">
+                <ScaleIcon className="w-5 h-5 text-gold" />
+              </div>
+              <h3 className="font-display text-base text-ivory mb-2">Radical Transparency</h3>
+              <p className="text-steel text-xs leading-relaxed">
+                Every vote, stake, and outcome permanently on-chain. All participants access the same data—nothing hidden, nothing privileged.
+              </p>
+            </div>
+            <div className="p-5 bg-slate/30 border border-slate-light/20">
+              <div className="w-9 h-9 border border-gold/30 flex items-center justify-center mb-4">
+                <CoinsIcon className="w-5 h-5 text-gold" />
+              </div>
+              <h3 className="font-display text-base text-ivory mb-2">Economic Consensus</h3>
+              <p className="text-steel text-xs leading-relaxed">
+                Truth emerges from those willing to stake on it. No intermediaries—just participants putting value behind their judgment.
+              </p>
+            </div>
+          </div>
+
+          {/* Mechanisms */}
           <div className="grid md:grid-cols-2 gap-4 max-w-3xl mx-auto">
             {[
-              { icon: ScaleIcon, title: "Unbiased Decisions", desc: "Jurors have no stake in either side's outcome. Their only incentive is to vote correctly based on evidence.", color: "text-gold", bg: "bg-gold/10" },
-              { icon: LockIcon, title: "Skin in the Game", desc: "Every participant stakes real value. Jurors lock stake for 7 days post-vote, ensuring commitment.", color: "text-gold", bg: "bg-gold/10" },
-              { icon: CheckCircleIcon, title: "Wrong Votes Cost More", desc: "Incorrect votes lose 2% reputation while correct votes gain 1%. This 2:1 asymmetry rewards careful judgment.", color: "text-crimson-light", bg: "bg-crimson/10" },
-              { icon: UsersIcon, title: "Collusion Resistant", desc: "Voting power scales with √stake, preventing whale takeover. Splitting accounts reduces total power.", color: "text-emerald-light", bg: "bg-emerald/10" },
+              { icon: LockIcon, title: "Stake Lock Period", desc: "Jurors lock stake for 7 days post-vote. No hit-and-run decisions—you stand by your judgment." },
+              { icon: CheckCircleIcon, title: "Asymmetric Reputation", desc: "Incorrect votes lose 2% reputation while correct votes gain 1%. Careful judgment rewarded." },
+              { icon: UsersIcon, title: "Quadratic Voting Power", desc: "Power scales with √stake, preventing whale takeover. Splitting accounts reduces influence." },
+              { icon: FileIcon, title: "Immutable Records", desc: "All actions permanently recorded on Solana. Audit any dispute, verify any outcome." },
             ].map((card, i) => (
               <div key={i} className="p-5 bg-slate/30 border border-slate-light/20">
-                <div className={`w-9 h-9 ${card.bg} flex items-center justify-center mb-4`}>
-                  <card.icon className={`w-5 h-5 ${card.color}`} />
+                <div className="w-9 h-9 border border-slate-light/30 flex items-center justify-center mb-4">
+                  <card.icon className="w-5 h-5 text-steel" />
                 </div>
                 <h3 className="font-display text-base text-ivory mb-2">{card.title}</h3>
                 <p className="text-steel text-xs leading-relaxed">{card.desc}</p>
@@ -567,19 +607,19 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-3 gap-8">
             <div>
-              <div className="font-display text-4xl text-gold mb-2">~400ms</div>
-              <h3 className="text-ivory text-sm font-medium mb-1">Solana Speed</h3>
-              <p className="text-steel text-xs">Sub-second finality</p>
+              <div className="font-display text-4xl text-gold mb-2">Open</div>
+              <h3 className="text-ivory text-sm font-medium mb-1">Full Visibility</h3>
+              <p className="text-steel text-xs">Every record publicly accessible</p>
             </div>
             <div>
-              <div className="font-display text-4xl text-gold mb-2">0</div>
-              <h3 className="text-ivory text-sm font-medium mb-1">Native Tokens</h3>
-              <p className="text-steel text-xs">Stake in SOL directly</p>
+              <div className="font-display text-4xl text-gold mb-2">Verifiable</div>
+              <h3 className="text-ivory text-sm font-medium mb-1">On-Chain Proof</h3>
+              <p className="text-steel text-xs">Immutable, auditable history</p>
             </div>
             <div>
-              <div className="font-display text-4xl text-gold mb-2">∞</div>
-              <h3 className="text-ivory text-sm font-medium mb-1">Restoration</h3>
-              <p className="text-steel text-xs">Subjects can be restored</p>
+              <div className="font-display text-4xl text-gold mb-2">Equal</div>
+              <h3 className="text-ivory text-sm font-medium mb-1">Same Information</h3>
+              <p className="text-steel text-xs">No privileged access to data</p>
             </div>
           </div>
         </div>
@@ -599,7 +639,8 @@ export default function LandingPage() {
           </h2>
 
           <p className="text-steel mb-8 max-w-md mx-auto">
-            Join the decentralized arbitration protocol. Create subjects, challenge claims, or serve as a juror.
+            Where stakes speak louder than authority and all records live on-chain.
+            Create subjects, challenge claims, or serve as a juror.
           </p>
 
           <div className="flex gap-3 justify-center">
