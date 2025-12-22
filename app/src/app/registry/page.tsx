@@ -3,14 +3,17 @@
 import { useState, useEffect, memo, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION } from "@/hooks/useTribunalcraft";
+import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION, MIN_DEFENDER_STAKE } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import type { DisputeType, JurorPool, ChallengerPool } from "@/hooks/useTribunalcraft";
-import type { SubjectContent, DisputeContent } from "@/lib/content-types";
+import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
+import { getSubjects, getDisputes } from "@/lib/supabase/queries";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
 // Create Dispute Modal
 const CreateDisputeModal = memo(function CreateDisputeModal({
@@ -199,47 +202,54 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   onClose,
   onSubmit,
   isLoading,
-  poolBalance,
+  pool,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (form: any, subjectType: string) => void;
   isLoading: boolean;
-  poolBalance: number; // Pool available balance in lamports (0 if no pool)
+  pool: { balance: BN; maxBond: BN } | null;
 }) {
-  const [subjectType, setSubjectType] = useState<"staked" | "free">("staked");
   const [form, setForm] = useState({
     title: "",
     description: "",
     category: "contract" as SubjectContent["category"],
     termsText: "",
-    maxStake: "1",
     matchMode: true,
     votingPeriod: "24",
     directStake: "0",
   });
 
-  const poolEmpty = poolBalance === 0;
-
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
-      setSubjectType("staked");
-      setForm({ title: "", description: "", category: "contract", termsText: "", maxStake: "1", matchMode: true, votingPeriod: "24", directStake: "0" });
+      setForm({ title: "", description: "", category: "contract", termsText: "", matchMode: true, votingPeriod: "24", directStake: "0" });
     }
   }, [isOpen]);
 
   const handleSubmit = () => {
-    // If pool is empty and staked, require initial stake
-    if (subjectType === "staked" && poolEmpty) {
-      const stake = parseFloat(form.directStake || "0");
-      if (stake <= 0) {
-        alert("Initial stake is required when pool is empty");
+    // Require initial bond if no pool
+    if (!hasPool) {
+      const bond = parseFloat(form.directStake || "0");
+      if (bond <= 0) {
+        alert("Initial bond is required when you don't have a funded pool");
         return;
       }
     }
-    onSubmit(form, subjectType);
+    onSubmit(form, "staked");
   };
+
+  // Pool info (fetchDefenderPool returns account data directly)
+  const poolBalance = pool?.balance?.toNumber() ?? 0;
+  // maxBond can be u64::MAX which exceeds JS safe integer, check before converting
+  const maxBondBN = pool?.maxBond;
+  const isMaxBondUnlimited = !maxBondBN || maxBondBN.gte(new BN(Number.MAX_SAFE_INTEGER));
+  const maxBond = isMaxBondUnlimited ? 0 : maxBondBN?.toNumber() ?? 0;
+  // Effective pool backing = min(balance, maxBond) - but if unlimited, use balance
+  const effectivePoolBacking = isMaxBondUnlimited ? poolBalance : Math.min(poolBalance, maxBond);
+  // Pool is only considered valid if it meets minimum stake requirement
+  const hasPool = pool !== null && effectivePoolBacking >= MIN_DEFENDER_STAKE;
+  const poolBelowMinimum = pool !== null && poolBalance > 0 && effectivePoolBacking < MIN_DEFENDER_STAKE;
 
   if (!isOpen) return null;
 
@@ -251,12 +261,47 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
-          <div className="flex gap-1">
-            {(["staked", "free"] as const).map(t => (
-              <button key={t} onClick={() => setSubjectType(t)} className={`flex-1 py-2 text-xs uppercase tracking-wide ${subjectType === t ? "bg-gold text-obsidian font-semibold" : "bg-slate-light/50 text-steel hover:text-parchment"}`}>
-                {t === "staked" ? "Staked" : "Free (No Stakes)"}
-              </button>
-            ))}
+          {/* Pool Info Banner */}
+          <div className={`p-3 rounded border ${hasPool ? 'bg-sky/10 border-sky/30' : poolBelowMinimum ? 'bg-gold/10 border-gold/30' : 'bg-steel/10 border-steel/30'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-steel">Defender Pool</span>
+              {hasPool ? (
+                <span className="text-xs text-sky">Active ({(effectivePoolBacking / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span>
+              ) : poolBelowMinimum ? (
+                <span className="text-xs text-gold">Below minimum</span>
+              ) : (
+                <span className="text-xs text-steel">Not funded</span>
+              )}
+            </div>
+            {(hasPool || poolBelowMinimum) && (
+              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-steel">Balance:</span>{" "}
+                  <span className="text-parchment">{(poolBalance / LAMPORTS_PER_SOL).toFixed(2)} SOL</span>
+                </div>
+                <div>
+                  <span className="text-steel">Max Bond:</span>{" "}
+                  <span className="text-parchment">
+                    {isMaxBondUnlimited ? "Unlimited" : `${(maxBond / LAMPORTS_PER_SOL).toFixed(2)} SOL`}
+                  </span>
+                </div>
+              </div>
+            )}
+            <p className="text-[10px] text-steel mt-2">
+              {hasPool
+                ? "Your pool will auto-contribute when disputes are created"
+                : poolBelowMinimum
+                ? `Pool backing (${(effectivePoolBacking / LAMPORTS_PER_SOL).toFixed(2)} SOL) is below minimum (${(MIN_DEFENDER_STAKE / LAMPORTS_PER_SOL).toFixed(2)} SOL)`
+                : "Fund your pool to auto-defend subjects"
+              }
+            </p>
+            {hasPool && isMaxBondUnlimited && (
+              <div className="mt-2 p-2 bg-gold/10 border border-gold/30 rounded">
+                <p className="text-[10px] text-gold">
+                  ⚠️ Your max bond is unlimited. Consider setting a limit to control risk per subject.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -274,36 +319,25 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
               <label className="text-xs text-steel mb-1 block">Voting Period (hours)</label>
               <input value={form.votingPeriod} onChange={e => setForm(f => ({ ...f, votingPeriod: e.target.value }))} className="input w-full" autoComplete="off" />
             </div>
-            {subjectType === "staked" && (
-              <>
-                <div>
-                  <label className="text-xs text-steel mb-1 block">
-                    Initial Stake (SOL) {poolEmpty && <span className="text-crimson">*</span>}
-                  </label>
-                  <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder={poolEmpty ? "Required" : "0 (optional)"} />
-                  <p className="text-[10px] text-steel mt-1">
-                    {poolEmpty ? "Required - pool has no balance" : "Optional - pool will back this subject"}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
-                    <input type="radio" name="stakeMode" checked={form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: true }))} className="w-4 h-4 accent-gold" />
-                    <span className="text-sm text-parchment">Match</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
-                    <input type="radio" name="stakeMode" checked={!form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: false }))} className="w-4 h-4 accent-gold" />
-                    <span className="text-sm text-parchment">Proportional</span>
-                  </label>
-                </div>
-                {form.matchMode && (
-                  <div>
-                    <label className="text-xs text-steel mb-1 block">Max Stake per Dispute (SOL)</label>
-                    <input value={form.maxStake} onChange={e => setForm(f => ({ ...f, maxStake: e.target.value }))} className="input w-full" autoComplete="off" />
-                    <p className="text-[10px] text-steel mt-1">Maximum pool stake at risk per dispute</p>
-                  </div>
-                )}
-              </>
-            )}
+            <div>
+              <label className="text-xs text-steel mb-1 block">
+                Initial Bond (SOL) {!hasPool && <span className="text-crimson">*</span>}
+              </label>
+              <input value={form.directStake} onChange={e => setForm(f => ({ ...f, directStake: e.target.value }))} className="input w-full" autoComplete="off" placeholder={hasPool ? "0 (optional)" : "Required"} />
+              <p className="text-[10px] text-steel mt-1">
+                {hasPool ? "Optional bond from wallet" : "Required - no pool to back this subject"}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
+                <input type="radio" name="stakeMode" checked={form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: true }))} className="w-4 h-4 accent-gold" />
+                <span className="text-sm text-parchment">Match</span>
+              </label>
+              <label className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-light/20 rounded">
+                <input type="radio" name="stakeMode" checked={!form.matchMode} onChange={() => setForm(f => ({ ...f, matchMode: false }))} className="w-4 h-4 accent-gold" />
+                <span className="text-sm text-parchment">Proportional</span>
+              </label>
+            </div>
           </div>
           <button onClick={handleSubmit} disabled={isLoading} className="btn btn-primary w-full mt-2">
             {isLoading ? "Creating..." : "Create Subject"}
@@ -324,6 +358,7 @@ export default function RegistryPage() {
     joinChallengers,
     resolveDispute,
     addBondDirect,
+    addBondFromPool,
     fetchAllSubjects,
     fetchAllDisputes,
     getDefenderPoolPDA,
@@ -373,6 +408,9 @@ export default function RegistryPage() {
   const [defenderRecords, setDefenderRecords] = useState<Record<string, any>>({});
   const [disputeCreatorReputation, setDisputeCreatorReputation] = useState<number | null>(null);
 
+  // Creator pool backings: min(pool.balance, pool.maxBond) for each subject
+  const [creatorPoolBackings, setCreatorPoolBackings] = useState<Record<string, number>>({});
+
   // Modal state
   const [selectedItem, setSelectedItem] = useState<{ subject: SubjectData; dispute: DisputeData | null } | null>(null);
   const [showCreateSubject, setShowCreateSubject] = useState(false);
@@ -380,19 +418,128 @@ export default function RegistryPage() {
   const [showRestore, setShowRestore] = useState<string | null>(null);
   const [userChallengerPool, setUserChallengerPool] = useState<ChallengerPool | null>(null);
 
+  // Convert Supabase subject to SubjectData format
+  const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
+    try {
+      // Map status string to enum-like object
+      const statusMap: Record<string, any> = {
+        dormant: { dormant: {} },
+        valid: { valid: {} },
+        disputed: { disputed: {} },
+        invalid: { invalid: {} },
+        restoring: { restoring: {} },
+      };
+      return {
+        publicKey: new PublicKey(s.id),
+        account: {
+          subjectId: new PublicKey(s.subject_id),
+          creator: new PublicKey(s.creator),
+          detailsCid: s.details_cid || "",
+          round: s.round,
+          availableBond: new BN(s.available_bond),
+          defenderCount: s.defender_count,
+          status: statusMap[s.status] || { dormant: {} },
+          matchMode: s.match_mode,
+          votingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0),
+          dispute: s.dispute ? new PublicKey(s.dispute) : PublicKey.default,
+          bump: 255, // Placeholder - not stored in Supabase
+          createdAt: s.created_at ? new BN(s.created_at) : new BN(0),
+          updatedAt: s.updated_at ? new BN(s.updated_at) : new BN(0),
+          lastDisputeTotal: s.last_dispute_total ? new BN(s.last_dispute_total) : new BN(0),
+          lastVotingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0), // Same as votingPeriod
+        },
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  // Convert Supabase dispute to DisputeData format
+  const convertSupabaseDispute = (d: SupabaseDispute): DisputeData | null => {
+    try {
+      // Map status/outcome strings to enum-like objects
+      const statusMap: Record<string, any> = {
+        none: { none: {} },
+        pending: { pending: {} },
+        resolved: { resolved: {} },
+      };
+      const outcomeMap: Record<string, any> = {
+        none: { none: {} },
+        challengerWins: { challengerWins: {} },
+        defenderWins: { defenderWins: {} },
+        noParticipation: { noParticipation: {} },
+      };
+      const disputeTypeMap: Record<string, any> = {
+        accuracy: { accuracy: {} },
+        bias: { bias: {} },
+        outdated: { outdated: {} },
+        incomplete: { incomplete: {} },
+        spam: { spam: {} },
+        other: { other: {} },
+      };
+      return {
+        publicKey: new PublicKey(d.id),
+        account: {
+          subjectId: new PublicKey(d.subject_id),
+          round: d.round,
+          status: statusMap[d.status] || { none: {} },
+          disputeType: d.dispute_type ? disputeTypeMap[d.dispute_type] || { other: {} } : { other: {} },
+          totalStake: new BN(d.total_stake),
+          challengerCount: d.challenger_count,
+          bondAtRisk: new BN(d.bond_at_risk),
+          defenderCount: d.defender_count,
+          votesForChallenger: new BN(d.votes_for_challenger),
+          votesForDefender: new BN(d.votes_for_defender),
+          voteCount: d.vote_count,
+          votingStartsAt: d.voting_starts_at ? new BN(d.voting_starts_at) : new BN(0),
+          votingEndsAt: d.voting_ends_at ? new BN(d.voting_ends_at) : new BN(0),
+          outcome: outcomeMap[d.outcome || "none"] || { none: {} },
+          resolvedAt: d.resolved_at ? new BN(d.resolved_at) : null,
+          isRestore: d.is_restore,
+          restoreStake: new BN(d.restore_stake),
+          restorer: d.restorer ? new PublicKey(d.restorer) : PublicKey.default,
+          detailsCid: d.details_cid || "",
+          bump: 255, // Placeholder - not stored in Supabase
+          createdAt: d.created_at ? new BN(d.created_at) : new BN(0),
+        },
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [subjectsData, disputesData] = await Promise.all([
-        fetchAllSubjects(),
-        fetchAllDisputes(),
-      ]);
-      setSubjects(subjectsData || []);
+      let subjectsData: SubjectData[] = [];
+      let disputesData: DisputeData[] = [];
+
+      // Try Supabase first for faster initial load
+      if (isSupabaseConfigured()) {
+        const [supaSubjects, supaDisputes] = await Promise.all([
+          getSubjects(),
+          getDisputes(),
+        ]);
+        subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
+        disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
+      }
+
+      // Fallback to RPC if Supabase not configured or returned empty
+      if (subjectsData.length === 0 && client) {
+        const rpcSubjects = await fetchAllSubjects();
+        subjectsData = rpcSubjects || [];
+      }
+      if (disputesData.length === 0 && client) {
+        const rpcDisputes = await fetchAllDisputes();
+        disputesData = rpcDisputes || [];
+      }
+
+      setSubjects(subjectsData);
 
       // If no disputes fetched but there are disputed subjects, fetch disputes individually
-      let finalDisputes = disputesData || [];
-      if (finalDisputes.length === 0 && subjectsData && client) {
+      let finalDisputes = disputesData;
+      if (finalDisputes.length === 0 && subjectsData.length > 0 && client) {
         const disputedSubjects = subjectsData.filter(s =>
           ("disputed" in s.account.status || "restoring" in s.account.status) &&
           !s.account.dispute.equals(PublicKey.default)
@@ -445,6 +592,31 @@ export default function RegistryPage() {
           }
         }
       }
+
+      // Fetch creator pools for all subjects to show pool backing
+      const poolBackings: Record<string, number> = {};
+      const uniqueCreators = [...new Set(subjectsData.map((s: SubjectData) => s.account.creator.toBase58()))];
+      for (const creatorKey of uniqueCreators) {
+        try {
+          const [creatorPoolPda] = getDefenderPoolPDA(new PublicKey(creatorKey));
+          const creatorPool = await fetchDefenderPool(creatorPoolPda);
+          if (creatorPool) {
+            // Calculate min(balance, maxBond)
+            const balance = creatorPool.balance?.toNumber() ?? 0;
+            const maxBond = creatorPool.maxBond?.toNumber() ?? 0;
+            const backing = Math.min(balance, maxBond > 0 ? maxBond : balance);
+            // Assign to all subjects by this creator
+            for (const s of subjectsData) {
+              if (s.account.creator.toBase58() === creatorKey) {
+                poolBackings[s.publicKey.toBase58()] = backing;
+              }
+            }
+          }
+        } catch {
+          // Pool doesn't exist for this creator
+        }
+      }
+      setCreatorPoolBackings(poolBackings);
 
       if (publicKey) {
         const [poolPda] = getDefenderPoolPDA(publicKey);
@@ -647,22 +819,16 @@ export default function RegistryPage() {
       const subjectKeypair = Keypair.generate();
       const subjectId = subjectKeypair.publicKey;
       const votingPeriod = new BN(parseInt(form.votingPeriod) * 3600);
-      const initialStake = parseFloat(form.directStake || "0");
+      const initialBond = parseFloat(form.directStake || "0");
 
-      // V2: Create subject with detailsCid for IPFS content linking
+      // Create subject with initialBond - creator's pool is auto-linked
       await createSubject({
         subjectId,
         detailsCid: uploadResult.cid,
         votingPeriod,
         matchMode: form.matchMode,
+        initialBond: new BN(initialBond * LAMPORTS_PER_SOL),
       });
-
-      // Add initial bond if specified (wait for subject account to be confirmed)
-      if (initialStake > 0) {
-        // Brief delay to ensure subject account is available
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await addBondDirect(subjectId, new BN(initialStake * LAMPORTS_PER_SOL));
-      }
 
       setSuccess("Subject created");
       setShowCreateSubject(false);
@@ -779,7 +945,7 @@ export default function RegistryPage() {
     setActionLoading(false);
   }, [publicKey, jurorPool, voteOnDispute, voteOnRestore, loadData]);
 
-  // V2: handleAddBond uses addBondDirect
+  // V2: handleAddBond uses addBondDirect or addBondFromPool
   const handleAddBond = useCallback(async (subjectIdKey: string, amount: string, fromPool: boolean) => {
     if (!publicKey || !selectedItem) return;
     setActionLoading(true);
@@ -787,17 +953,24 @@ export default function RegistryPage() {
     try {
       const subject = selectedItem.subject;
       const isDormant = subject.account.status.dormant;
-      const bond = new BN(parseFloat(amount) * LAMPORTS_PER_SOL);
+      const bond = new BN(parseFloat(amount || "0") * LAMPORTS_PER_SOL);
 
-      // V2: Simple bond addition with subjectId
-      await addBondDirect(subject.account.subjectId, bond);
-      setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL bond`);
+      if (fromPool) {
+        // Revive from pool - just link pool, no fund transfer (funds transfer on dispute)
+        await addBondFromPool(subject.account.subjectId, new BN(0));
+        const poolBacking = creatorPoolBackings[subject.publicKey.toBase58()] ?? 0;
+        setSuccess(isDormant ? `Subject revived (backed by pool: ${(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} SOL)` : "Linked to pool");
+      } else {
+        // Direct bond from wallet
+        await addBondDirect(subject.account.subjectId, bond);
+        setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL bond`);
+      }
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to add bond");
     }
     setActionLoading(false);
-  }, [publicKey, selectedItem, addBondDirect, loadData]);
+  }, [publicKey, selectedItem, addBondDirect, addBondFromPool, creatorPoolBackings, loadData]);
 
   // V2: handleJoinChallengers uses joinChallengers with params object
   const handleJoinChallengers = useCallback(async (subjectIdKey: string, amount: string, detailsCid: string = "") => {
@@ -1012,6 +1185,7 @@ export default function RegistryPage() {
                       subject={s}
                       dispute={null}
                       subjectContent={subjectContents[s.publicKey.toBase58()]}
+                      creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
                       onClick={() => setSelectedItem({ subject: s, dispute: null })}
                     />
                   ))
@@ -1139,6 +1313,7 @@ export default function RegistryPage() {
                         isResolved={true}
                         subjectContent={subjectContents[s.publicKey.toBase58()]}
                         disputeContent={lastDispute ? disputeContents[lastDispute.publicKey.toBase58()] : null}
+                        creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
                         onClick={() => setSelectedItem({ subject: s, dispute: lastDispute || null })}
                       />
                     );
@@ -1156,6 +1331,18 @@ export default function RegistryPage() {
           subject={selectedItem.subject}
           subjectContent={subjectContents[selectedItem.subject.publicKey.toBase58()]}
           jurorPool={jurorPool}
+          creatorPoolBacking={creatorPoolBackings[selectedItem.subject.publicKey.toBase58()]}
+          userPoolBacking={pool ? (() => {
+            const balance = pool.balance?.toNumber() ?? 0;
+            // Handle u64::MAX for unlimited maxBond
+            try {
+              const maxBond = pool.maxBond?.toNumber() ?? 0;
+              return maxBond > 0 ? Math.min(balance, maxBond) : balance;
+            } catch {
+              // u64::MAX throws - treat as unlimited, use balance
+              return balance;
+            }
+          })() : undefined}
           onClose={() => setSelectedItem(null)}
           onVote={handleVote}
           onAddBond={handleAddBond}
@@ -1175,7 +1362,7 @@ export default function RegistryPage() {
         onClose={() => setShowCreateSubject(false)}
         onSubmit={handleCreateSubject}
         isLoading={actionLoading || isUploading}
-        poolBalance={pool?.account?.available?.toNumber() ?? 0}
+        pool={pool}
       />
       <CreateDisputeModal
         isOpen={!!showCreateDispute}

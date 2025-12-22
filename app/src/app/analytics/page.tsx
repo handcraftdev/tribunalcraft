@@ -4,7 +4,11 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
 import type { SubjectData, DisputeData, JurorPoolData } from "@/components/subject/types";
+import { getSubjects, getDisputes, getJurorPools } from "@/lib/supabase/queries";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import type { Subject as SupabaseSubject, Dispute as SupabaseDispute, JurorPool as SupabaseJurorPool } from "@/lib/supabase/types";
 
 // Types
 type TimePeriod = "1d" | "7d" | "30d" | "all";
@@ -71,6 +75,73 @@ const TrophyIcon = () => (
   </svg>
 );
 
+// Converters for Supabase data to app types
+const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
+  try {
+    const statusMap: Record<string, any> = {
+      dormant: { dormant: {} }, valid: { valid: {} }, disputed: { disputed: {} },
+      invalid: { invalid: {} }, restoring: { restoring: {} },
+    };
+    return {
+      publicKey: new PublicKey(s.id),
+      account: {
+        subjectId: new PublicKey(s.subject_id), creator: new PublicKey(s.creator),
+        detailsCid: s.details_cid || "", round: s.round,
+        availableBond: new BN(s.available_bond), defenderCount: s.defender_count,
+        status: statusMap[s.status] || { dormant: {} }, matchMode: s.match_mode,
+        votingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0),
+        dispute: s.dispute ? new PublicKey(s.dispute) : PublicKey.default,
+        bump: 255, createdAt: s.created_at ? new BN(s.created_at) : new BN(0),
+        updatedAt: s.updated_at ? new BN(s.updated_at) : new BN(0),
+        lastDisputeTotal: s.last_dispute_total ? new BN(s.last_dispute_total) : new BN(0),
+        lastVotingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0),
+      },
+    };
+  } catch { return null; }
+};
+
+const convertSupabaseDispute = (d: SupabaseDispute): DisputeData | null => {
+  try {
+    const statusMap: Record<string, any> = { none: { none: {} }, pending: { pending: {} }, resolved: { resolved: {} } };
+    const outcomeMap: Record<string, any> = { none: { none: {} }, challengerWins: { challengerWins: {} }, defenderWins: { defenderWins: {} }, noParticipation: { noParticipation: {} } };
+    const disputeTypeMap: Record<string, any> = { accuracy: { accuracy: {} }, bias: { bias: {} }, outdated: { outdated: {} }, incomplete: { incomplete: {} }, spam: { spam: {} }, other: { other: {} } };
+    return {
+      publicKey: new PublicKey(d.id),
+      account: {
+        subjectId: new PublicKey(d.subject_id), round: d.round,
+        status: statusMap[d.status] || { none: {} },
+        disputeType: d.dispute_type ? disputeTypeMap[d.dispute_type] || { other: {} } : { other: {} },
+        totalStake: new BN(d.total_stake), challengerCount: d.challenger_count,
+        bondAtRisk: new BN(d.bond_at_risk), defenderCount: d.defender_count,
+        votesForChallenger: new BN(d.votes_for_challenger), votesForDefender: new BN(d.votes_for_defender),
+        voteCount: d.vote_count, votingStartsAt: d.voting_starts_at ? new BN(d.voting_starts_at) : new BN(0),
+        votingEndsAt: d.voting_ends_at ? new BN(d.voting_ends_at) : new BN(0),
+        outcome: outcomeMap[d.outcome || "none"] || { none: {} },
+        resolvedAt: d.resolved_at ? new BN(d.resolved_at) : null,
+        isRestore: d.is_restore, restoreStake: new BN(d.restore_stake),
+        restorer: d.restorer ? new PublicKey(d.restorer) : PublicKey.default,
+        detailsCid: d.details_cid || "", bump: 255,
+        createdAt: d.created_at ? new BN(d.created_at) : new BN(0),
+      },
+    };
+  } catch { return null; }
+};
+
+const convertSupabaseJuror = (j: SupabaseJurorPool): JurorData | null => {
+  try {
+    return {
+      publicKey: new PublicKey(j.id),
+      account: {
+        owner: new PublicKey(j.owner),
+        balance: new BN(j.balance),
+        reputation: new BN(j.reputation),
+        createdAt: j.created_at ? new BN(j.created_at) : new BN(0),
+        bump: 255,
+      },
+    };
+  } catch { return null; }
+};
+
 export default function AnalyticsPage() {
   const { client, fetchAllSubjects, fetchAllDisputes, fetchAllJurorPools } = useTribunalcraft();
 
@@ -84,17 +155,41 @@ export default function AnalyticsPage() {
 
   // Load data
   const loadData = useCallback(async () => {
-    if (!client) return;
     setLoading(true);
     try {
-      const [subjectsData, disputesData, jurorsData] = await Promise.all([
-        fetchAllSubjects(),
-        fetchAllDisputes(),
-        fetchAllJurorPools(),
-      ]);
-      setSubjects(subjectsData || []);
-      setDisputes(disputesData || []);
-      setJurors(jurorsData || []);
+      let subjectsData: SubjectData[] = [];
+      let disputesData: DisputeData[] = [];
+      let jurorsData: JurorData[] = [];
+
+      // Try Supabase first
+      if (isSupabaseConfigured()) {
+        const [supaSubjects, supaDisputes, supaJurors] = await Promise.all([
+          getSubjects(),
+          getDisputes(),
+          getJurorPools(),
+        ]);
+        subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
+        disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
+        jurorsData = supaJurors.map(convertSupabaseJuror).filter((j): j is JurorData => j !== null);
+      }
+
+      // Fallback to RPC if Supabase not configured or returned empty
+      if (subjectsData.length === 0 && client) {
+        const rpcSubjects = await fetchAllSubjects();
+        subjectsData = rpcSubjects || [];
+      }
+      if (disputesData.length === 0 && client) {
+        const rpcDisputes = await fetchAllDisputes();
+        disputesData = rpcDisputes || [];
+      }
+      if (jurorsData.length === 0 && client) {
+        const rpcJurors = await fetchAllJurorPools();
+        jurorsData = rpcJurors || [];
+      }
+
+      setSubjects(subjectsData);
+      setDisputes(disputesData);
+      setJurors(jurorsData);
       setCurrentTime(Date.now());
     } catch (error) {
       console.error("Error loading analytics data:", error);
@@ -159,25 +254,23 @@ export default function AnalyticsPage() {
     const defenderWins = resolvedDisputes.filter((d) => "defenderWins" in d.account.outcome);
     const noQuorum = resolvedDisputes.filter((d) => "noParticipation" in d.account.outcome);
 
-    // Money calculations
+    // Money calculations (V2: totalStake = challenger, bondAtRisk = defender)
     const calculatePool = (d: DisputeData) =>
-      d.account.totalBond.toNumber() +
-      d.account.stakeHeld.toNumber() +
-      d.account.directStakeHeld.toNumber();
+      (d.account.totalStake?.toNumber?.() ?? 0) +
+      (d.account.bondAtRisk?.toNumber?.() ?? 0);
 
     const activePools = activeDisputes.reduce((sum, d) => sum + calculatePool(d), 0);
     const resolvedPools = resolvedDisputes.reduce((sum, d) => sum + calculatePool(d), 0);
 
-    // Inflows
-    const challengerBonds = periodDisputes.reduce((sum, d) => sum + d.account.totalBond.toNumber(), 0);
-    const defenderPoolStakes = periodDisputes.reduce((sum, d) => sum + d.account.stakeHeld.toNumber(), 0);
-    const defenderDirectStakes = periodDisputes.reduce((sum, d) => sum + d.account.directStakeHeld.toNumber(), 0);
-    const totalInflow = challengerBonds + defenderPoolStakes + defenderDirectStakes;
+    // Inflows (V2: totalStake = challenger stakes, bondAtRisk = defender bonds)
+    const challengerStakes = periodDisputes.reduce((sum, d) => sum + (d.account.totalStake?.toNumber?.() ?? 0), 0);
+    const defenderBonds = periodDisputes.reduce((sum, d) => sum + (d.account.bondAtRisk?.toNumber?.() ?? 0), 0);
+    const totalInflow = challengerStakes + defenderBonds;
 
     // Previous period inflows
     const prevInflow = prevPeriodDisputes.reduce(
       (sum, d) =>
-        sum + d.account.totalBond.toNumber() + d.account.stakeHeld.toNumber() + d.account.directStakeHeld.toNumber(),
+        sum + (d.account.totalStake?.toNumber?.() ?? 0) + (d.account.bondAtRisk?.toNumber?.() ?? 0),
       0
     );
 
@@ -199,8 +292,8 @@ export default function AnalyticsPage() {
     const restoringCount = subjects.filter((s) => "restoring" in s.account.status).length;
 
     // Juror stats (V2: balance instead of totalStake/availableStake)
-    const activeJurors = jurors.filter((j) => j.account.balance.toNumber() > 0).length;
-    const totalJurorStake = jurors.reduce((sum, j) => sum + j.account.balance.toNumber(), 0);
+    const activeJurors = jurors.filter((j) => (j.account.balance?.toNumber?.() ?? 0) > 0).length;
+    const totalJurorStake = jurors.reduce((sum, j) => sum + (j.account.balance?.toNumber?.() ?? 0), 0);
     const totalAvailableJurorStake = totalJurorStake; // V2: all balance is available
 
     // Dispute type breakdown
@@ -236,16 +329,16 @@ export default function AnalyticsPage() {
     // Controversial disputes (close votes)
     // V2: Use votesForChallenger/votesForDefender
     const controversialDisputes = resolvedDisputes.filter((d) => {
-      const forChallenger = d.account.votesForChallenger.toNumber();
-      const forDefender = d.account.votesForDefender.toNumber();
+      const forChallenger = d.account.votesForChallenger?.toNumber?.() ?? 0;
+      const forDefender = d.account.votesForDefender?.toNumber?.() ?? 0;
       const total = forChallenger + forDefender;
       if (total === 0) return false;
       const ratio = Math.abs(forChallenger - forDefender) / total;
       return ratio < 0.2; // Within 20% margin
     });
 
-    // Stake concentration (Gini-like metric)
-    const jurorStakes = jurors.map((j) => j.account.totalStake.toNumber()).sort((a, b) => a - b);
+    // Stake concentration (Gini-like metric) - V2: balance instead of totalStake
+    const jurorStakes = jurors.map((j) => j.account.balance?.toNumber?.() ?? 0).sort((a, b) => a - b);
     const top10Percent = Math.ceil(jurors.length * 0.1);
     const top10Stake = jurorStakes.slice(-top10Percent).reduce((sum, s) => sum + s, 0);
     const stakeConcentration = totalJurorStake > 0 ? (top10Stake / totalJurorStake) * 100 : 0;
@@ -269,12 +362,11 @@ export default function AnalyticsPage() {
       noQuorumCount: noQuorum.length,
       restoreCount: restoreDisputes.length,
 
-      // Money
+      // Money (V2: challengerStakes + defenderBonds)
       activePools,
       resolvedPools,
-      challengerBonds,
-      defenderPoolStakes,
-      defenderDirectStakes,
+      challengerStakes,
+      defenderBonds,
       totalInflow,
       winnerPayout,
       jurorRewards,
@@ -316,44 +408,42 @@ export default function AnalyticsPage() {
 
   // Leaderboard data
   const leaderboards = useMemo(() => {
-    // Top jurors by reputation
+    // Top jurors by reputation (V2: balance instead of totalStake, no votesCast/correctVotes on pool)
     const topJurorsByRep = [...jurors]
-      .sort((a, b) => b.account.reputation.toNumber() - a.account.reputation.toNumber())
+      .sort((a, b) => (b.account.reputation?.toNumber?.() ?? 0) - (a.account.reputation?.toNumber?.() ?? 0))
       .slice(0, 10)
       .map((j, index) => ({
         rank: index + 1,
         address: j.publicKey.toString(),
-        reputation: j.account.reputation.toNumber(),
-        votesCast: j.account.votesCast.toNumber(),
-        correctVotes: j.account.correctVotes.toNumber(),
-        stake: j.account.totalStake.toNumber(),
+        reputation: j.account.reputation?.toNumber?.() ?? 0,
+        votesCast: 0, // V2: not tracked on pool
+        correctVotes: 0, // V2: not tracked on pool
+        stake: j.account.balance?.toNumber?.() ?? 0,
       }));
 
-    // Top jurors by stake
+    // Top jurors by stake (V2: balance instead of totalStake)
     const topJurorsByStake = [...jurors]
-      .sort((a, b) => b.account.totalStake.toNumber() - a.account.totalStake.toNumber())
+      .sort((a, b) => (b.account.balance?.toNumber?.() ?? 0) - (a.account.balance?.toNumber?.() ?? 0))
       .slice(0, 10)
       .map((j, index) => ({
         rank: index + 1,
         address: j.publicKey.toString(),
-        stake: j.account.totalStake.toNumber(),
-        reputation: j.account.reputation.toNumber(),
-        votesCast: j.account.votesCast.toNumber(),
+        stake: j.account.balance?.toNumber?.() ?? 0,
+        reputation: j.account.reputation?.toNumber?.() ?? 0,
+        votesCast: 0, // V2: not tracked on pool
       }));
 
-    // Most active jurors
+    // Most active jurors - V2: sort by reputation since votesCast not tracked on pool
     const mostActiveJurors = [...jurors]
-      .sort((a, b) => b.account.votesCast.toNumber() - a.account.votesCast.toNumber())
+      .sort((a, b) => (b.account.reputation?.toNumber?.() ?? 0) - (a.account.reputation?.toNumber?.() ?? 0))
       .slice(0, 10)
       .map((j, index) => ({
         rank: index + 1,
         address: j.publicKey.toString(),
-        votesCast: j.account.votesCast.toNumber(),
-        correctVotes: j.account.correctVotes.toNumber(),
-        accuracy: j.account.votesCast.toNumber() > 0
-          ? (j.account.correctVotes.toNumber() / j.account.votesCast.toNumber()) * 100
-          : 0,
-        reputation: j.account.reputation.toNumber(),
+        votesCast: 0, // V2: not tracked on pool
+        correctVotes: 0, // V2: not tracked on pool
+        accuracy: 0, // V2: not tracked on pool
+        reputation: j.account.reputation?.toNumber?.() ?? 0,
       }));
 
     // Top subjects by defender count
@@ -416,9 +506,8 @@ export default function AnalyticsPage() {
           volume: bucketDisputes.reduce(
             (sum, d) =>
               sum +
-              d.account.totalBond.toNumber() +
-              d.account.stakeHeld.toNumber() +
-              d.account.directStakeHeld.toNumber(),
+              (d.account.totalStake?.toNumber?.() ?? 0) +
+              (d.account.bondAtRisk?.toNumber?.() ?? 0),
             0
           ),
         };
@@ -433,7 +522,7 @@ export default function AnalyticsPage() {
       const bucketEnd = bucketStart + bucketSize;
 
       const bucketDisputes = periodDisputes.filter((d) => {
-        const t = d.account.createdAt?.toNumber() * 1000;
+        const t = (d.account.createdAt?.toNumber?.() ?? 0) * 1000;
         return t >= bucketStart && t < bucketEnd;
       });
 
@@ -447,9 +536,8 @@ export default function AnalyticsPage() {
         volume: bucketDisputes.reduce(
           (sum, d) =>
             sum +
-            d.account.totalBond.toNumber() +
-            d.account.stakeHeld.toNumber() +
-            d.account.directStakeHeld.toNumber(),
+            (d.account.totalStake?.toNumber?.() ?? 0) +
+            (d.account.bondAtRisk?.toNumber?.() ?? 0),
           0
         ),
       };
@@ -782,16 +870,12 @@ export default function AnalyticsPage() {
                       <h3 className="text-sm font-semibold text-emerald uppercase tracking-wider mb-4">Inflows</h3>
                       <div className="space-y-3">
                         <div>
-                          <p className="text-xs text-steel">Challenger Bonds</p>
-                          <p className="text-lg font-semibold text-crimson">{formatSOL(stats.challengerBonds)} SOL</p>
+                          <p className="text-xs text-steel">Challenger Stakes</p>
+                          <p className="text-lg font-semibold text-crimson">{formatSOL(stats.challengerStakes)} SOL</p>
                         </div>
                         <div>
-                          <p className="text-xs text-steel">Defender Pool Stakes</p>
-                          <p className="text-lg font-semibold text-sky">{formatSOL(stats.defenderPoolStakes)} SOL</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-steel">Defender Direct Stakes</p>
-                          <p className="text-lg font-semibold text-sky">{formatSOL(stats.defenderDirectStakes)} SOL</p>
+                          <p className="text-xs text-steel">Defender Bonds</p>
+                          <p className="text-lg font-semibold text-sky">{formatSOL(stats.defenderBonds)} SOL</p>
                         </div>
                         <div className="pt-3 border-t border-slate-light">
                           <p className="text-xs text-steel">Total Inflow</p>
@@ -956,9 +1040,9 @@ export default function AnalyticsPage() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-steel">Stakes Held</span>
+                        <span className="text-steel">Bonds Held</span>
                         <span className="text-lg font-semibold text-sky">
-                          {formatSOL(stats.defenderPoolStakes + stats.defenderDirectStakes)} SOL
+                          {formatSOL(stats.defenderBonds)} SOL
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
@@ -980,8 +1064,8 @@ export default function AnalyticsPage() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-steel">Bonds Posted</span>
-                        <span className="text-lg font-semibold text-crimson">{formatSOL(stats.challengerBonds)} SOL</span>
+                        <span className="text-steel">Stakes Posted</span>
+                        <span className="text-lg font-semibold text-crimson">{formatSOL(stats.challengerStakes)} SOL</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-steel">Payouts Received</span>
@@ -1381,10 +1465,10 @@ export default function AnalyticsPage() {
                           </div>
                           <div className="text-right">
                             <p className={`text-xs px-2 py-1 uppercase tracking-wider font-semibold ${
-                              subject.status === "valid" ? "bg-emerald/20 text-emerald" :
-                              subject.status === "disputed" ? "bg-gold/20 text-gold" :
-                              subject.status === "invalid" ? "bg-crimson/20 text-crimson" :
-                              "bg-steel/20 text-steel"
+                              subject.status === "valid" ? "bg-emerald-20 text-emerald" :
+                              subject.status === "disputed" ? "bg-gold-20 text-gold" :
+                              subject.status === "invalid" ? "bg-crimson-20 text-crimson" :
+                              "bg-steel-20 text-steel"
                             }`}>
                               {subject.status}
                             </p>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft } from "@/hooks/useTribunalcraft";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import Link from "next/link";
+import { getDashboardStats, type DashboardStats } from "@/lib/supabase/queries";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 // Icons
 const ChevronRight = () => (
@@ -79,25 +81,63 @@ export default function Dashboard() {
 
   const [pool, setPool] = useState<any>(null);
   const [jurorAccount, setJurorAccount] = useState<any>(null);
-  const [subjects, setSubjects] = useState<any[]>([]);
-  const [disputes, setDisputes] = useState<any[]>([]);
-  const [jurors, setJurors] = useState<any[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
-    if (!client) return;
     setLoading(true);
     try {
-      const [subjectsData, disputesData, jurorsData] = await Promise.all([
-        fetchAllSubjects(),
-        fetchAllDisputes(),
-        fetchAllJurorPools(),
-      ]);
-      setSubjects(subjectsData || []);
-      setDisputes(disputesData || []);
-      setJurors(jurorsData || []);
+      // Try Supabase first for aggregate stats
+      if (isSupabaseConfigured()) {
+        const dashboardStats = await getDashboardStats();
+        setStats(dashboardStats);
+      } else if (client) {
+        // Fallback to RPC if Supabase not configured
+        const [subjectsData, disputesData, jurorsData] = await Promise.all([
+          fetchAllSubjects(),
+          fetchAllDisputes(),
+          fetchAllJurorPools(),
+        ]);
+        const subjects = subjectsData || [];
+        const disputes = disputesData || [];
+        const jurors = jurorsData || [];
 
-      if (publicKey) {
+        // Compute stats from RPC data
+        const activeDisputes = disputes.filter((d: any) => "pending" in d.account.status);
+        const resolvedDisputes = disputes.filter((d: any) => "resolved" in d.account.status);
+        const challengerWins = resolvedDisputes.filter((d: any) => "challengerWins" in d.account.outcome);
+        const defenderWinsArr = resolvedDisputes.filter((d: any) => "defenderWins" in d.account.outcome);
+        const activeJurors = jurors.filter((j: any) => (j.account.balance?.toNumber?.() ?? 0) > 0);
+        const totalJurorStake = jurors.reduce((sum: number, j: any) => sum + (j.account.balance?.toNumber?.() ?? 0), 0);
+        const activePools = activeDisputes.reduce((sum: number, d: any) =>
+          sum + (d.account.totalStake?.toNumber?.() ?? 0) + (d.account.bondAtRisk?.toNumber?.() ?? 0), 0);
+
+        setStats({
+          totalSubjects: subjects.length,
+          validSubjects: subjects.filter((s: any) => "valid" in s.account.status).length,
+          disputedSubjects: subjects.filter((s: any) => "disputed" in s.account.status).length,
+          invalidSubjects: subjects.filter((s: any) => "invalid" in s.account.status).length,
+          restoringSubjects: subjects.filter((s: any) => "restoring" in s.account.status).length,
+          totalDefenderBond: subjects.reduce((sum: number, s: any) => sum + (s.account.availableBond?.toNumber() || 0), 0),
+          totalDisputes: disputes.length,
+          activeDisputes: activeDisputes.length,
+          resolvedDisputes: resolvedDisputes.length,
+          challengerWins: challengerWins.length,
+          defenderWins: defenderWinsArr.length,
+          noParticipation: resolvedDisputes.filter((d: any) => "noParticipation" in d.account.outcome).length,
+          activePools,
+          totalVotes: disputes.reduce((sum: number, d: any) => sum + (d.account.voteCount ?? 0), 0),
+          totalJurors: jurors.length,
+          activeJurors: activeJurors.length,
+          totalJurorStake,
+          avgReputation: jurors.length > 0
+            ? jurors.reduce((sum: number, j: any) => sum + (j.account.reputation?.toNumber?.() ?? 50_000_000), 0) / jurors.length / 1_000_000
+            : 50,
+        });
+      }
+
+      // Fetch user's pools via RPC for real-time accuracy
+      if (publicKey && client) {
         const [poolPda] = getDefenderPoolPDA(publicKey);
         try {
           const poolData = await fetchDefenderPool(poolPda);
@@ -124,61 +164,17 @@ export default function Dashboard() {
     loadData();
   }, [publicKey, client]);
 
-  // Computed statistics
-  const stats = useMemo(() => {
-    const activeDisputes = disputes.filter(d => "pending" in d.account.status);
-    const resolvedDisputes = disputes.filter(d => "resolved" in d.account.status);
-
-    // Subject stats
-    const validSubjects = subjects.filter(s => "valid" in s.account.status);
-    const disputedSubjects = subjects.filter(s => "disputed" in s.account.status);
-    const invalidSubjects = subjects.filter(s => "invalid" in s.account.status);
-
-    // Outcome stats
-    const challengerWins = resolvedDisputes.filter(d => "challengerWins" in d.account.outcome);
-    const defenderWins = resolvedDisputes.filter(d => "defenderWins" in d.account.outcome);
-
-    // Juror stats
-    const activeJurors = jurors.filter(j => j.account.isActive);
-    const totalJurorStake = jurors.reduce((sum, j) => sum + j.account.totalStake.toNumber(), 0);
-    const totalVotes = jurors.reduce((sum, j) => sum + j.account.votesCast.toNumber(), 0);
-    const avgReputation = jurors.length > 0
-      ? jurors.reduce((sum, j) => sum + (j.account.reputation?.toNumber?.() ?? j.account.reputation ?? 0), 0) / jurors.length
-      : 50_000_000;
-
-    // Pool calculations
-    const activePools = activeDisputes.reduce((sum, d) =>
-      sum + d.account.totalBond.toNumber() + d.account.stakeHeld.toNumber() + d.account.directStakeHeld.toNumber(), 0);
-
-    // TVL
-    const tvl = totalJurorStake + activePools;
-
-    // Defender stake (V2: availableBond)
-    const totalDefenderStake = subjects.reduce((sum, s) => sum + (s.account.availableBond?.toNumber() || 0), 0);
-
-    return {
-      totalSubjects: subjects.length,
-      validCount: validSubjects.length,
-      disputedCount: disputedSubjects.length,
-      invalidCount: invalidSubjects.length,
-      activeDisputes: activeDisputes.length,
-      resolvedDisputes: resolvedDisputes.length,
-      totalDisputes: disputes.length,
-      challengerWinRate: resolvedDisputes.length > 0 ? (challengerWins.length / resolvedDisputes.length) * 100 : 0,
-      defenderWinRate: resolvedDisputes.length > 0 ? (defenderWins.length / resolvedDisputes.length) * 100 : 0,
-      totalJurors: jurors.length,
-      activeJurors: activeJurors.length,
-      totalJurorStake,
-      totalVotes,
-      avgReputation,
-      tvl,
-      totalDefenderStake,
-      activePools,
-    };
-  }, [subjects, disputes, jurors]);
+  // Computed values from stats
+  const tvl = stats ? stats.totalJurorStake + stats.activePools : 0;
+  const challengerWinRate = stats && stats.resolvedDisputes > 0
+    ? (stats.challengerWins / stats.resolvedDisputes) * 100
+    : 0;
+  const defenderWinRate = stats && stats.resolvedDisputes > 0
+    ? (stats.defenderWins / stats.resolvedDisputes) * 100
+    : 0;
 
   const formatSOL = (lamports: number) => (lamports / LAMPORTS_PER_SOL).toFixed(4);
-  const formatReputation = (rep: number) => `${(rep / 1_000_000).toFixed(1)}%`;
+  const formatReputation = (rep: number) => `${rep.toFixed(1)}%`;
 
   return (
     <div className="min-h-screen bg-obsidian">
@@ -201,7 +197,7 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {loading ? (
+        {loading || !stats ? (
           <div className="tribunal-card p-12 text-center animate-slide-up">
             <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
             <p className="text-steel">Loading protocol data...</p>
@@ -215,7 +211,7 @@ export default function Dashboard() {
                   <div className="text-gold opacity-60"><CoinsIcon /></div>
                 </div>
                 <p className="stat-label">Total Value Locked</p>
-                <p className="stat-value stat-value-gold">{formatSOL(stats.tvl)}</p>
+                <p className="stat-value stat-value-gold">{formatSOL(tvl)}</p>
                 <p className="text-xs text-steel mt-1">SOL</p>
               </div>
 
@@ -243,7 +239,7 @@ export default function Dashboard() {
                 </div>
                 <p className="stat-label">Subjects</p>
                 <p className="stat-value">{stats.totalSubjects}</p>
-                <p className="text-xs text-steel mt-1">{stats.validCount} valid</p>
+                <p className="text-xs text-steel mt-1">{stats.validSubjects} valid</p>
               </div>
             </div>
 
@@ -268,16 +264,16 @@ export default function Dashboard() {
                   <div className="h-3 rounded overflow-hidden flex mb-2">
                     {stats.totalSubjects > 0 && (
                       <>
-                        <div className="h-full bg-emerald" style={{ width: `${(stats.validCount / stats.totalSubjects) * 100}%` }} />
-                        <div className="h-full bg-gold" style={{ width: `${(stats.disputedCount / stats.totalSubjects) * 100}%` }} />
-                        <div className="h-full bg-crimson" style={{ width: `${(stats.invalidCount / stats.totalSubjects) * 100}%` }} />
+                        <div className="h-full bg-emerald" style={{ width: `${(stats.validSubjects / stats.totalSubjects) * 100}%` }} />
+                        <div className="h-full bg-gold" style={{ width: `${(stats.disputedSubjects / stats.totalSubjects) * 100}%` }} />
+                        <div className="h-full bg-crimson" style={{ width: `${(stats.invalidSubjects / stats.totalSubjects) * 100}%` }} />
                       </>
                     )}
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-emerald">{stats.validCount} valid</span>
-                    <span className="text-gold">{stats.disputedCount} disputed</span>
-                    <span className="text-crimson">{stats.invalidCount} invalid</span>
+                    <span className="text-emerald">{stats.validSubjects} valid</span>
+                    <span className="text-gold">{stats.disputedSubjects} disputed</span>
+                    <span className="text-crimson">{stats.invalidSubjects} invalid</span>
                   </div>
                 </div>
 
@@ -287,14 +283,14 @@ export default function Dashboard() {
                   <div className="h-3 rounded overflow-hidden flex mb-2">
                     {stats.resolvedDisputes > 0 && (
                       <>
-                        <div className="h-full bg-crimson" style={{ width: `${stats.challengerWinRate}%` }} />
-                        <div className="h-full bg-sky" style={{ width: `${stats.defenderWinRate}%` }} />
+                        <div className="h-full bg-crimson" style={{ width: `${challengerWinRate}%` }} />
+                        <div className="h-full bg-sky" style={{ width: `${defenderWinRate}%` }} />
                       </>
                     )}
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-crimson">Challengers {stats.challengerWinRate.toFixed(0)}%</span>
-                    <span className="text-sky">Defenders {stats.defenderWinRate.toFixed(0)}%</span>
+                    <span className="text-crimson">Challengers {challengerWinRate.toFixed(0)}%</span>
+                    <span className="text-sky">Defenders {defenderWinRate.toFixed(0)}%</span>
                   </div>
                 </div>
 

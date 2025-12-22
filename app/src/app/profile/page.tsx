@@ -8,9 +8,12 @@ import { useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import Link from "next/link";
-import type { SubjectContent, DisputeContent } from "@/lib/content-types";
+import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { ShieldIcon, CheckIcon, LockIcon, PlusIcon, MinusIcon, ClockIcon, ChevronDownIcon } from "@/components/Icons";
+import { getSubjects, getDisputes } from "@/lib/supabase/queries";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
 // Safe BN to number conversion (handles overflow and undefined)
 const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
@@ -92,6 +95,61 @@ const ExternalIcon = () => (
     <line x1="10" y1="14" x2="21" y2="3" />
   </svg>
 );
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUPABASE CONVERTERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
+  try {
+    const statusMap: Record<string, any> = {
+      dormant: { dormant: {} }, valid: { valid: {} }, disputed: { disputed: {} },
+      invalid: { invalid: {} }, restoring: { restoring: {} },
+    };
+    return {
+      publicKey: new PublicKey(s.id),
+      account: {
+        subjectId: new PublicKey(s.subject_id), creator: new PublicKey(s.creator),
+        detailsCid: s.details_cid || "", round: s.round,
+        availableBond: new BN(s.available_bond), defenderCount: s.defender_count,
+        status: statusMap[s.status] || { dormant: {} }, matchMode: s.match_mode,
+        votingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0),
+        dispute: s.dispute ? new PublicKey(s.dispute) : PublicKey.default,
+        bump: 255, createdAt: s.created_at ? new BN(s.created_at) : new BN(0),
+        updatedAt: s.updated_at ? new BN(s.updated_at) : new BN(0),
+        lastDisputeTotal: s.last_dispute_total ? new BN(s.last_dispute_total) : new BN(0),
+        lastVotingPeriod: s.voting_period ? new BN(s.voting_period) : new BN(0),
+      },
+    };
+  } catch { return null; }
+};
+
+const convertSupabaseDispute = (d: SupabaseDispute): DisputeData | null => {
+  try {
+    const statusMap: Record<string, any> = { none: { none: {} }, pending: { pending: {} }, resolved: { resolved: {} } };
+    const outcomeMap: Record<string, any> = { none: { none: {} }, challengerWins: { challengerWins: {} }, defenderWins: { defenderWins: {} }, noParticipation: { noParticipation: {} } };
+    const disputeTypeMap: Record<string, any> = { accuracy: { accuracy: {} }, bias: { bias: {} }, outdated: { outdated: {} }, incomplete: { incomplete: {} }, spam: { spam: {} }, other: { other: {} } };
+    return {
+      publicKey: new PublicKey(d.id),
+      account: {
+        subjectId: new PublicKey(d.subject_id), round: d.round,
+        status: statusMap[d.status] || { none: {} },
+        disputeType: d.dispute_type ? disputeTypeMap[d.dispute_type] || { other: {} } : { other: {} },
+        totalStake: new BN(d.total_stake), challengerCount: d.challenger_count,
+        bondAtRisk: new BN(d.bond_at_risk), defenderCount: d.defender_count,
+        votesForChallenger: new BN(d.votes_for_challenger), votesForDefender: new BN(d.votes_for_defender),
+        voteCount: d.vote_count, votingStartsAt: d.voting_starts_at ? new BN(d.voting_starts_at) : new BN(0),
+        votingEndsAt: d.voting_ends_at ? new BN(d.voting_ends_at) : new BN(0),
+        outcome: outcomeMap[d.outcome || "none"] || { none: {} },
+        resolvedAt: d.resolved_at ? new BN(d.resolved_at) : null,
+        isRestore: d.is_restore, restoreStake: new BN(d.restore_stake),
+        restorer: d.restorer ? new PublicKey(d.restorer) : PublicKey.default,
+        detailsCid: d.details_cid || "", bump: 255,
+        createdAt: d.created_at ? new BN(d.created_at) : new BN(0),
+      },
+    };
+  } catch { return null; }
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENTS
@@ -245,6 +303,7 @@ export default function JurorPage() {
     createDefenderPool,
     depositDefenderPool,
     withdrawDefenderPool,
+    updateMaxBond,
     closeJurorRecord,
     closeChallengerRecord,
     closeDefenderRecord,
@@ -301,6 +360,8 @@ export default function JurorPage() {
   const [poolWithdrawAmount, setPoolWithdrawAmount] = useState("0.1");
   const [showPoolDeposit, setShowPoolDeposit] = useState(false);
   const [showPoolWithdraw, setShowPoolWithdraw] = useState(false);
+  const [showMaxBondEdit, setShowMaxBondEdit] = useState(false);
+  const [maxBondAmount, setMaxBondAmount] = useState("");
   const [showChallengerDeposit, setShowChallengerDeposit] = useState(false);
   const [showChallengerWithdraw, setShowChallengerWithdraw] = useState(false);
   const [challengerStakeAmount, setChallengerStakeAmount] = useState("0.1");
@@ -314,13 +375,31 @@ export default function JurorPage() {
     setLoading(true);
     setError(null);
     try {
-      // Fetch all data
-      const [subjectsData, disputesData] = await Promise.all([
-        fetchAllSubjects(),
-        fetchAllDisputes(),
-      ]);
-      setSubjects(subjectsData || []);
-      setDisputes(disputesData || []);
+      let subjectsData: SubjectData[] = [];
+      let disputesData: DisputeData[] = [];
+
+      // Try Supabase first
+      if (isSupabaseConfigured()) {
+        const [supaSubjects, supaDisputes] = await Promise.all([
+          getSubjects(),
+          getDisputes(),
+        ]);
+        subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
+        disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
+      }
+
+      // Fallback to RPC if Supabase not configured or returned empty
+      if (subjectsData.length === 0 && client) {
+        const rpcSubjects = await fetchAllSubjects();
+        subjectsData = rpcSubjects || [];
+      }
+      if (disputesData.length === 0 && client) {
+        const rpcDisputes = await fetchAllDisputes();
+        disputesData = rpcDisputes || [];
+      }
+
+      setSubjects(subjectsData);
+      setDisputes(disputesData);
 
       // Fetch content for subjects using detailsCid
       for (const s of subjectsData) {
@@ -755,6 +834,32 @@ export default function JurorPage() {
       await loadData();
     } catch (err: any) {
       setError(err.message || "Failed to withdraw from pool");
+    }
+    setActionLoading(false);
+  };
+
+  const handleUpdateMaxBond = async () => {
+    if (!publicKey) return;
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      // Parse amount - empty or 0 means unlimited (u64::MAX)
+      const inputValue = parseFloat(maxBondAmount);
+      let newMaxBond: BN;
+      if (!maxBondAmount || isNaN(inputValue) || inputValue <= 0) {
+        // Set to u64::MAX for unlimited
+        newMaxBond = new BN("18446744073709551615");
+      } else {
+        newMaxBond = new BN(inputValue * LAMPORTS_PER_SOL);
+      }
+      await updateMaxBond(newMaxBond);
+      setSuccess("Max bond updated successfully");
+      setShowMaxBondEdit(false);
+      setMaxBondAmount("");
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || "Failed to update max bond");
     }
     setActionLoading(false);
   };
@@ -1403,14 +1508,38 @@ export default function JurorPage() {
     }
   }, [disputes, userVotes, poolPda, challengerRecords]);
 
-  // Calculate accuracy rate (V2: stats not tracked on-chain, use 0)
-  const votesCast = safeToNumber((jurorAccount as any)?.votesCast);
-  const correctVotes = safeToNumber((jurorAccount as any)?.correctVotes);
+  // Calculate accuracy rate from actual votes (V2: not tracked on-chain, calculate from userVotes)
+  const userVotesArray = Object.values(userVotes);
+  const votesCast = userVotesArray.length;
+  const correctVotes = userVotesArray.filter(v => {
+    // Find the dispute for this vote
+    const dispute = disputes.find(d =>
+      d.account.subjectId.equals(v.account.subjectId) &&
+      d.account.round === v.account.round
+    );
+    if (!dispute || !("resolved" in dispute.account.status)) return false;
+    // Check if vote was correct (Anchor enum: check with "in" operator)
+    const votedForChallenger = v.account.choice && "forChallenger" in v.account.choice;
+    const votedForDefender = v.account.choice && "forDefender" in v.account.choice;
+    const challengerWon = dispute.account.outcome && "challengerWins" in dispute.account.outcome;
+    const defenderWon = dispute.account.outcome && "defenderWins" in dispute.account.outcome;
+    return (votedForChallenger && challengerWon) || (votedForDefender && defenderWon);
+  }).length;
   const accuracyRate = votesCast > 0 ? (correctVotes / votesCast) * 100 : 0;
 
-  // Calculate challenger success rate (V2: stats not tracked on-chain, use 0)
-  const disputesSubmitted = safeToNumber((challengerAccount as any)?.disputesSubmitted);
-  const disputesUpheld = safeToNumber((challengerAccount as any)?.disputesUpheld);
+  // Calculate challenger success rate from actual records (V2: not tracked on-chain)
+  const challengerRecordsArray = Object.values(challengerRecords);
+  const userChallengerRecords = challengerRecordsArray.filter((r: any) =>
+    publicKey && r.account?.challenger?.equals?.(publicKey)
+  );
+  const disputesSubmitted = userChallengerRecords.length;
+  const disputesUpheld = userChallengerRecords.filter((r: any) => {
+    const dispute = disputes.find(d =>
+      d.account.subjectId.equals(r.account.subjectId) &&
+      d.account.round === r.account.round
+    );
+    return dispute && dispute.account.outcome && "challengerWins" in dispute.account.outcome;
+  }).length;
   const challengerSuccessRate = disputesSubmitted > 0 ? (disputesUpheld / disputesSubmitted) * 100 : 0;
 
   // Calculate defender utilization (V2: use balance as proxy)
@@ -1557,13 +1686,6 @@ export default function JurorPage() {
                           {(safeToNumber(pool.balance) / LAMPORTS_PER_SOL).toFixed(4)}
                           <span className="text-lg text-steel ml-2">SOL</span>
                         </p>
-                        <div className="mt-3">
-                          <div className="flex justify-between text-xs text-steel mb-1">
-                            <span>Max Bond</span>
-                            <span className="text-sky-400">{(safeToNumber(pool.maxBond) / LAMPORTS_PER_SOL).toFixed(4)} SOL</span>
-                          </div>
-                          <ProgressBar value={safeToNumber(pool.balance)} max={safeToNumber(pool.maxBond) || 1} color="sky" />
-                        </div>
                       </div>
 
                       {/* Stats */}
@@ -1576,8 +1698,24 @@ export default function JurorPage() {
                         />
                         <StatRow
                           label="Max Bond"
-                          value={(safeToNumber(pool.maxBond) / LAMPORTS_PER_SOL).toFixed(4)}
-                          subValue="SOL"
+                          value={(() => {
+                            try {
+                              const maxBond = pool.maxBond?.toNumber?.() ?? 0;
+                              if (maxBond === 0 || maxBond > 1e15) return "Unlimited";
+                              return (maxBond / LAMPORTS_PER_SOL).toFixed(4);
+                            } catch {
+                              return "Unlimited";
+                            }
+                          })()}
+                          subValue={(() => {
+                            try {
+                              const maxBond = pool.maxBond?.toNumber?.() ?? 0;
+                              if (maxBond === 0 || maxBond > 1e15) return "";
+                              return "SOL";
+                            } catch {
+                              return "";
+                            }
+                          })()}
                           color="gold"
                         />
                         <StatRow
@@ -1621,20 +1759,47 @@ export default function JurorPage() {
                               ✕
                             </button>
                           </div>
+                        ) : showMaxBondEdit ? (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={maxBondAmount}
+                                onChange={(e) => setMaxBondAmount(e.target.value)}
+                                className="input flex-1 text-sm"
+                                placeholder="Max bond per subject (SOL)"
+                              />
+                              <button onClick={handleUpdateMaxBond} disabled={actionLoading} className="btn btn-primary text-xs px-3">
+                                {actionLoading ? "..." : "Save"}
+                              </button>
+                              <button onClick={() => { setShowMaxBondEdit(false); setMaxBondAmount(""); }} className="btn btn-secondary text-xs px-2">
+                                ✕
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-steel">Leave empty or 0 for unlimited. This limits how much your pool auto-contributes per subject.</p>
+                          </div>
                         ) : (
-                          <div className="flex gap-2">
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setShowPoolDeposit(true)}
+                                className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-emerald bg-emerald-700/10 border border-emerald-700/30 hover:bg-emerald-700/20 transition-colors"
+                              >
+                                <PlusIcon /> Deposit
+                              </button>
+                              <button
+                                onClick={() => setShowPoolWithdraw(true)}
+                                disabled={safeToNumber(pool.balance) === 0}
+                                className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-crimson bg-red-800/10 border border-red-800/30 hover:bg-red-800/20 transition-colors disabled:opacity-30"
+                              >
+                                <MinusIcon /> Withdraw
+                              </button>
+                            </div>
                             <button
-                              onClick={() => setShowPoolDeposit(true)}
-                              className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-emerald bg-emerald-700/10 border border-emerald-700/30 hover:bg-emerald-700/20 transition-colors"
+                              onClick={() => setShowMaxBondEdit(true)}
+                              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-gold bg-gold/10 border border-gold/30 hover:bg-gold/20 transition-colors"
                             >
-                              <PlusIcon /> Deposit
-                            </button>
-                            <button
-                              onClick={() => setShowPoolWithdraw(true)}
-                              disabled={safeToNumber(pool.balance) === 0}
-                              className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium text-crimson bg-red-800/10 border border-red-800/30 hover:bg-red-800/20 transition-colors disabled:opacity-30"
-                            >
-                              <MinusIcon /> Withdraw
+                              <LockIcon /> Edit Max Bond Limit
                             </button>
                           </div>
                         )}
@@ -1681,11 +1846,11 @@ export default function JurorPage() {
                     </div>
                     {jurorAccount && (
                       <span className={`text-[10px] uppercase tracking-wider px-2 py-1 ${
-                        jurorAccount.isActive
+                        safeToNumber(jurorAccount.balance) > 0 || Object.keys(userVotes).length > 0
                           ? "bg-emerald-700/10 text-emerald border border-emerald-700/30"
                           : "bg-steel/10 text-steel border border-steel/30"
                       }`}>
-                        {jurorAccount.isActive ? "Active" : "Inactive"}
+                        {safeToNumber(jurorAccount.balance) > 0 || Object.keys(userVotes).length > 0 ? "Active" : "Inactive"}
                       </span>
                     )}
                   </div>
