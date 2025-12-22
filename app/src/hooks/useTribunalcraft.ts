@@ -68,12 +68,11 @@ export const useTribunalcraft = () => {
   const [client, setClient] = useState<TribunalCraftClient | null>(null);
 
   // Initialize client when connection changes
-  // Enable simulation in development to help debug transaction failures
+  // Enable simulation to catch errors before submitting transactions
   useEffect(() => {
-    const isDev = process.env.NODE_ENV === "development";
     const newClient = new TribunalCraftClient({
       connection,
-      simulateFirst: isDev,
+      simulateFirst: true, // Always simulate to provide better error messages
     });
     setClient(newClient);
   }, [connection]);
