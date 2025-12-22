@@ -36,6 +36,98 @@ const getCurrentSlot = async (connection: Connection): Promise<number> => {
   }
 };
 
+/**
+ * Slot-based upsert helper
+ * Only updates if incoming slot is greater than or equal to existing slot
+ * This prevents stale data from overwriting fresh data
+ */
+async function slotAwareUpsert(
+  table: string,
+  row: Record<string, unknown>,
+  idField: string = "id"
+): Promise<{ success: boolean; skipped: boolean; error?: string }> {
+  if (!supabase) return { success: false, skipped: false, error: "Supabase not configured" };
+
+  const id = row[idField];
+  const incomingSlot = (row.slot as number) || 0;
+
+  try {
+    // Check if record exists and get its slot
+    const { data: existing, error: fetchError } = await (supabase as any)
+      .from(table)
+      .select("slot")
+      .eq(idField, id)
+      .single();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
+      // PGRST116 = no rows returned, which is fine
+      console.error(`Error checking existing ${table}:`, fetchError);
+      return { success: false, skipped: false, error: fetchError.message };
+    }
+
+    // If record exists with newer slot, skip update
+    if (existing && existing.slot && existing.slot > incomingSlot) {
+      console.log(`Skipping ${table} update: existing slot ${existing.slot} > incoming ${incomingSlot}`);
+      return { success: true, skipped: true };
+    }
+
+    // Proceed with upsert
+    const { error: upsertError } = await (supabase as any)
+      .from(table)
+      .upsert(row, { onConflict: idField });
+
+    if (upsertError) {
+      console.error(`Error upserting ${table}:`, upsertError);
+      return { success: false, skipped: false, error: upsertError.message };
+    }
+
+    return { success: true, skipped: false };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Error in slotAwareUpsert for ${table}:`, err);
+    return { success: false, skipped: false, error: message };
+  }
+}
+
+/**
+ * Sync result tracking for retry logic
+ */
+interface SyncResult {
+  success: boolean;
+  table: string;
+  id: string;
+  error?: string;
+  retryable: boolean;
+}
+
+// Track failed syncs for potential retry
+const failedSyncs: SyncResult[] = [];
+const MAX_FAILED_SYNCS = 100;
+
+function trackSyncResult(result: SyncResult): void {
+  if (!result.success && result.retryable) {
+    failedSyncs.push(result);
+    // Keep only the most recent failures
+    if (failedSyncs.length > MAX_FAILED_SYNCS) {
+      failedSyncs.shift();
+    }
+  }
+}
+
+/**
+ * Get failed syncs for retry (useful for background retry jobs)
+ */
+export function getFailedSyncs(): SyncResult[] {
+  return [...failedSyncs];
+}
+
+/**
+ * Clear failed syncs (after successful retry)
+ */
+export function clearFailedSyncs(): void {
+  failedSyncs.length = 0;
+}
+
 // =============================================================================
 // Individual Sync Functions
 // =============================================================================
@@ -56,17 +148,25 @@ export async function syncSubject(
     const slot = await getCurrentSlot(connection);
     const row = parseSubject(subjectPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("subjects")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("subjects", row);
+    trackSyncResult({
+      success: result.success,
+      table: "subjects",
+      id: subjectPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing subject:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing subject:", err);
+    trackSyncResult({
+      success: false,
+      table: "subjects",
+      id: subjectId.toBase58(),
+      error: err instanceof Error ? err.message : "Unknown error",
+      retryable: true,
+    });
     return false;
   }
 }
@@ -87,17 +187,25 @@ export async function syncDispute(
     const slot = await getCurrentSlot(connection);
     const row = parseDispute(disputePda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("disputes")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("disputes", row);
+    trackSyncResult({
+      success: result.success,
+      table: "disputes",
+      id: disputePda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing dispute:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing dispute:", err);
+    trackSyncResult({
+      success: false,
+      table: "disputes",
+      id: subjectId.toBase58(),
+      error: err instanceof Error ? err.message : "Unknown error",
+      retryable: true,
+    });
     return false;
   }
 }
@@ -120,15 +228,16 @@ export async function syncJurorRecord(
     const slot = await getCurrentSlot(connection);
     const row = parseJurorRecord(recordPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("juror_records")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("juror_records", row);
+    trackSyncResult({
+      success: result.success,
+      table: "juror_records",
+      id: recordPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing juror record:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing juror record:", err);
     return false;
@@ -153,15 +262,16 @@ export async function syncChallengerRecord(
     const slot = await getCurrentSlot(connection);
     const row = parseChallengerRecord(recordPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("challenger_records")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("challenger_records", row);
+    trackSyncResult({
+      success: result.success,
+      table: "challenger_records",
+      id: recordPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing challenger record:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing challenger record:", err);
     return false;
@@ -186,15 +296,16 @@ export async function syncDefenderRecord(
     const slot = await getCurrentSlot(connection);
     const row = parseDefenderRecord(recordPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("defender_records")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("defender_records", row);
+    trackSyncResult({
+      success: result.success,
+      table: "defender_records",
+      id: recordPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing defender record:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing defender record:", err);
     return false;
@@ -217,15 +328,16 @@ export async function syncJurorPool(
     const slot = await getCurrentSlot(connection);
     const row = parseJurorPool(poolPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("juror_pools")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("juror_pools", row);
+    trackSyncResult({
+      success: result.success,
+      table: "juror_pools",
+      id: poolPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing juror pool:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing juror pool:", err);
     return false;
@@ -248,15 +360,16 @@ export async function syncChallengerPool(
     const slot = await getCurrentSlot(connection);
     const row = parseChallengerPool(poolPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("challenger_pools")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("challenger_pools", row);
+    trackSyncResult({
+      success: result.success,
+      table: "challenger_pools",
+      id: poolPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing challenger pool:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing challenger pool:", err);
     return false;
@@ -279,15 +392,16 @@ export async function syncDefenderPool(
     const slot = await getCurrentSlot(connection);
     const row = parseDefenderPool(poolPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("defender_pools")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("defender_pools", row);
+    trackSyncResult({
+      success: result.success,
+      table: "defender_pools",
+      id: poolPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing defender pool:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing defender pool:", err);
     return false;
@@ -310,15 +424,16 @@ export async function syncEscrow(
     const slot = await getCurrentSlot(connection);
     const row = parseEscrow(escrowPda, account, slot);
 
-    const { error } = await (supabase as any)
-      .from("escrows")
-      .upsert(row, { onConflict: "id" });
+    const result = await slotAwareUpsert("escrows", row);
+    trackSyncResult({
+      success: result.success,
+      table: "escrows",
+      id: escrowPda.toBase58(),
+      error: result.error,
+      retryable: !result.skipped,
+    });
 
-    if (error) {
-      console.error("Error syncing escrow:", error);
-      return false;
-    }
-    return true;
+    return result.success;
   } catch (err) {
     console.error("Error syncing escrow:", err);
     return false;
@@ -332,15 +447,17 @@ export async function syncEscrow(
 /**
  * Sync after creating a subject
  * Syncs: Subject, DefenderRecord (if creator added bond)
+ * @param round - The round number (0 for new subjects)
  */
 export function syncAfterCreateSubject(
   connection: Connection,
   subjectId: PublicKey,
-  creator: PublicKey
+  creator: PublicKey,
+  round: number = 0
 ): void {
   Promise.all([
     syncSubject(connection, subjectId),
-    syncDefenderRecord(connection, subjectId, creator, 0),
+    syncDefenderRecord(connection, subjectId, creator, round),
     syncDefenderPool(connection, creator),
   ]).catch(console.error);
 }

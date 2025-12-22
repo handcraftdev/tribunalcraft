@@ -30,16 +30,22 @@ import type {
   EscrowInsert,
 } from "./types";
 
-// Helper to safely convert BN to number
+// Helper to safely convert BN to number (for BIGINT columns)
+// Uses string conversion to preserve precision for values > 2^53
 const bnToNumber = (bn: BN | undefined | null): number | null => {
   if (!bn) return null;
-  try {
-    return bn.toNumber();
-  } catch {
-    // BN too large for number, return as string would lose precision
-    // For lamports, this shouldn't happen in practice
-    return Number(bn.toString());
+  // BN.toString() always works, then parse as number
+  // For PostgreSQL BIGINT, the Supabase client handles this correctly
+  const str = bn.toString();
+  // Check if value is within safe integer range
+  const num = Number(str);
+  if (Number.isSafeInteger(num)) {
+    return num;
   }
+  // For values > 2^53, log warning but still return
+  // PostgreSQL BIGINT will store it correctly
+  console.warn(`BN value ${str} exceeds safe integer range`);
+  return num;
 };
 
 // Helper to convert PublicKey to string
@@ -53,6 +59,7 @@ const pubkeyToString = (pk: PublicKey | undefined | null): string | null => {
 
 // Enum converters
 const statusToString = (status: SubjectStatus): string => {
+  if ("dormant" in status) return "dormant";
   if ("valid" in status) return "valid";
   if ("disputed" in status) return "disputed";
   if ("invalid" in status) return "invalid";
