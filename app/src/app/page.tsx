@@ -581,13 +581,21 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-3 gap-6">
             {/* Defender */}
-            <div className="group relative p-10 rounded-3xl bg-gradient-to-b from-sky-500/5 to-transparent border border-sky-500/20 hover:border-sky-500/40 transition-all duration-500">
-              <div className="w-16 h-16 rounded-2xl bg-sky-500/10 flex items-center justify-center mb-8 text-sky-400 group-hover:scale-105 transition-transform">
+            <div
+              className="group relative p-10 rounded-3xl border transition-all duration-500"
+              style={{
+                background: 'linear-gradient(to bottom, rgba(56, 189, 248, 0.05), transparent)',
+                borderColor: 'rgba(56, 189, 248, 0.2)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.4)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.2)'}
+            >
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-8 text-sky-400 group-hover:scale-105 transition-transform" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)' }}>
                 <ShieldIcon className="w-8 h-8" />
               </div>
 
               <h3 className="font-display text-2xl text-ivory mb-2">Defender</h3>
-              <p className="text-sky-400/80 text-sm mb-6">Protect Truth</p>
+              <p className="text-sky-400 text-sm mb-6" style={{ opacity: 0.8 }}>Protect Truth</p>
 
               <p className="text-steel text-sm mb-8 leading-relaxed">
                 Bond SOL behind subjects you believe are valid. Your stake signals confidence
@@ -602,13 +610,21 @@ export default function LandingPage() {
             </div>
 
             {/* Challenger */}
-            <div className="group relative p-10 rounded-3xl bg-gradient-to-b from-crimson/5 to-transparent border border-crimson/20 hover:border-crimson/40 transition-all duration-500">
-              <div className="w-16 h-16 rounded-2xl bg-crimson/10 flex items-center justify-center mb-8 text-crimson-light group-hover:scale-105 transition-transform">
+            <div
+              className="group relative p-10 rounded-3xl border transition-all duration-500"
+              style={{
+                background: 'linear-gradient(to bottom, rgba(185, 28, 28, 0.05), transparent)',
+                borderColor: 'rgba(185, 28, 28, 0.25)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(185, 28, 28, 0.5)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(185, 28, 28, 0.25)'}
+            >
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-8 text-crimson-light group-hover:scale-105 transition-transform" style={{ backgroundColor: 'rgba(185, 28, 28, 0.1)' }}>
                 <SwordIcon className="w-8 h-8" />
               </div>
 
               <h3 className="font-display text-2xl text-ivory mb-2">Challenger</h3>
-              <p className="text-crimson-light/80 text-sm mb-6">Expose Falsehood</p>
+              <p className="text-crimson-light text-sm mb-6" style={{ opacity: 0.8 }}>Expose Falsehood</p>
 
               <p className="text-steel text-sm mb-8 leading-relaxed">
                 Dispute subjects you believe are false. If proven right, claim the defender&apos;s
@@ -623,13 +639,21 @@ export default function LandingPage() {
             </div>
 
             {/* Juror */}
-            <div className="group relative p-10 rounded-3xl bg-gradient-to-b from-gold/5 to-transparent border border-gold/20 hover:border-gold/40 transition-all duration-500">
-              <div className="w-16 h-16 rounded-2xl bg-gold/10 flex items-center justify-center mb-8 text-gold group-hover:scale-105 transition-transform">
+            <div
+              className="group relative p-10 rounded-3xl border transition-all duration-500"
+              style={{
+                background: 'linear-gradient(to bottom, rgba(201, 162, 39, 0.05), transparent)',
+                borderColor: 'rgba(201, 162, 39, 0.25)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(201, 162, 39, 0.5)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(201, 162, 39, 0.25)'}
+            >
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-8 text-gold group-hover:scale-105 transition-transform" style={{ backgroundColor: 'rgba(201, 162, 39, 0.1)' }}>
                 <GavelIcon className="w-8 h-8" />
               </div>
 
               <h3 className="font-display text-2xl text-ivory mb-2">Juror</h3>
-              <p className="text-gold/80 text-sm mb-6">Decide Outcomes</p>
+              <p className="text-gold text-sm mb-6" style={{ opacity: 0.8 }}>Decide Outcomes</p>
 
               <p className="text-steel text-sm mb-8 leading-relaxed">
                 Stake to join the tribunal. Vote on disputes to earn 19% of every resolution.
