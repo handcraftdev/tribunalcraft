@@ -455,8 +455,10 @@ export default function AnalyticsPage() {
       .map(j => {
         const stats = getVoteStats(j.publicKey.toString());
         return {
-          juror: j,
-          ...stats,
+          jurorData: j,
+          votesCast: stats.votesCast,
+          correctVotes: stats.correctVotes,
+          accuracy: stats.accuracy,
           reputation: j.account.reputation?.toNumber?.() ?? 0,
         };
       })
@@ -464,7 +466,7 @@ export default function AnalyticsPage() {
       .slice(0, 10)
       .map((item, index) => ({
         rank: index + 1,
-        address: item.juror.publicKey.toString(),
+        address: item.jurorData.publicKey.toString(),
         votesCast: item.votesCast,
         correctVotes: item.correctVotes,
         accuracy: item.accuracy,

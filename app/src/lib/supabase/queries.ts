@@ -610,8 +610,10 @@ export async function getJurorVoteStats(): Promise<JurorVoteStats[]> {
   }
 
   // Create a map of dispute outcomes: "subjectId-round" -> outcome
+  type DisputeRow = { subject_id: string; round: number; outcome: string | null; is_restore: boolean };
+  type JurorRecordRow = { juror: string; subject_id: string; round: number; choice: string | null; is_restore_vote: boolean; restore_choice: string | null };
   const outcomeMap = new Map<string, { outcome: string; isRestore: boolean }>();
-  for (const d of disputes) {
+  for (const d of disputes as DisputeRow[]) {
     const key = `${d.subject_id}-${d.round}`;
     outcomeMap.set(key, { outcome: d.outcome || "", isRestore: d.is_restore || false });
   }
@@ -619,7 +621,7 @@ export async function getJurorVoteStats(): Promise<JurorVoteStats[]> {
   // Aggregate votes per juror
   const jurorStats = new Map<string, { votesCast: number; correctVotes: number }>();
 
-  for (const record of jurorRecords) {
+  for (const record of jurorRecords as JurorRecordRow[]) {
     const key = `${record.subject_id}-${record.round}`;
     const disputeInfo = outcomeMap.get(key);
 
