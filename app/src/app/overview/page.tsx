@@ -183,12 +183,20 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Hero Section */}
         <div className="mb-12 animate-slide-up">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-[1px] bg-gradient-to-r from-gold to-transparent" />
-            <span className="text-xs uppercase tracking-[0.2em] text-gold font-medium">Protocol Overview</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-6">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald"></span>
+            </span>
+            <span className="text-xs text-steel">Protocol Overview</span>
           </div>
-          <h1 className="font-display text-3xl md:text-4xl text-ivory font-medium mb-3">
-            The Digital Tribunal
+          <h1 className="font-display mb-4">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+              The Digital
+            </span>
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+              Tribunal
+            </span>
           </h1>
           <p className="text-steel text-sm max-w-md">
             A sovereign court for the digital age. Stake, challenge, arbitrate, and enforce

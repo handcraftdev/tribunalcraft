@@ -1127,18 +1127,13 @@ export default function RegistryPage() {
       <main className="max-w-7xl mx-auto px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-[1px] bg-gradient-to-r from-gold to-transparent" />
-            <span className="text-xs uppercase tracking-[0.2em] text-gold font-medium">Subjects</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="font-display text-3xl md:text-4xl text-ivory font-medium mb-3">
-                Registry
-              </h1>
-              <p className="text-steel text-sm max-w-md">
-                Browse and manage registered subjects, disputes, and restorations
-              </p>
+          <div className="flex items-center justify-between mb-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald"></span>
+              </span>
+              <span className="text-xs text-steel">Subject Registry</span>
             </div>
             {publicKey && (
               <button onClick={() => setShowCreateSubject(true)} className="bg-gold hover:bg-gold-light text-obsidian font-medium px-5 py-2.5 text-sm transition-all flex items-center gap-2">
@@ -1146,6 +1141,17 @@ export default function RegistryPage() {
               </button>
             )}
           </div>
+          <h1 className="font-display mb-4">
+            <span className="block text-3xl md:text-4xl font-semibold text-ivory leading-tight">
+              Subject
+            </span>
+            <span className="block text-3xl md:text-4xl font-semibold text-gold leading-tight">
+              Registry
+            </span>
+          </h1>
+          <p className="text-steel text-sm max-w-md">
+            Browse and manage registered subjects, disputes, and restorations
+          </p>
         </div>
 
         {/* Alerts */}
