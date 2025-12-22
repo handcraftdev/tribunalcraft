@@ -187,11 +187,10 @@ export default function Dashboard() {
             <div className="w-12 h-[1px] bg-gradient-to-r from-gold to-transparent" />
             <span className="text-xs uppercase tracking-[0.2em] text-gold font-medium">Protocol Overview</span>
           </div>
-          <h1 className="font-display text-5xl md:text-6xl font-bold text-ivory mb-4">
-            The Digital
-            <span className="block text-gold">Tribunal</span>
+          <h1 className="font-display text-3xl md:text-4xl text-ivory font-medium mb-3">
+            The Digital Tribunal
           </h1>
-          <p className="text-steel text-lg max-w-2xl">
+          <p className="text-steel text-sm max-w-md">
             A sovereign court for the digital age. Stake, challenge, arbitrate, and enforce
             agreements through decentralized consensus.
           </p>
@@ -206,51 +205,51 @@ export default function Dashboard() {
           <>
             {/* Key Metrics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 animate-slide-up stagger-1">
-              <div className="stat-card">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="text-gold opacity-60"><CoinsIcon /></div>
+              <div className="p-5 bg-slate/30 border border-slate-light/20">
+                <div className="w-9 h-9 bg-gold/10 flex items-center justify-center mb-4">
+                  <CoinsIcon />
                 </div>
-                <p className="stat-label">Total Value Locked</p>
-                <p className="stat-value stat-value-gold">{formatSOL(tvl)}</p>
+                <p className="text-xs text-steel uppercase tracking-wider mb-1">Total Value Locked</p>
+                <p className="font-display text-2xl text-gold">{formatSOL(tvl)}</p>
                 <p className="text-xs text-steel mt-1">SOL</p>
               </div>
 
-              <div className="stat-card">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="text-crimson opacity-60"><GavelIcon /></div>
+              <div className="p-5 bg-slate/30 border border-slate-light/20">
+                <div className="w-9 h-9 bg-crimson/10 flex items-center justify-center mb-4">
+                  <GavelIcon />
                 </div>
-                <p className="stat-label">Active Disputes</p>
-                <p className="stat-value stat-value-crimson">{stats.activeDisputes}</p>
+                <p className="text-xs text-steel uppercase tracking-wider mb-1">Active Disputes</p>
+                <p className="font-display text-2xl text-crimson">{stats.activeDisputes}</p>
                 <p className="text-xs text-steel mt-1">{formatSOL(stats.activePools)} SOL at stake</p>
               </div>
 
-              <div className="stat-card">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="text-emerald opacity-60"><UsersIcon /></div>
+              <div className="p-5 bg-slate/30 border border-slate-light/20">
+                <div className="w-9 h-9 bg-emerald/10 flex items-center justify-center mb-4">
+                  <UsersIcon />
                 </div>
-                <p className="stat-label">Active Jurors</p>
-                <p className="stat-value stat-value-emerald">{stats.activeJurors}</p>
+                <p className="text-xs text-steel uppercase tracking-wider mb-1">Active Jurors</p>
+                <p className="font-display text-2xl text-emerald">{stats.activeJurors}</p>
                 <p className="text-xs text-steel mt-1">of {stats.totalJurors} registered</p>
               </div>
 
-              <div className="stat-card">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="text-sky opacity-60"><ShieldIcon /></div>
+              <div className="p-5 bg-slate/30 border border-slate-light/20">
+                <div className="w-9 h-9 bg-sky/10 flex items-center justify-center mb-4">
+                  <ShieldIcon />
                 </div>
-                <p className="stat-label">Subjects</p>
-                <p className="stat-value">{stats.totalSubjects}</p>
+                <p className="text-xs text-steel uppercase tracking-wider mb-1">Subjects</p>
+                <p className="font-display text-2xl text-ivory">{stats.totalSubjects}</p>
                 <p className="text-xs text-steel mt-1">{stats.validSubjects} valid</p>
               </div>
             </div>
 
             {/* Protocol Health */}
-            <div className="tribunal-card p-6 mb-8 animate-slide-up stagger-2">
+            <div className="p-5 bg-slate/30 border border-slate-light/20 mb-8 animate-slide-up stagger-2">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full border border-gold/50 flex items-center justify-center text-gold">
+                  <div className="w-9 h-9 bg-gold/10 flex items-center justify-center">
                     <ScaleIcon />
                   </div>
-                  <h2 className="font-display text-xl font-semibold text-ivory">Protocol Health</h2>
+                  <h2 className="font-display text-base text-ivory">Protocol Health</h2>
                 </div>
                 <Link href="/analytics" className="text-xs text-gold hover:text-gold-light flex items-center gap-1">
                   View Analytics <ChevronRight />
@@ -261,7 +260,7 @@ export default function Dashboard() {
                 {/* Subject Status */}
                 <div>
                   <p className="text-sm text-steel mb-3">Subject Status</p>
-                  <div className="h-3 rounded overflow-hidden flex mb-2">
+                  <div className="h-2 flex mb-2">
                     {stats.totalSubjects > 0 && (
                       <>
                         <div className="h-full bg-emerald" style={{ width: `${(stats.validSubjects / stats.totalSubjects) * 100}%` }} />
@@ -280,7 +279,7 @@ export default function Dashboard() {
                 {/* Win Rates */}
                 <div>
                   <p className="text-sm text-steel mb-3">Resolution Outcomes</p>
-                  <div className="h-3 rounded overflow-hidden flex mb-2">
+                  <div className="h-2 flex mb-2">
                     {stats.resolvedDisputes > 0 && (
                       <>
                         <div className="h-full bg-crimson" style={{ width: `${challengerWinRate}%` }} />
@@ -317,17 +316,17 @@ export default function Dashboard() {
 
             {/* Quick Actions */}
             {!publicKey ? (
-              <div className="tribunal-card-gold p-12 text-center animate-slide-up stagger-3">
-                <div className="w-16 h-16 mx-auto mb-6 rounded-full border-2 border-gold flex items-center justify-center text-gold">
+              <div className="p-5 bg-slate/30 border border-gold/30 text-center animate-slide-up stagger-3">
+                <div className="w-10 h-10 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
                   <ShieldIcon />
                 </div>
-                <h2 className="font-display text-3xl font-semibold text-ivory mb-3">
+                <h2 className="font-display text-xl text-ivory mb-2">
                   Enter the Tribunal
                 </h2>
-                <p className="text-steel mb-8 max-w-md mx-auto">
+                <p className="text-steel text-sm mb-6 max-w-md mx-auto">
                   Connect your wallet to participate in decentralized arbitration as a staker, challenger, or juror.
                 </p>
-                <span className="text-xs uppercase tracking-[0.15em] text-steel">
+                <span className="text-xs uppercase tracking-wider text-steel">
                   Use the button above to connect
                 </span>
               </div>
@@ -335,15 +334,15 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-slide-up stagger-3">
                 <Link
                   href="/profile"
-                  className="tribunal-card p-5 group cursor-pointer transition-all hover:border-gold/50"
+                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded border border-slate-light flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
+                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                       <UsersIcon />
                     </div>
                     <ChevronRight />
                   </div>
-                  <h3 className="font-display text-base font-semibold text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1">
                     {pool ? "Manage Accounts" : "Setup Account"}
                   </h3>
                   <p className="text-steel text-xs">
@@ -353,15 +352,15 @@ export default function Dashboard() {
 
                 <Link
                   href="/registry"
-                  className="tribunal-card p-5 group cursor-pointer transition-all hover:border-gold/50"
+                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded border border-slate-light flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
+                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                       <GavelIcon />
                     </div>
                     <ChevronRight />
                   </div>
-                  <h3 className="font-display text-base font-semibold text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1">
                     Registry
                   </h3>
                   <p className="text-steel text-xs">
@@ -371,15 +370,15 @@ export default function Dashboard() {
 
                 <Link
                   href="/analytics"
-                  className="tribunal-card p-5 group cursor-pointer transition-all hover:border-gold/50"
+                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded border border-slate-light flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
+                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                       <ChartIcon />
                     </div>
                     <ChevronRight />
                   </div>
-                  <h3 className="font-display text-base font-semibold text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1">
                     Analytics
                   </h3>
                   <p className="text-steel text-xs">
@@ -389,15 +388,15 @@ export default function Dashboard() {
 
                 <Link
                   href="/profile"
-                  className="tribunal-card p-5 group cursor-pointer transition-all hover:border-gold/50"
+                  className="p-5 bg-slate/30 border border-slate-light/20 hover:border-gold/20 transition-colors group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded border border-slate-light flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
+                    <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                       <ShieldIcon />
                     </div>
                     <ChevronRight />
                   </div>
-                  <h3 className="font-display text-base font-semibold text-ivory mb-1">
+                  <h3 className="font-display text-base text-ivory mb-1">
                     {jurorAccount ? "Juror Dashboard" : "Become a Juror"}
                   </h3>
                   <p className="text-steel text-xs">

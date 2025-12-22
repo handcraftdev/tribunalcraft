@@ -593,8 +593,8 @@ export default function AnalyticsPage() {
           </div>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="font-display text-4xl md:text-5xl font-bold text-ivory mb-3">Advanced Analytics</h1>
-              <p className="text-steel text-lg">
+              <h1 className="font-display text-3xl md:text-4xl text-ivory font-medium mb-3">Advanced Analytics</h1>
+              <p className="text-steel text-sm max-w-md">
                 Comprehensive protocol metrics, economic health, and participant insights
               </p>
             </div>
@@ -624,7 +624,7 @@ export default function AnalyticsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium uppercase tracking-wider transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium uppercase tracking-wider transition-all whitespace-nowrap ${
                 activeTab === tab.id
                   ? "bg-slate border border-gold text-ivory"
                   : "bg-slate/50 border border-slate-light text-steel hover:text-parchment hover:border-steel"
@@ -648,9 +648,9 @@ export default function AnalyticsPage() {
               <div className="space-y-8">
                 {/* Key Metrics with Comparison */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-slide-up">
-                  <div className="stat-card">
-                    <p className="stat-label">Disputes Filed</p>
-                    <p className="stat-value">{stats.totalDisputes}</p>
+                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                    <p className="text-xs text-steel uppercase tracking-wider mb-2">Disputes Filed</p>
+                    <p className="font-display text-2xl text-ivory">{stats.totalDisputes}</p>
                     {period !== "all" && (
                       <div className={`flex items-center gap-1 mt-2 text-xs ${stats.disputeChange >= 0 ? "text-emerald" : "text-crimson"}`}>
                         {stats.disputeChange >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
@@ -658,9 +658,9 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="stat-card">
-                    <p className="stat-label">Total Volume</p>
-                    <p className="stat-value stat-value-gold">{formatSOL(stats.totalInflow)}</p>
+                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                    <p className="text-xs text-steel uppercase tracking-wider mb-2">Total Volume</p>
+                    <p className="font-display text-2xl text-gold">{formatSOL(stats.totalInflow)}</p>
                     <p className="text-xs text-steel mt-1">SOL</p>
                     {period !== "all" && (
                       <div className={`flex items-center gap-1 mt-1 text-xs ${stats.inflowChange >= 0 ? "text-emerald" : "text-crimson"}`}>
@@ -669,21 +669,21 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="stat-card">
-                    <p className="stat-label">TVL</p>
-                    <p className="stat-value stat-value-emerald">{formatSOL(stats.tvl)}</p>
+                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                    <p className="text-xs text-steel uppercase tracking-wider mb-2">TVL</p>
+                    <p className="font-display text-2xl text-emerald">{formatSOL(stats.tvl)}</p>
                     <p className="text-xs text-steel mt-1">Total Value Locked</p>
                   </div>
-                  <div className="stat-card">
-                    <p className="stat-label">Resolution Rate</p>
-                    <p className="stat-value">{formatPercent(stats.resolvedCount, stats.totalDisputes)}%</p>
+                  <div className="p-5 bg-slate/30 border border-slate-light/20">
+                    <p className="text-xs text-steel uppercase tracking-wider mb-2">Resolution Rate</p>
+                    <p className="font-display text-2xl text-ivory">{formatPercent(stats.resolvedCount, stats.totalDisputes)}%</p>
                     <p className="text-xs text-steel mt-1">{stats.resolvedCount} / {stats.totalDisputes}</p>
                   </div>
                 </div>
 
                 {/* Protocol Health Indicators */}
-                <div className="tribunal-card p-6 animate-slide-up stagger-1">
-                  <h2 className="font-display text-xl font-semibold text-ivory mb-6">Protocol Health</h2>
+                <div className="p-5 bg-slate/30 border border-slate-light/20 animate-slide-up stagger-1">
+                  <h2 className="font-display text-base text-ivory mb-6">Protocol Health</h2>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Utilization Rate */}
                     <div>
@@ -691,7 +691,7 @@ export default function AnalyticsPage() {
                         <span className="text-sm text-steel">Utilization Rate</span>
                         <span className="text-lg font-semibold text-gold">{stats.utilizationRate.toFixed(1)}%</span>
                       </div>
-                      <div className="h-2 bg-slate-light rounded overflow-hidden">
+                      <div className="h-2 bg-slate-light">
                         <div
                           className="h-full bg-gradient-to-r from-gold-dark to-gold transition-all"
                           style={{ width: `${Math.min(stats.utilizationRate, 100)}%` }}
@@ -708,7 +708,7 @@ export default function AnalyticsPage() {
                           {stats.noQuorumRate.toFixed(1)}%
                         </span>
                       </div>
-                      <div className="h-2 bg-slate-light rounded overflow-hidden">
+                      <div className="h-2 bg-slate-light">
                         <div
                           className={`h-full transition-all ${
                             stats.noQuorumRate > 20
@@ -729,7 +729,7 @@ export default function AnalyticsPage() {
                           {stats.stakeConcentration.toFixed(1)}%
                         </span>
                       </div>
-                      <div className="h-2 bg-slate-light rounded overflow-hidden">
+                      <div className="h-2 bg-slate-light">
                         <div
                           className="h-full bg-gradient-to-r from-sky to-sky-light transition-all"
                           style={{ width: `${Math.min(stats.stakeConcentration, 100)}%` }}

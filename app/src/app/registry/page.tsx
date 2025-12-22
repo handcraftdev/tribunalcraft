@@ -1133,15 +1133,15 @@ export default function RegistryPage() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-display text-4xl md:text-5xl font-bold text-ivory mb-3">
+              <h1 className="font-display text-3xl md:text-4xl text-ivory font-medium mb-3">
                 Registry
               </h1>
-              <p className="text-steel text-lg">
+              <p className="text-steel text-sm max-w-md">
                 Browse and manage registered subjects, disputes, and restorations
               </p>
             </div>
             {publicKey && (
-              <button onClick={() => setShowCreateSubject(true)} className="btn btn-primary flex items-center gap-2">
+              <button onClick={() => setShowCreateSubject(true)} className="bg-gold hover:bg-gold-light text-obsidian font-medium px-5 py-2.5 text-sm transition-all flex items-center gap-2">
                 <PlusIcon /> New Subject
               </button>
             )}

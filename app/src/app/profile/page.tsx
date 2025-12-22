@@ -213,7 +213,7 @@ const ProgressBar = ({ value, max, color = "gold" }: { value: number; max: numbe
   };
 
   return (
-    <div className="h-1.5 w-full bg-slate-light/30 rounded-full overflow-hidden">
+    <div className="h-2 w-full bg-slate-light/30">
       <div
         className={`h-full ${colorClasses[color] || colorClasses.gold} transition-all duration-500`}
         style={{ width: `${Math.min(percentage, 100)}%` }}
@@ -1629,7 +1629,7 @@ export default function JurorPage() {
             {/* Wallet Info Bar */}
             <div className="flex items-center justify-between bg-slate/30 border border-slate-light/50 px-5 py-3 mb-8 animate-slide-up stagger-1">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center text-gold">
+                <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                   <UserIcon />
                 </div>
                 <div>
@@ -1807,7 +1807,7 @@ export default function JurorPage() {
                     </>
                   ) : (
                     <div className="text-center py-6">
-                      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-slate/50 flex items-center justify-center text-steel">
+                      <div className="w-10 h-10 mx-auto mb-4 bg-slate/50 flex items-center justify-center text-steel">
                         <VaultIcon />
                       </div>
                       <p className="text-steel text-sm mb-4">Create a defender pool to back subjects and earn from successful defenses</p>
@@ -1836,7 +1836,7 @@ export default function JurorPage() {
                 <div className="px-5 py-4 border-b border-slate-light/30 bg-slate/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-gold/10 border border-gold/30 flex items-center justify-center text-gold">
+                      <div className="w-9 h-9 bg-gold/10 flex items-center justify-center text-gold">
                         <ScaleIcon />
                       </div>
                       <div>
@@ -1976,7 +1976,7 @@ export default function JurorPage() {
                 <div className="px-5 py-4 border-b border-slate-light/30 bg-slate/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-red-800/10 border border-red-800/30 flex items-center justify-center text-crimson">
+                      <div className="w-9 h-9 bg-red-800/10 flex items-center justify-center text-crimson">
                         <SwordIcon />
                       </div>
                       <div>
