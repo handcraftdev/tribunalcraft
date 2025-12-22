@@ -1539,6 +1539,86 @@ type Tribunalcraft = {
                     };
                 },
                 {
+                    "name": "creatorDefenderPool";
+                    "docs": [
+                        "Creator's defender pool - for auto-matching"
+                    ];
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    101,
+                                    102,
+                                    101,
+                                    110,
+                                    100,
+                                    101,
+                                    114,
+                                    95,
+                                    112,
+                                    111,
+                                    111,
+                                    108
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject.creator";
+                                "account": "subject";
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "creatorDefenderRecord";
+                    "docs": [
+                        "Creator's defender record for this round - init_if_needed for pool contribution"
+                    ];
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    101,
+                                    102,
+                                    101,
+                                    110,
+                                    100,
+                                    101,
+                                    114,
+                                    95,
+                                    114,
+                                    101,
+                                    99,
+                                    111,
+                                    114,
+                                    100
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject.subject_id";
+                                "account": "subject";
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject.creator";
+                                "account": "subject";
+                            },
+                            {
+                                "kind": "account";
+                                "path": "subject.round";
+                                "account": "subject";
+                            }
+                        ];
+                    };
+                },
+                {
                     "name": "systemProgram";
                     "address": "11111111111111111111111111111111";
                 }
@@ -1565,7 +1645,8 @@ type Tribunalcraft = {
         {
             "name": "createSubject";
             "docs": [
-                "Create a subject with Subject + Dispute + Escrow PDAs"
+                "Create a subject with Subject + Dispute + Escrow PDAs",
+                "Creator's pool is linked. If initial_bond > 0, transfers from wallet."
             ];
             "discriminator": [
                 243,
@@ -1655,6 +1736,87 @@ type Tribunalcraft = {
                     };
                 },
                 {
+                    "name": "defenderPool";
+                    "docs": [
+                        "Creator's defender pool - created if doesn't exist"
+                    ];
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    101,
+                                    102,
+                                    101,
+                                    110,
+                                    100,
+                                    101,
+                                    114,
+                                    95,
+                                    112,
+                                    111,
+                                    111,
+                                    108
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "creator";
+                            }
+                        ];
+                    };
+                },
+                {
+                    "name": "defenderRecord";
+                    "docs": [
+                        "Creator's defender record for round 0"
+                    ];
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    101,
+                                    102,
+                                    101,
+                                    110,
+                                    100,
+                                    101,
+                                    114,
+                                    95,
+                                    114,
+                                    101,
+                                    99,
+                                    111,
+                                    114,
+                                    100
+                                ];
+                            },
+                            {
+                                "kind": "arg";
+                                "path": "subjectId";
+                            },
+                            {
+                                "kind": "account";
+                                "path": "creator";
+                            },
+                            {
+                                "kind": "const";
+                                "value": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ];
+                            }
+                        ];
+                    };
+                },
+                {
                     "name": "systemProgram";
                     "address": "11111111111111111111111111111111";
                 }
@@ -1675,6 +1837,10 @@ type Tribunalcraft = {
                 {
                     "name": "votingPeriod";
                     "type": "i64";
+                },
+                {
+                    "name": "initialBond";
+                    "type": "u64";
                 }
             ];
         },
@@ -2751,6 +2917,65 @@ type Tribunalcraft = {
                 }
             ];
             "args": [];
+        },
+        {
+            "name": "updateMaxBond";
+            "docs": [
+                "Update max_bond setting for defender pool"
+            ];
+            "discriminator": [
+                19,
+                70,
+                113,
+                22,
+                140,
+                149,
+                203,
+                23
+            ];
+            "accounts": [
+                {
+                    "name": "owner";
+                    "writable": true;
+                    "signer": true;
+                },
+                {
+                    "name": "defenderPool";
+                    "writable": true;
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const";
+                                "value": [
+                                    100,
+                                    101,
+                                    102,
+                                    101,
+                                    110,
+                                    100,
+                                    101,
+                                    114,
+                                    95,
+                                    112,
+                                    111,
+                                    111,
+                                    108
+                                ];
+                            },
+                            {
+                                "kind": "account";
+                                "path": "owner";
+                            }
+                        ];
+                    };
+                }
+            ];
+            "args": [
+                {
+                    "name": "newMaxBond";
+                    "type": "u64";
+                }
+            ];
         },
         {
             "name": "updateTreasury";
@@ -4868,6 +5093,10 @@ type Tribunalcraft = {
                         "type": "pubkey";
                     },
                     {
+                        "name": "round";
+                        "type": "u32";
+                    },
+                    {
                         "name": "juror";
                         "type": "pubkey";
                     },
@@ -5628,7 +5857,7 @@ declare function getDisputeTypeName(disputeType: DisputeType): string;
 declare function getOutcomeName(outcome: ResolutionOutcome): string;
 declare function getBondSourceName(source: BondSource): string;
 
-interface SimulationResult {
+interface SimulationResult$1 {
     success: boolean;
     error?: string;
     errorCode?: number;
@@ -5698,12 +5927,12 @@ declare class TribunalCraftClient {
     /**
      * Simulate a transaction and return detailed results
      */
-    simulateTransaction(tx: Transaction | VersionedTransaction): Promise<SimulationResult>;
+    simulateTransaction(tx: Transaction | VersionedTransaction): Promise<SimulationResult$1>;
     /**
      * Build and simulate a method call without sending
      * Returns simulation result with parsed errors
      */
-    simulateMethod(methodName: string, args: unknown[], accounts?: Record<string, PublicKey | null>): Promise<SimulationResult>;
+    simulateMethod(methodName: string, args: unknown[], accounts?: Record<string, PublicKey | null>): Promise<SimulationResult$1>;
     /**
      * Helper to run RPC with optional simulation first
      * Wraps Anchor's rpc() call with simulation check using Anchor's simulate()
@@ -5731,14 +5960,20 @@ declare class TribunalCraftClient {
      */
     withdrawDefenderPool(amount: BN): Promise<TransactionResult>;
     /**
+     * Update max_bond setting for defender pool
+     */
+    updateMaxBond(newMaxBond: BN): Promise<TransactionResult>;
+    /**
      * Create a subject with its associated Dispute and Escrow accounts
-     * In V2, subjects are created in Dormant status and become Valid when bond is added
+     * Creator's pool is linked automatically. If initialBond > 0, transfers from wallet.
+     * Subject starts as Valid if pool.balance > 0 or initialBond > 0.
      */
     createSubject(params: {
         subjectId: PublicKey;
         detailsCid: string;
         matchMode?: boolean;
         votingPeriod: BN;
+        initialBond?: BN;
     }): Promise<TransactionResult>;
     /**
      * Add bond directly from wallet to a subject
@@ -5782,6 +6017,7 @@ declare class TribunalCraftClient {
     /**
      * Create a new dispute against a subject
      * This initiates the dispute and creates a ChallengerRecord for the caller
+     * Auto-pulls min(pool.balance, max_bond) from creator's defender pool
      */
     createDispute(params: {
         subjectId: PublicKey;
@@ -6264,9 +6500,9 @@ declare const WINNER_SHARE_BPS = 8000;
 declare const CLAIM_GRACE_PERIOD: number;
 declare const TREASURY_SWEEP_PERIOD: number;
 declare const BOT_REWARD_BPS = 100;
-declare const MIN_JUROR_STAKE = 100000000;
-declare const MIN_CHALLENGER_BOND = 100000000;
-declare const MIN_DEFENDER_STAKE = 100000000;
+declare const MIN_JUROR_STAKE = 10000000;
+declare const MIN_CHALLENGER_BOND = 10000000;
+declare const MIN_DEFENDER_STAKE = 10000000;
 declare const BASE_CHALLENGER_BOND = 10000000;
 declare const STAKE_UNLOCK_BUFFER: number;
 declare const MIN_VOTING_PERIOD: number;
@@ -6509,6 +6745,170 @@ declare function getClaimSummaryFromHistory(connection: Connection, claimer: Pub
  * Parse events from a single transaction
  */
 declare function parseEventsFromTransaction(connection: Connection, signature: string): Promise<TribunalEvent[]>;
+
+interface TransactionError {
+    code: number | null;
+    name: string;
+    message: string;
+    raw?: string;
+    logs?: string[];
+}
+interface SimulationResult {
+    success: boolean;
+    error?: TransactionError;
+    logs?: string[];
+    unitsConsumed?: number;
+}
+/**
+ * Parse an error from transaction simulation or execution
+ */
+declare function parseTransactionError(error: unknown): TransactionError;
+/**
+ * Parse simulation response error
+ */
+declare function parseSimulationError(err: any, logs?: string[]): TransactionError;
+/**
+ * Simulate a transaction before sending
+ */
+declare function simulateTransaction(connection: Connection, transaction: Transaction | VersionedTransaction): Promise<SimulationResult>;
+/**
+ * Custom error class with parsed error info
+ */
+declare class TribunalError extends Error {
+    code: number | null;
+    errorName: string;
+    raw?: string;
+    logs?: string[];
+    constructor(error: TransactionError);
+}
+/**
+ * Wrap a function that may throw and convert errors to TribunalError
+ */
+declare function withErrorHandling<T>(fn: () => Promise<T>): Promise<T>;
+/**
+ * Get all program error codes
+ */
+declare function getProgramErrors(): Record<number, {
+    name: string;
+    message: string;
+}>;
+/**
+ * Get error info by code
+ */
+declare function getErrorByCode(code: number): {
+    name: string;
+    message: string;
+} | undefined;
+/**
+ * Get error info by name
+ */
+declare function getErrorByName(name: string): {
+    code: number;
+    name: string;
+    message: string;
+} | undefined;
+
+/**
+ * TribunalCraft Content Types
+ *
+ * These types define the JSON structure stored at CIDs on IPFS.
+ * The protocol only stores CIDs - content interpretation is platform-specific.
+ */
+/**
+ * Subject Content - stored at subject CID
+ * Defines what is being staked on and can be disputed
+ */
+interface SubjectContent {
+    version: 1;
+    title: string;
+    description: string;
+    category: SubjectCategory;
+    terms: {
+        text: string;
+        documentCid?: string;
+    };
+    evidence?: Evidence[];
+    parties?: Party[];
+    createdAt: string;
+    platformData?: Record<string, unknown>;
+}
+/**
+ * Subject categories - extensible by platform
+ */
+type SubjectCategory = "contract" | "claim" | "deliverable" | "service" | "listing" | "proposal" | "other";
+/**
+ * Evidence item - supporting materials for subjects or disputes
+ */
+interface Evidence {
+    type: "document" | "image" | "video" | "link" | "text";
+    title: string;
+    cid?: string;
+    url?: string;
+    text?: string;
+    description?: string;
+}
+/**
+ * Party in an agreement
+ */
+interface Party {
+    wallet: string;
+    name?: string;
+    role: string;
+}
+/**
+ * Dispute Content - stored at dispute reason CID
+ * Explains why a subject is being challenged
+ */
+interface DisputeContent {
+    version: 1;
+    type: ContentDisputeType;
+    title: string;
+    reason: string;
+    evidence: Evidence[];
+    requestedOutcome: string;
+    createdAt: string;
+    subjectCid: string;
+    platformData?: Record<string, unknown>;
+}
+/**
+ * Dispute types for content (separate from on-chain DisputeType enum)
+ */
+type ContentDisputeType = "breach" | "fraud" | "non_delivery" | "quality" | "refund" | "other";
+/**
+ * Vote Rationale Content - stored at vote rationale CID
+ * Explains why a juror voted a certain way
+ */
+interface VoteRationaleContent {
+    version: 1;
+    rationale: string;
+    evidence?: Evidence[];
+    createdAt: string;
+    platformData?: Record<string, unknown>;
+}
+/**
+ * Helper to create empty subject content
+ */
+declare function createSubjectContent(partial: Partial<SubjectContent> & Pick<SubjectContent, "title" | "description" | "category" | "terms">): SubjectContent;
+/**
+ * Helper to create empty dispute content
+ */
+declare function createDisputeContent(partial: Partial<DisputeContent> & Pick<DisputeContent, "title" | "reason" | "type" | "subjectCid" | "requestedOutcome">): DisputeContent;
+/**
+ * Helper to create vote rationale content
+ */
+declare function createVoteRationaleContent(partial: Partial<VoteRationaleContent> & Pick<VoteRationaleContent, "rationale">): VoteRationaleContent;
+/**
+ * Validate subject content
+ */
+declare function validateSubjectContent(content: unknown): content is SubjectContent;
+/**
+ * Validate dispute content
+ */
+declare function validateDisputeContent(content: unknown): content is DisputeContent;
+/**
+ * Validate vote rationale content
+ */
+declare function validateVoteRationaleContent(content: unknown): content is VoteRationaleContent;
 
 var address = "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q";
 var metadata = {
@@ -7980,6 +8380,86 @@ var instructions = [
 				}
 			},
 			{
+				name: "creator_defender_pool",
+				docs: [
+					"Creator's defender pool - for auto-matching"
+				],
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								101,
+								102,
+								101,
+								110,
+								100,
+								101,
+								114,
+								95,
+								112,
+								111,
+								111,
+								108
+							]
+						},
+						{
+							kind: "account",
+							path: "subject.creator",
+							account: "Subject"
+						}
+					]
+				}
+			},
+			{
+				name: "creator_defender_record",
+				docs: [
+					"Creator's defender record for this round - init_if_needed for pool contribution"
+				],
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								101,
+								102,
+								101,
+								110,
+								100,
+								101,
+								114,
+								95,
+								114,
+								101,
+								99,
+								111,
+								114,
+								100
+							]
+						},
+						{
+							kind: "account",
+							path: "subject.subject_id",
+							account: "Subject"
+						},
+						{
+							kind: "account",
+							path: "subject.creator",
+							account: "Subject"
+						},
+						{
+							kind: "account",
+							path: "subject.round",
+							account: "Subject"
+						}
+					]
+				}
+			},
+			{
 				name: "system_program",
 				address: "11111111111111111111111111111111"
 			}
@@ -8006,7 +8486,8 @@ var instructions = [
 	{
 		name: "create_subject",
 		docs: [
-			"Create a subject with Subject + Dispute + Escrow PDAs"
+			"Create a subject with Subject + Dispute + Escrow PDAs",
+			"Creator's pool is linked. If initial_bond > 0, transfers from wallet."
 		],
 		discriminator: [
 			243,
@@ -8096,6 +8577,87 @@ var instructions = [
 				}
 			},
 			{
+				name: "defender_pool",
+				docs: [
+					"Creator's defender pool - created if doesn't exist"
+				],
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								101,
+								102,
+								101,
+								110,
+								100,
+								101,
+								114,
+								95,
+								112,
+								111,
+								111,
+								108
+							]
+						},
+						{
+							kind: "account",
+							path: "creator"
+						}
+					]
+				}
+			},
+			{
+				name: "defender_record",
+				docs: [
+					"Creator's defender record for round 0"
+				],
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								101,
+								102,
+								101,
+								110,
+								100,
+								101,
+								114,
+								95,
+								114,
+								101,
+								99,
+								111,
+								114,
+								100
+							]
+						},
+						{
+							kind: "arg",
+							path: "subject_id"
+						},
+						{
+							kind: "account",
+							path: "creator"
+						},
+						{
+							kind: "const",
+							value: [
+								0,
+								0,
+								0,
+								0
+							]
+						}
+					]
+				}
+			},
+			{
 				name: "system_program",
 				address: "11111111111111111111111111111111"
 			}
@@ -8116,6 +8678,10 @@ var instructions = [
 			{
 				name: "voting_period",
 				type: "i64"
+			},
+			{
+				name: "initial_bond",
+				type: "u64"
 			}
 		]
 	},
@@ -9194,6 +9760,65 @@ var instructions = [
 			}
 		],
 		args: [
+		]
+	},
+	{
+		name: "update_max_bond",
+		docs: [
+			"Update max_bond setting for defender pool"
+		],
+		discriminator: [
+			19,
+			70,
+			113,
+			22,
+			140,
+			149,
+			203,
+			23
+		],
+		accounts: [
+			{
+				name: "owner",
+				writable: true,
+				signer: true
+			},
+			{
+				name: "defender_pool",
+				writable: true,
+				pda: {
+					seeds: [
+						{
+							kind: "const",
+							value: [
+								100,
+								101,
+								102,
+								101,
+								110,
+								100,
+								101,
+								114,
+								95,
+								112,
+								111,
+								111,
+								108
+							]
+						},
+						{
+							kind: "account",
+							path: "owner"
+						}
+					]
+				}
+			}
+		],
+		args: [
+			{
+				name: "new_max_bond",
+				type: "u64"
+			}
 		]
 	},
 	{
@@ -11833,4 +12458,4 @@ var idl = {
 	types: types
 };
 
-export { BASE_CHALLENGER_BOND, BOT_REWARD_BPS, type BondSource, BondSourceEnum, CHALLENGER_POOL_SEED, CHALLENGER_RECORD_SEED, CLAIM_GRACE_PERIOD, type ChallengerPool, type ChallengerRecord, type ChallengerRecordInput, type ChallengerRewardBreakdown, type ClaimRole, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type DefenderRecordInput, type DefenderRewardBreakdown, type Dispute, type DisputeResolvedEvent, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, ESCROW_SEED, type Escrow, idl as IDL, INITIAL_REPUTATION, JUROR_POOL_SEED, JUROR_RECORD_SEED, JUROR_SHARE_BPS, type JurorPool, type JurorRecord, type JurorRecordInput, type JurorRewardBreakdown, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT, REP_PRECISION, type RecordClosedEvent, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, type RewardClaimedEvent, type RoundResult, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult, type StakeUnlockedEvent, type Subject, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, TREASURY_SWEEP_PERIOD, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, type TribunalEvent, type Tribunalcraft, type UserActivity, type UserRewardSummary, type VoteChoice, VoteChoiceEnum, WINNER_SHARE_BPS, calculateChallengerReward, calculateDefenderReward, calculateJurorReward, calculateMinBond, calculateUserRewards, createEventParser, fetchClaimHistory, fetchClaimHistoryForSubject, formatReputation, getBondSourceName, getClaimSummaryFromHistory, getDisputeTypeName, getOutcomeName, integerSqrt, isChallengerRewardClaimable, isChallengerWins, isDefenderRewardClaimable, isDefenderWins, isDisputeNone, isDisputePending, isDisputeResolved, isJurorRewardClaimable, isNoParticipation, isSubjectDisputed, isSubjectInvalid, isSubjectRestoring, isSubjectValid, lamportsToSol, parseEventsFromLogs, parseEventsFromTransaction, pda };
+export { BASE_CHALLENGER_BOND, BOT_REWARD_BPS, type BondSource, BondSourceEnum, CHALLENGER_POOL_SEED, CHALLENGER_RECORD_SEED, CLAIM_GRACE_PERIOD, type ChallengerPool, type ChallengerRecord, type ChallengerRecordInput, type ChallengerRewardBreakdown, type ClaimRole, type ContentDisputeType, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type DefenderRecordInput, type DefenderRewardBreakdown, type Dispute, type DisputeContent, type DisputeResolvedEvent, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, ESCROW_SEED, type SimulationResult as ErrorSimulationResult, type Escrow, type Evidence, idl as IDL, INITIAL_REPUTATION, JUROR_POOL_SEED, JUROR_RECORD_SEED, JUROR_SHARE_BPS, type JurorPool, type JurorRecord, type JurorRecordInput, type JurorRewardBreakdown, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type Party, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT, REP_PRECISION, type RecordClosedEvent, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, type RewardClaimedEvent, type RoundResult, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult$1 as SimulationResult, type StakeUnlockedEvent, type Subject, type SubjectCategory, type SubjectContent, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, TREASURY_SWEEP_PERIOD, type TransactionError, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, TribunalError, type TribunalEvent, type Tribunalcraft, type UserActivity, type UserRewardSummary, type VoteChoice, VoteChoiceEnum, type VoteRationaleContent, WINNER_SHARE_BPS, calculateChallengerReward, calculateDefenderReward, calculateJurorReward, calculateMinBond, calculateUserRewards, createDisputeContent, createEventParser, createSubjectContent, createVoteRationaleContent, fetchClaimHistory, fetchClaimHistoryForSubject, formatReputation, getBondSourceName, getClaimSummaryFromHistory, getDisputeTypeName, getErrorByCode, getErrorByName, getOutcomeName, getProgramErrors, integerSqrt, isChallengerRewardClaimable, isChallengerWins, isDefenderRewardClaimable, isDefenderWins, isDisputeNone, isDisputePending, isDisputeResolved, isJurorRewardClaimable, isNoParticipation, isSubjectDisputed, isSubjectInvalid, isSubjectRestoring, isSubjectValid, lamportsToSol, parseEventsFromLogs, parseEventsFromTransaction, parseSimulationError, parseTransactionError, pda, simulateTransaction, validateDisputeContent, validateSubjectContent, validateVoteRationaleContent, withErrorHandling };

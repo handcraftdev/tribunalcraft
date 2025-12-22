@@ -141,6 +141,41 @@ export type {
   TribunalEvent,
 } from "./events";
 
+// Error Handling
+export {
+  parseTransactionError,
+  parseSimulationError,
+  simulateTransaction,
+  TribunalError,
+  withErrorHandling,
+  getProgramErrors,
+  getErrorByCode,
+  getErrorByName,
+} from "./errors";
+export type {
+  TransactionError,
+  SimulationResult as ErrorSimulationResult,
+} from "./errors";
+
+// Content Types (IPFS schemas)
+export {
+  createSubjectContent,
+  createDisputeContent,
+  createVoteRationaleContent,
+  validateSubjectContent,
+  validateDisputeContent,
+  validateVoteRationaleContent,
+} from "./content-types";
+export type {
+  SubjectContent,
+  SubjectCategory,
+  Evidence,
+  Party,
+  DisputeContent,
+  ContentDisputeType,
+  VoteRationaleContent,
+} from "./content-types";
+
 // IDL (for advanced usage)
 export { default as IDL } from "./idl.json";
 export type { Tribunalcraft } from "./idl-types";

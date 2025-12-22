@@ -30,9 +30,9 @@ var WINNER_SHARE_BPS = 8e3;
 var CLAIM_GRACE_PERIOD = 30 * 24 * 60 * 60;
 var TREASURY_SWEEP_PERIOD = 90 * 24 * 60 * 60;
 var BOT_REWARD_BPS = 100;
-var MIN_JUROR_STAKE = 1e8;
-var MIN_CHALLENGER_BOND = 1e8;
-var MIN_DEFENDER_STAKE = 1e8;
+var MIN_JUROR_STAKE = 1e7;
+var MIN_CHALLENGER_BOND = 1e7;
+var MIN_DEFENDER_STAKE = 1e7;
 var BASE_CHALLENGER_BOND = 1e7;
 var STAKE_UNLOCK_BUFFER = 7 * 24 * 60 * 60;
 var MIN_VOTING_PERIOD = 24 * 60 * 60;
@@ -1664,6 +1664,86 @@ var idl_default = {
           }
         },
         {
+          name: "creator_defender_pool",
+          docs: [
+            "Creator's defender pool - for auto-matching"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.creator",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "creator_defender_record",
+          docs: [
+            "Creator's defender record for this round - init_if_needed for pool contribution"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "subject.creator",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "subject.round",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
@@ -1690,7 +1770,8 @@ var idl_default = {
     {
       name: "create_subject",
       docs: [
-        "Create a subject with Subject + Dispute + Escrow PDAs"
+        "Create a subject with Subject + Dispute + Escrow PDAs",
+        "Creator's pool is linked. If initial_bond > 0, transfers from wallet."
       ],
       discriminator: [
         243,
@@ -1780,6 +1861,87 @@ var idl_default = {
           }
         },
         {
+          name: "defender_pool",
+          docs: [
+            "Creator's defender pool - created if doesn't exist"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "creator"
+              }
+            ]
+          }
+        },
+        {
+          name: "defender_record",
+          docs: [
+            "Creator's defender record for round 0"
+          ],
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "arg",
+                path: "subject_id"
+              },
+              {
+                kind: "account",
+                path: "creator"
+              },
+              {
+                kind: "const",
+                value: [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
@@ -1800,6 +1962,10 @@ var idl_default = {
         {
           name: "voting_period",
           type: "i64"
+        },
+        {
+          name: "initial_bond",
+          type: "u64"
         }
       ]
     },
@@ -2876,6 +3042,65 @@ var idl_default = {
         }
       ],
       args: []
+    },
+    {
+      name: "update_max_bond",
+      docs: [
+        "Update max_bond setting for defender pool"
+      ],
+      discriminator: [
+        19,
+        70,
+        113,
+        22,
+        140,
+        149,
+        203,
+        23
+      ],
+      accounts: [
+        {
+          name: "owner",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "defender_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "owner"
+              }
+            ]
+          }
+        }
+      ],
+      args: [
+        {
+          name: "new_max_bond",
+          type: "u64"
+        }
+      ]
     },
     {
       name: "update_treasury",
@@ -5775,20 +6000,44 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     const signature = await program.methods.withdrawDefenderPool(amount).rpc();
     return { signature };
   }
+  /**
+   * Update max_bond setting for defender pool
+   */
+  async updateMaxBond(newMaxBond) {
+    const { program } = this.getWalletAndProgram();
+    const signature = await program.methods.updateMaxBond(newMaxBond).rpc();
+    return { signature };
+  }
   // ===========================================================================
   // Subject Management
   // ===========================================================================
   /**
    * Create a subject with its associated Dispute and Escrow accounts
-   * In V2, subjects are created in Dormant status and become Valid when bond is added
+   * Creator's pool is linked automatically. If initialBond > 0, transfers from wallet.
+   * Subject starts as Valid if pool.balance > 0 or initialBond > 0.
    */
   async createSubject(params) {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
     const [dispute] = this.pda.dispute(params.subjectId);
     const [escrow] = this.pda.escrow(params.subjectId);
-    const signature = await program.methods.createSubject(params.subjectId, params.detailsCid, params.matchMode ?? true, params.votingPeriod).rpc();
-    return { signature, accounts: { subject, dispute, escrow } };
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, 0);
+    const signature = await program.methods.createSubject(
+      params.subjectId,
+      params.detailsCid,
+      params.matchMode ?? true,
+      params.votingPeriod,
+      params.initialBond ?? new BN(0)
+    ).accountsPartial({
+      creator: wallet.publicKey,
+      subject,
+      dispute,
+      escrow,
+      defenderPool,
+      defenderRecord
+    }).rpc();
+    return { signature, accounts: { subject, dispute, escrow, defenderPool, defenderRecord } };
   }
   /**
    * Add bond directly from wallet to a subject
@@ -5903,6 +6152,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
   /**
    * Create a new dispute against a subject
    * This initiates the dispute and creates a ChallengerRecord for the caller
+   * Auto-pulls min(pool.balance, max_bond) from creator's defender pool
    */
   async createDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
@@ -5917,13 +6167,21 @@ var _TribunalCraftClient = class _TribunalCraftClient {
       subject.round
     );
     const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
+    const [creatorDefenderPool] = this.pda.defenderPool(subject.creator);
+    const [creatorDefenderRecord] = this.pda.defenderRecord(
+      params.subjectId,
+      subject.creator,
+      subject.round
+    );
     const methodBuilder = program.methods.createDispute(params.disputeType, params.detailsCid, params.stake).accountsPartial({
       challenger: wallet.publicKey,
       subject: subjectPda,
       dispute: disputePda,
       escrow: escrowPda,
       challengerRecord,
-      challengerPool
+      challengerPool,
+      creatorDefenderPool,
+      creatorDefenderRecord
     });
     const signature = await this.rpcWithSimulation(methodBuilder, "createDispute");
     return { signature, accounts: { challengerRecord } };
@@ -7693,6 +7951,505 @@ async function parseEventsFromTransaction(connection, signature) {
   }
   return parseEventsFromLogs(tx.meta.logMessages);
 }
+
+// src/errors.ts
+import {
+  VersionedTransaction as VersionedTransaction2,
+  SendTransactionError
+} from "@solana/web3.js";
+import { AnchorError, ProgramError } from "@coral-xyz/anchor";
+var PROGRAM_ERRORS = {
+  6e3: { name: "Unauthorized", message: "You are not authorized to perform this action" },
+  6001: { name: "InvalidConfig", message: "Invalid configuration parameter" },
+  // Stake errors
+  6002: { name: "StakeBelowMinimum", message: "Stake amount is below the minimum required" },
+  6003: { name: "InsufficientAvailableStake", message: "You don't have enough available stake" },
+  6004: { name: "InsufficientHeldStake", message: "Insufficient held stake for this operation" },
+  6005: { name: "StakeStillLocked", message: "Your stake is still locked (7 days after resolution)" },
+  6006: { name: "StakeAlreadyUnlocked", message: "This stake has already been unlocked" },
+  // Bond errors
+  6007: { name: "BondBelowMinimum", message: "Bond amount is below the minimum required" },
+  6008: { name: "BondExceedsAvailable", message: "Bond amount exceeds your available stake" },
+  // Subject errors
+  6009: { name: "SubjectCannotBeStaked", message: "This subject cannot accept additional stakes" },
+  6010: { name: "SubjectCannotBeDisputed", message: "This subject cannot be disputed at this time" },
+  6011: { name: "SubjectCannotBeRestored", message: "This subject cannot be restored at this time" },
+  // Restoration errors
+  6012: { name: "RestoreStakeBelowMinimum", message: "Restore stake must match previous dispute total" },
+  6013: { name: "NotARestore", message: "This dispute is not a restoration request" },
+  // Dispute errors
+  6014: { name: "CannotSelfDispute", message: "You cannot dispute your own subject" },
+  6015: { name: "DisputeAlreadyExists", message: "A dispute already exists for this subject" },
+  6016: { name: "DisputeNotFound", message: "The dispute was not found" },
+  6017: { name: "DisputeAlreadyResolved", message: "This dispute has already been resolved" },
+  6018: { name: "VotingNotEnded", message: "The voting period has not ended yet" },
+  6019: { name: "VotingEnded", message: "The voting period has already ended" },
+  // Vote errors
+  6020: { name: "CannotVoteOnOwnDispute", message: "You cannot vote on your own dispute" },
+  6021: { name: "AlreadyVoted", message: "You have already voted on this dispute" },
+  6022: { name: "VoteAllocationBelowMinimum", message: "Vote stake allocation is below the minimum" },
+  6023: { name: "InvalidVoteChoice", message: "Invalid vote choice" },
+  // Juror errors
+  6024: { name: "JurorNotActive", message: "You must be an active juror to perform this action" },
+  6025: { name: "JurorAlreadyRegistered", message: "You are already registered as a juror" },
+  // Challenger errors
+  6026: { name: "ChallengerNotFound", message: "Challenger record not found" },
+  // Reward errors
+  6027: { name: "RewardAlreadyClaimed", message: "This reward has already been claimed" },
+  6028: { name: "RewardNotClaimed", message: "You must claim your reward first" },
+  6029: { name: "NotEligibleForReward", message: "You are not eligible for this reward" },
+  6030: { name: "ReputationAlreadyProcessed", message: "Reputation has already been processed for this vote" },
+  // Math errors
+  6031: { name: "ArithmeticOverflow", message: "Calculation error: arithmetic overflow" },
+  6032: { name: "DivisionByZero", message: "Calculation error: division by zero" },
+  // Escrow errors
+  6033: { name: "ClaimsNotComplete", message: "Not all claims have been processed" }
+};
+var ANCHOR_ERRORS = {
+  "AccountNotInitialized": "Protocol not initialized. Please contact the administrator.",
+  "AccountDidNotDeserialize": "Invalid account data. The account may be corrupted.",
+  "AccountDidNotSerialize": "Failed to save account data.",
+  "AccountOwnedByWrongProgram": "Account belongs to a different program.",
+  "InvalidProgramId": "Invalid program ID.",
+  "InvalidProgramExecutable": "Program is not executable.",
+  "AccountMismatch": "Account does not match expected address.",
+  "expected this account to be already initialized": "Protocol not initialized. Please contact the administrator.",
+  "ConstraintMut": "Account is not mutable.",
+  "ConstraintHasOne": "Account constraint violated.",
+  "ConstraintSigner": "Missing required signature.",
+  "ConstraintRaw": "Constraint check failed.",
+  "ConstraintOwner": "Account owner mismatch.",
+  "ConstraintSeeds": "PDA seeds mismatch."
+};
+var SOLANA_ERRORS = {
+  "Blockhash not found": "Transaction expired. Please try again.",
+  "insufficient lamports": "Insufficient SOL balance to complete this transaction",
+  "insufficient funds": "Insufficient SOL balance to complete this transaction",
+  "Transaction simulation failed": "Transaction simulation failed",
+  "Account not found": "Required account not found on chain",
+  "Account does not exist": "Required account not found on chain",
+  "custom program error": "Program execution error",
+  "already in use": "This account is already in use",
+  "Transaction was not confirmed": "Transaction was not confirmed. Please try again.",
+  "block height exceeded": "Transaction expired. Please try again.",
+  "Wallet not connected": "Please connect your wallet to continue",
+  "Wallet disconnected": "Wallet disconnected. Please reconnect to continue",
+  "User rejected": "Transaction was cancelled"
+};
+function extractErrorCode(input) {
+  if (typeof input === "string") {
+    const hexMatch = input.match(/0x([0-9a-fA-F]+)/);
+    if (hexMatch) {
+      const code = parseInt(hexMatch[1], 16);
+      if (code >= 6e3 && code <= 6100) return code;
+    }
+    const decMatch = input.match(/\b(6\d{3})\b/);
+    if (decMatch) {
+      return parseInt(decMatch[1], 10);
+    }
+    const customMatch = input.match(/custom program error: 0x([0-9a-fA-F]+)/i);
+    if (customMatch) {
+      return parseInt(customMatch[1], 16);
+    }
+  }
+  if (typeof input === "object" && input !== null) {
+    if ("InstructionError" in input) {
+      const [, instructionError] = input.InstructionError;
+      if (typeof instructionError === "object" && "Custom" in instructionError) {
+        return instructionError.Custom;
+      }
+    }
+  }
+  return null;
+}
+function parseTransactionError(error) {
+  if (error instanceof AnchorError) {
+    const errorCode = error.error.errorCode.number;
+    const programError = PROGRAM_ERRORS[errorCode];
+    if (programError) {
+      return {
+        code: errorCode,
+        name: programError.name,
+        message: programError.message,
+        raw: error.message,
+        logs: error.logs
+      };
+    }
+    return {
+      code: errorCode,
+      name: error.error.errorCode.code,
+      message: error.error.errorMessage || error.message,
+      raw: error.message,
+      logs: error.logs
+    };
+  }
+  if (error instanceof ProgramError) {
+    const programError = PROGRAM_ERRORS[error.code];
+    if (programError) {
+      return {
+        code: error.code,
+        name: programError.name,
+        message: programError.message,
+        raw: error.message
+      };
+    }
+    return {
+      code: error.code,
+      name: "ProgramError",
+      message: error.msg || error.message,
+      raw: error.message
+    };
+  }
+  if (error instanceof SendTransactionError) {
+    const errorMsg = error.message;
+    const logs = error.logs;
+    const errorCode = extractErrorCode(errorMsg);
+    if (errorCode !== null) {
+      const programError = PROGRAM_ERRORS[errorCode];
+      if (programError) {
+        return {
+          code: errorCode,
+          name: programError.name,
+          message: programError.message,
+          raw: errorMsg,
+          logs
+        };
+      }
+    }
+    if (logs) {
+      for (const log of logs) {
+        const logErrorCode = extractErrorCode(log);
+        if (logErrorCode !== null) {
+          const programError = PROGRAM_ERRORS[logErrorCode];
+          if (programError) {
+            return {
+              code: logErrorCode,
+              name: programError.name,
+              message: programError.message,
+              raw: errorMsg,
+              logs
+            };
+          }
+        }
+        const errorCodeMatch = log.match(/Error Code: (\w+)/);
+        if (errorCodeMatch) {
+          const errorName = errorCodeMatch[1];
+          for (const [code, err] of Object.entries(PROGRAM_ERRORS)) {
+            if (err.name === errorName) {
+              return {
+                code: parseInt(code),
+                name: err.name,
+                message: err.message,
+                raw: errorMsg,
+                logs
+              };
+            }
+          }
+        }
+      }
+    }
+    for (const [key, message] of Object.entries(SOLANA_ERRORS)) {
+      if (errorMsg.toLowerCase().includes(key.toLowerCase())) {
+        return {
+          code: null,
+          name: key,
+          message,
+          raw: errorMsg,
+          logs
+        };
+      }
+    }
+    return {
+      code: null,
+      name: "TransactionError",
+      message: errorMsg,
+      raw: errorMsg,
+      logs
+    };
+  }
+  if (error instanceof Error) {
+    const errorMsg = error.message;
+    const logs = error.logs;
+    const errorCode = extractErrorCode(errorMsg);
+    if (errorCode !== null) {
+      const programError = PROGRAM_ERRORS[errorCode];
+      if (programError) {
+        return {
+          code: errorCode,
+          name: programError.name,
+          message: programError.message,
+          raw: errorMsg,
+          logs
+        };
+      }
+    }
+    if (logs) {
+      for (const log of logs) {
+        const logErrorCode = extractErrorCode(log);
+        if (logErrorCode !== null) {
+          const programError = PROGRAM_ERRORS[logErrorCode];
+          if (programError) {
+            return {
+              code: logErrorCode,
+              name: programError.name,
+              message: programError.message,
+              raw: errorMsg,
+              logs
+            };
+          }
+        }
+      }
+    }
+    for (const [code, err] of Object.entries(PROGRAM_ERRORS)) {
+      if (errorMsg.includes(err.name)) {
+        return {
+          code: parseInt(code),
+          name: err.name,
+          message: err.message,
+          raw: errorMsg,
+          logs
+        };
+      }
+    }
+    for (const [key, message] of Object.entries(SOLANA_ERRORS)) {
+      if (errorMsg.toLowerCase().includes(key.toLowerCase())) {
+        return {
+          code: null,
+          name: key,
+          message,
+          raw: errorMsg,
+          logs
+        };
+      }
+    }
+    if (errorMsg.includes("0x1") || errorMsg.includes("insufficient")) {
+      return {
+        code: null,
+        name: "InsufficientFunds",
+        message: "Insufficient SOL balance to complete this transaction",
+        raw: errorMsg,
+        logs
+      };
+    }
+    return {
+      code: null,
+      name: "Error",
+      message: errorMsg,
+      raw: errorMsg,
+      logs
+    };
+  }
+  return {
+    code: null,
+    name: "UnknownError",
+    message: String(error),
+    raw: String(error)
+  };
+}
+function parseSimulationError(err, logs) {
+  if (typeof err === "object" && err !== null) {
+    const errorCode = extractErrorCode(err);
+    if (errorCode !== null) {
+      const programError = PROGRAM_ERRORS[errorCode];
+      if (programError) {
+        return {
+          code: errorCode,
+          name: programError.name,
+          message: programError.message,
+          raw: JSON.stringify(err),
+          logs
+        };
+      }
+    }
+  }
+  if (logs) {
+    for (const log of logs) {
+      const errorCode = extractErrorCode(log);
+      if (errorCode !== null) {
+        const programError = PROGRAM_ERRORS[errorCode];
+        if (programError) {
+          return {
+            code: errorCode,
+            name: programError.name,
+            message: programError.message,
+            raw: log,
+            logs
+          };
+        }
+      }
+      const errorCodeMatch = log.match(/Error Code: (\w+)/);
+      if (errorCodeMatch) {
+        const errorName = errorCodeMatch[1];
+        for (const [code, errDef] of Object.entries(PROGRAM_ERRORS)) {
+          if (errDef.name === errorName) {
+            return {
+              code: parseInt(code),
+              name: errDef.name,
+              message: errDef.message,
+              raw: log,
+              logs
+            };
+          }
+        }
+        const anchorMsg = ANCHOR_ERRORS[errorName];
+        if (anchorMsg) {
+          return {
+            code: null,
+            name: errorName,
+            message: anchorMsg,
+            raw: log,
+            logs
+          };
+        }
+      }
+      for (const [pattern, message] of Object.entries(ANCHOR_ERRORS)) {
+        if (log.includes(pattern)) {
+          return {
+            code: null,
+            name: pattern.replace(/\s+/g, ""),
+            message,
+            raw: log,
+            logs
+          };
+        }
+      }
+      const errorMsgMatch = log.match(/Error Message: (.+)/);
+      if (errorMsgMatch) {
+        const errorMsg = errorMsgMatch[1];
+        for (const [pattern, message] of Object.entries(ANCHOR_ERRORS)) {
+          if (errorMsg.includes(pattern)) {
+            return {
+              code: null,
+              name: pattern.replace(/\s+/g, ""),
+              message,
+              raw: log,
+              logs
+            };
+          }
+        }
+        return {
+          code: null,
+          name: "ProgramError",
+          message: errorMsg,
+          raw: log,
+          logs
+        };
+      }
+    }
+  }
+  return {
+    code: null,
+    name: "SimulationFailed",
+    message: "Transaction simulation failed",
+    raw: JSON.stringify(err),
+    logs
+  };
+}
+async function simulateTransaction(connection, transaction) {
+  try {
+    let simulation;
+    if (transaction instanceof VersionedTransaction2) {
+      simulation = await connection.simulateTransaction(transaction, {
+        sigVerify: false,
+        replaceRecentBlockhash: true
+      });
+    } else {
+      simulation = await connection.simulateTransaction(transaction, void 0, true);
+    }
+    if (simulation.value.err) {
+      return {
+        success: false,
+        error: parseSimulationError(
+          simulation.value.err,
+          simulation.value.logs || void 0
+        ),
+        logs: simulation.value.logs || void 0,
+        unitsConsumed: simulation.value.unitsConsumed || void 0
+      };
+    }
+    return {
+      success: true,
+      logs: simulation.value.logs || void 0,
+      unitsConsumed: simulation.value.unitsConsumed || void 0
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: parseTransactionError(error)
+    };
+  }
+}
+var TribunalError = class extends Error {
+  constructor(error) {
+    super(error.message);
+    this.name = "TribunalError";
+    this.code = error.code;
+    this.errorName = error.name;
+    this.raw = error.raw;
+    this.logs = error.logs;
+  }
+};
+async function withErrorHandling(fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    const parsed = parseTransactionError(error);
+    throw new TribunalError(parsed);
+  }
+}
+function getProgramErrors() {
+  return { ...PROGRAM_ERRORS };
+}
+function getErrorByCode(code) {
+  return PROGRAM_ERRORS[code];
+}
+function getErrorByName(name) {
+  for (const [code, err] of Object.entries(PROGRAM_ERRORS)) {
+    if (err.name === name) {
+      return { code: parseInt(code), ...err };
+    }
+  }
+  return void 0;
+}
+
+// src/content-types.ts
+function createSubjectContent(partial) {
+  return {
+    version: 1,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    ...partial
+  };
+}
+function createDisputeContent(partial) {
+  return {
+    version: 1,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    evidence: [],
+    ...partial
+  };
+}
+function createVoteRationaleContent(partial) {
+  return {
+    version: 1,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    ...partial
+  };
+}
+function validateSubjectContent(content) {
+  if (!content || typeof content !== "object") return false;
+  const c = content;
+  return c.version === 1 && typeof c.title === "string" && typeof c.description === "string" && typeof c.category === "string" && typeof c.terms === "object" && c.terms !== null && typeof c.terms.text === "string";
+}
+function validateDisputeContent(content) {
+  if (!content || typeof content !== "object") return false;
+  const c = content;
+  return c.version === 1 && typeof c.title === "string" && typeof c.reason === "string" && typeof c.type === "string" && typeof c.subjectCid === "string" && typeof c.requestedOutcome === "string" && Array.isArray(c.evidence);
+}
+function validateVoteRationaleContent(content) {
+  if (!content || typeof content !== "object") return false;
+  const c = content;
+  return c.version === 1 && typeof c.rationale === "string";
+}
 export {
   BASE_CHALLENGER_BOND,
   BOT_REWARD_BPS,
@@ -7732,6 +8489,7 @@ export {
   TOTAL_FEE_BPS,
   TREASURY_SWEEP_PERIOD,
   TribunalCraftClient,
+  TribunalError,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
   calculateChallengerReward,
@@ -7739,14 +8497,20 @@ export {
   calculateJurorReward,
   calculateMinBond,
   calculateUserRewards,
+  createDisputeContent,
   createEventParser,
+  createSubjectContent,
+  createVoteRationaleContent,
   fetchClaimHistory,
   fetchClaimHistoryForSubject,
   formatReputation,
   getBondSourceName,
   getClaimSummaryFromHistory,
   getDisputeTypeName,
+  getErrorByCode,
+  getErrorByName,
   getOutcomeName,
+  getProgramErrors,
   integerSqrt,
   isChallengerRewardClaimable,
   isChallengerWins,
@@ -7764,5 +8528,12 @@ export {
   lamportsToSol,
   parseEventsFromLogs,
   parseEventsFromTransaction,
-  pda
+  parseSimulationError,
+  parseTransactionError,
+  pda,
+  simulateTransaction,
+  validateDisputeContent,
+  validateSubjectContent,
+  validateVoteRationaleContent,
+  withErrorHandling
 };
