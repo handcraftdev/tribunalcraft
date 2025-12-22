@@ -6,7 +6,7 @@ import { useTribunalcraft } from "@/hooks/useTribunalcraft";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import type { SubjectData, DisputeData, JurorPoolData } from "@/components/subject/types";
-import { getSubjects, getDisputes, getJurorPools } from "@/lib/supabase/queries";
+import { getSubjects, getDisputes, getJurorPools, getJurorVoteStats, type JurorVoteStats } from "@/lib/supabase/queries";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute, JurorPool as SupabaseJurorPool } from "@/lib/supabase/types";
 
@@ -148,6 +148,7 @@ export default function AnalyticsPage() {
   const [subjects, setSubjects] = useState<SubjectData[]>([]);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
   const [jurors, setJurors] = useState<JurorData[]>([]);
+  const [jurorVoteStats, setJurorVoteStats] = useState<JurorVoteStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("7d");
   const [activeTab, setActiveTab] = useState<TabView>("overview");
@@ -162,15 +163,18 @@ export default function AnalyticsPage() {
       let jurorsData: JurorData[] = [];
 
       // Try Supabase first
+      let voteStats: JurorVoteStats[] = [];
       if (isSupabaseConfigured()) {
-        const [supaSubjects, supaDisputes, supaJurors] = await Promise.all([
+        const [supaSubjects, supaDisputes, supaJurors, supaVoteStats] = await Promise.all([
           getSubjects(),
           getDisputes(),
           getJurorPools(),
+          getJurorVoteStats(),
         ]);
         subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
         disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
         jurorsData = supaJurors.map(convertSupabaseJuror).filter((j): j is JurorData => j !== null);
+        voteStats = supaVoteStats;
       }
 
       // Fallback to RPC if Supabase not configured or returned empty
@@ -190,6 +194,7 @@ export default function AnalyticsPage() {
       setSubjects(subjectsData);
       setDisputes(disputesData);
       setJurors(jurorsData);
+      setJurorVoteStats(voteStats);
       setCurrentTime(Date.now());
     } catch (error) {
       console.error("Error loading analytics data:", error);
@@ -408,42 +413,62 @@ export default function AnalyticsPage() {
 
   // Leaderboard data
   const leaderboards = useMemo(() => {
-    // Top jurors by reputation (V2: balance instead of totalStake, no votesCast/correctVotes on pool)
+    // Create a map of vote stats by juror address for quick lookup
+    const voteStatsMap = new Map(jurorVoteStats.map(s => [s.juror, s]));
+
+    // Helper to get vote stats for a juror
+    const getVoteStats = (address: string) => voteStatsMap.get(address) || { votesCast: 0, correctVotes: 0, accuracy: 0 };
+
+    // Top jurors by reputation
     const topJurorsByRep = [...jurors]
       .sort((a, b) => (b.account.reputation?.toNumber?.() ?? 0) - (a.account.reputation?.toNumber?.() ?? 0))
       .slice(0, 10)
-      .map((j, index) => ({
-        rank: index + 1,
-        address: j.publicKey.toString(),
-        reputation: j.account.reputation?.toNumber?.() ?? 0,
-        votesCast: 0, // V2: not tracked on pool
-        correctVotes: 0, // V2: not tracked on pool
-        stake: j.account.balance?.toNumber?.() ?? 0,
-      }));
+      .map((j, index) => {
+        const stats = getVoteStats(j.publicKey.toString());
+        return {
+          rank: index + 1,
+          address: j.publicKey.toString(),
+          reputation: j.account.reputation?.toNumber?.() ?? 0,
+          votesCast: stats.votesCast,
+          correctVotes: stats.correctVotes,
+          stake: j.account.balance?.toNumber?.() ?? 0,
+        };
+      });
 
-    // Top jurors by stake (V2: balance instead of totalStake)
+    // Top jurors by stake
     const topJurorsByStake = [...jurors]
       .sort((a, b) => (b.account.balance?.toNumber?.() ?? 0) - (a.account.balance?.toNumber?.() ?? 0))
       .slice(0, 10)
-      .map((j, index) => ({
-        rank: index + 1,
-        address: j.publicKey.toString(),
-        stake: j.account.balance?.toNumber?.() ?? 0,
-        reputation: j.account.reputation?.toNumber?.() ?? 0,
-        votesCast: 0, // V2: not tracked on pool
-      }));
+      .map((j, index) => {
+        const stats = getVoteStats(j.publicKey.toString());
+        return {
+          rank: index + 1,
+          address: j.publicKey.toString(),
+          stake: j.account.balance?.toNumber?.() ?? 0,
+          reputation: j.account.reputation?.toNumber?.() ?? 0,
+          votesCast: stats.votesCast,
+        };
+      });
 
-    // Most active jurors - V2: sort by reputation since votesCast not tracked on pool
+    // Most active jurors - sorted by vote count, with accuracy from real data
     const mostActiveJurors = [...jurors]
-      .sort((a, b) => (b.account.reputation?.toNumber?.() ?? 0) - (a.account.reputation?.toNumber?.() ?? 0))
+      .map(j => {
+        const stats = getVoteStats(j.publicKey.toString());
+        return {
+          juror: j,
+          ...stats,
+          reputation: j.account.reputation?.toNumber?.() ?? 0,
+        };
+      })
+      .sort((a, b) => b.votesCast - a.votesCast || b.accuracy - a.accuracy)
       .slice(0, 10)
-      .map((j, index) => ({
+      .map((item, index) => ({
         rank: index + 1,
-        address: j.publicKey.toString(),
-        votesCast: 0, // V2: not tracked on pool
-        correctVotes: 0, // V2: not tracked on pool
-        accuracy: 0, // V2: not tracked on pool
-        reputation: j.account.reputation?.toNumber?.() ?? 0,
+        address: item.juror.publicKey.toString(),
+        votesCast: item.votesCast,
+        correctVotes: item.correctVotes,
+        accuracy: item.accuracy,
+        reputation: item.reputation,
       }));
 
     // Top subjects by defender count
@@ -465,7 +490,7 @@ export default function AnalyticsPage() {
       mostActiveJurors,
       topSubjects,
     };
-  }, [jurors, subjects]);
+  }, [jurors, subjects, jurorVoteStats]);
 
   // Time series data for trends (simplified buckets)
   const trendData = useMemo(() => {

@@ -574,6 +574,95 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   };
 }
 
+// =============================================================================
+// Juror Leaderboard Query
+// =============================================================================
+
+export interface JurorVoteStats {
+  juror: string;
+  votesCast: number;
+  correctVotes: number;
+  accuracy: number;
+}
+
+export async function getJurorVoteStats(): Promise<JurorVoteStats[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+
+  // Get all juror records with their votes
+  const { data: jurorRecords, error: jurorError } = await supabase
+    .from("juror_records")
+    .select("juror, subject_id, round, choice, is_restore_vote, restore_choice");
+
+  if (jurorError || !jurorRecords) {
+    console.error("Error fetching juror records:", jurorError);
+    return [];
+  }
+
+  // Get all resolved disputes to check outcomes
+  const { data: disputes, error: disputeError } = await supabase
+    .from("disputes")
+    .select("subject_id, round, outcome, is_restore")
+    .eq("status", "resolved");
+
+  if (disputeError || !disputes) {
+    console.error("Error fetching disputes:", disputeError);
+    return [];
+  }
+
+  // Create a map of dispute outcomes: "subjectId-round" -> outcome
+  const outcomeMap = new Map<string, { outcome: string; isRestore: boolean }>();
+  for (const d of disputes) {
+    const key = `${d.subject_id}-${d.round}`;
+    outcomeMap.set(key, { outcome: d.outcome || "", isRestore: d.is_restore || false });
+  }
+
+  // Aggregate votes per juror
+  const jurorStats = new Map<string, { votesCast: number; correctVotes: number }>();
+
+  for (const record of jurorRecords) {
+    const key = `${record.subject_id}-${record.round}`;
+    const disputeInfo = outcomeMap.get(key);
+
+    // Only count if dispute is resolved
+    if (!disputeInfo) continue;
+
+    const stats = jurorStats.get(record.juror) || { votesCast: 0, correctVotes: 0 };
+    stats.votesCast++;
+
+    // Determine if vote was correct
+    const choice = record.is_restore_vote ? record.restore_choice : record.choice;
+    const isCorrect =
+      (choice === "forChallenger" && disputeInfo.outcome === "challengerWins") ||
+      (choice === "forDefender" && disputeInfo.outcome === "defenderWins");
+
+    if (isCorrect) {
+      stats.correctVotes++;
+    }
+
+    jurorStats.set(record.juror, stats);
+  }
+
+  // Convert to array with accuracy
+  const result: JurorVoteStats[] = [];
+  for (const [juror, stats] of jurorStats) {
+    result.push({
+      juror,
+      votesCast: stats.votesCast,
+      correctVotes: stats.correctVotes,
+      accuracy: stats.votesCast > 0 ? (stats.correctVotes / stats.votesCast) * 100 : 0,
+    });
+  }
+
+  // Sort by accuracy (with minimum votes threshold), then by vote count
+  return result.sort((a, b) => {
+    // Prioritize jurors with more votes when accuracy is similar
+    if (Math.abs(a.accuracy - b.accuracy) < 1) {
+      return b.votesCast - a.votesCast;
+    }
+    return b.accuracy - a.accuracy;
+  });
+}
+
 export async function getUserStats(wallet: string): Promise<UserStats> {
   if (!isSupabaseConfigured() || !supabase) {
     return {
