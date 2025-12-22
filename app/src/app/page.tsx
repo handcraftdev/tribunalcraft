@@ -1,101 +1,261 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-// Animated scale icon for hero
-const AnimatedScale = () => (
-  <svg
-    viewBox="0 0 200 200"
-    className="w-full h-full"
-    style={{ filter: "drop-shadow(0 0 40px rgba(201, 162, 39, 0.3))" }}
-  >
-    {/* Center pillar */}
-    <line x1="100" y1="30" x2="100" y2="170" stroke="var(--gold)" strokeWidth="3" className="animate-fade-in" />
+// ============================================
+// ANIMATED COMPONENTS
+// ============================================
 
-    {/* Top beam */}
-    <line x1="30" y1="50" x2="170" y2="50" stroke="var(--gold)" strokeWidth="2.5" className="animate-fade-in" style={{ animationDelay: "0.2s" }} />
+const AnimatedScales = () => {
+  const [tilt, setTilt] = useState(0);
 
-    {/* Left chain */}
-    <line x1="40" y1="50" x2="40" y2="90" stroke="var(--gold)" strokeWidth="1.5" className="animate-fade-in" style={{ animationDelay: "0.4s" }} />
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTilt(prev => prev === 0 ? -8 : prev === -8 ? 8 : 0);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
-    {/* Right chain */}
-    <line x1="160" y1="50" x2="160" y2="90" stroke="var(--gold)" strokeWidth="1.5" className="animate-fade-in" style={{ animationDelay: "0.4s" }} />
+  return (
+    <div className="relative w-full h-full flex items-center justify-center">
+      {/* Glow effect */}
+      <div className="absolute inset-0 bg-gold/10 blur-3xl rounded-full scale-75" />
 
-    {/* Left bowl - animated */}
-    <ellipse cx="40" cy="100" rx="30" ry="10" fill="none" stroke="var(--gold)" strokeWidth="2" className="animate-scale-left" />
+      <svg
+        viewBox="0 0 300 280"
+        className="w-full h-full relative z-10"
+        style={{
+          filter: "drop-shadow(0 0 60px rgba(201, 162, 39, 0.3))",
+        }}
+      >
+        {/* Ornate top finial */}
+        <circle cx="150" cy="20" r="8" fill="none" stroke="var(--gold)" strokeWidth="2" />
+        <circle cx="150" cy="20" r="4" fill="var(--gold)" />
 
-    {/* Right bowl - animated */}
-    <ellipse cx="160" cy="100" rx="30" ry="10" fill="none" stroke="var(--gold)" strokeWidth="2" className="animate-scale-right" />
+        {/* Center pillar */}
+        <line x1="150" y1="28" x2="150" y2="220" stroke="var(--gold)" strokeWidth="3" />
 
-    {/* Base */}
-    <path d="M70 170 L100 155 L130 170 Z" fill="none" stroke="var(--gold)" strokeWidth="2" className="animate-fade-in" style={{ animationDelay: "0.6s" }} />
-    <line x1="60" y1="175" x2="140" y2="175" stroke="var(--gold)" strokeWidth="3" className="animate-fade-in" style={{ animationDelay: "0.7s" }} />
-  </svg>
-);
+        {/* Main beam with rotation */}
+        <g style={{
+          transform: `rotate(${tilt}deg)`,
+          transformOrigin: "150px 55px",
+          transition: "transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)"
+        }}>
+          {/* Beam */}
+          <line x1="30" y1="55" x2="270" y2="55" stroke="var(--gold)" strokeWidth="3" />
 
-// Feature icons
-const ShieldIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
+          {/* Left chain */}
+          <line x1="50" y1="55" x2="50" y2="100" stroke="var(--gold)" strokeWidth="2" strokeDasharray="4,4" />
+
+          {/* Right chain */}
+          <line x1="250" y1="55" x2="250" y2="100" stroke="var(--gold)" strokeWidth="2" strokeDasharray="4,4" />
+
+          {/* Left bowl */}
+          <ellipse cx="50" cy="115" rx="40" ry="15" fill="none" stroke="var(--gold)" strokeWidth="2.5" />
+          <path d="M10 115 Q50 145 90 115" fill="none" stroke="var(--gold)" strokeWidth="2" />
+
+          {/* Right bowl */}
+          <ellipse cx="250" cy="115" rx="40" ry="15" fill="none" stroke="var(--gold)" strokeWidth="2.5" />
+          <path d="M210 115 Q250 145 290 115" fill="none" stroke="var(--gold)" strokeWidth="2" />
+
+          {/* Bowl labels */}
+          <text x="50" y="120" textAnchor="middle" fill="var(--gold)" fontSize="10" fontFamily="var(--font-display)">TRUTH</text>
+          <text x="250" y="120" textAnchor="middle" fill="var(--gold)" fontSize="10" fontFamily="var(--font-display)">STAKE</text>
+        </g>
+
+        {/* Base */}
+        <path d="M100 220 L150 200 L200 220 Z" fill="none" stroke="var(--gold)" strokeWidth="2" />
+        <rect x="80" y="225" width="140" height="8" fill="none" stroke="var(--gold)" strokeWidth="2" />
+        <rect x="70" y="238" width="160" height="4" fill="var(--gold)" opacity="0.5" />
+
+        {/* Decorative corners */}
+        <path d="M120 248 L130 248 L130 252" fill="none" stroke="var(--gold)" strokeWidth="1" opacity="0.5" />
+        <path d="M180 248 L170 248 L170 252" fill="none" stroke="var(--gold)" strokeWidth="1" opacity="0.5" />
+      </svg>
+    </div>
+  );
+};
+
+// Economics pie visualization
+const EconomicsVisualization = () => {
+  const [animated, setAnimated] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setAnimated(true);
+      },
+      { threshold: 0.5 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <svg viewBox="0 0 200 200" className="w-48 h-48 mx-auto">
+        {/* Background circle */}
+        <circle cx="100" cy="100" r="90" fill="none" stroke="var(--slate-light)" strokeWidth="2" />
+
+        {/* 80% Winners arc */}
+        <circle
+          cx="100"
+          cy="100"
+          r="80"
+          fill="none"
+          stroke="var(--gold)"
+          strokeWidth="16"
+          strokeDasharray={animated ? "402 503" : "0 503"}
+          strokeDashoffset="0"
+          transform="rotate(-90 100 100)"
+          style={{ transition: "stroke-dasharray 1.5s ease-out" }}
+        />
+
+        {/* 19% Jurors arc */}
+        <circle
+          cx="100"
+          cy="100"
+          r="80"
+          fill="none"
+          stroke="var(--emerald)"
+          strokeWidth="16"
+          strokeDasharray={animated ? "95 503" : "0 503"}
+          strokeDashoffset="-402"
+          transform="rotate(-90 100 100)"
+          style={{ transition: "stroke-dasharray 1.5s ease-out 0.3s" }}
+        />
+
+        {/* 1% Treasury arc */}
+        <circle
+          cx="100"
+          cy="100"
+          r="80"
+          fill="none"
+          stroke="var(--steel)"
+          strokeWidth="16"
+          strokeDasharray={animated ? "5 503" : "0 503"}
+          strokeDashoffset="-497"
+          transform="rotate(-90 100 100)"
+          style={{ transition: "stroke-dasharray 1.5s ease-out 0.6s" }}
+        />
+
+        {/* Center text */}
+        <text x="100" y="95" textAnchor="middle" fill="var(--ivory)" fontSize="28" fontFamily="var(--font-display)" fontWeight="600">20%</text>
+        <text x="100" y="115" textAnchor="middle" fill="var(--steel)" fontSize="10" fontFamily="var(--font-body)">TOTAL FEES</text>
+      </svg>
+
+      {/* Legend */}
+      <div className="flex justify-center gap-6 mt-6 text-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-gold" />
+          <span className="text-steel">80% Winners</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-emerald" />
+          <span className="text-steel">19% Jurors</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-steel" />
+          <span className="text-steel">1% Protocol</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Sigmoid reputation curve
+const ReputationCurve = () => {
+  const points = [];
+  for (let i = 0; i <= 100; i += 2) {
+    const x = i;
+    // Stacked sigmoid approximation
+    const sigmoid1 = 1 / (1 + Math.exp(-0.15 * (x - 25)));
+    const sigmoid2 = 1 / (1 + Math.exp(-0.15 * (x - 75)));
+    const y = Math.max(0.2, sigmoid1 + sigmoid2);
+    points.push({ x: 20 + (x / 100) * 260, y: 150 - (y / 2) * 120 });
+  }
+  const pathD = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+
+  return (
+    <svg viewBox="0 0 300 180" className="w-full h-40">
+      {/* Grid lines */}
+      {[0.5, 1.0, 1.5, 2.0].map((val, i) => (
+        <g key={i}>
+          <line
+            x1="20"
+            y1={150 - (val / 2) * 120}
+            x2="280"
+            y2={150 - (val / 2) * 120}
+            stroke="var(--slate-light)"
+            strokeWidth="1"
+            strokeDasharray="4,4"
+          />
+          <text x="8" y={154 - (val / 2) * 120} fill="var(--steel)" fontSize="9" fontFamily="var(--font-mono)">{val}x</text>
+        </g>
+      ))}
+
+      {/* X axis labels */}
+      <text x="20" y="168" fill="var(--steel)" fontSize="9" fontFamily="var(--font-mono)">0%</text>
+      <text x="140" y="168" fill="var(--steel)" fontSize="9" fontFamily="var(--font-mono)">50%</text>
+      <text x="265" y="168" fill="var(--steel)" fontSize="9" fontFamily="var(--font-mono)">100%</text>
+
+      {/* The curve */}
+      <path d={pathD} fill="none" stroke="var(--gold)" strokeWidth="3" />
+
+      {/* Key points */}
+      <circle cx="20" cy={150 - (0.2 / 2) * 120} r="4" fill="var(--crimson)" />
+      <circle cx="150" cy={150 - (1.0 / 2) * 120} r="4" fill="var(--gold)" />
+      <circle cx="280" cy={150 - (2.0 / 2) * 120} r="4" fill="var(--emerald)" />
+    </svg>
+  );
+};
+
+// ============================================
+// ICON COMPONENTS
+// ============================================
+
+const ShieldIcon = ({ className = "w-8 h-8" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </svg>
 );
 
-const UsersIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+const SwordIcon = ({ className = "w-8 h-8" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M14.5 17.5L3 6V3h3l11.5 11.5" />
+    <path d="M13 19l6-6" />
+    <path d="M16 16l4 4" />
+    <path d="M19 21l2-2" />
   </svg>
 );
 
-const LockIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+const GavelIcon = ({ className = "w-8 h-8" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M14 12l-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 0 1 0-3L11 9" />
+    <path d="M11 9l5-5 4 4-5 5" />
+    <path d="M17 3l4 4" />
   </svg>
 );
 
-const CoinsIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
-    <circle cx="8" cy="8" r="6" />
-    <path d="M18.09 10.37A6 6 0 1 1 10.34 18" />
-    <path d="M7 6h1v4" />
-  </svg>
-);
-
-const ZapIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-  </svg>
-);
-
-const GlobeIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-  </svg>
-);
-
-const ChevronRight = () => (
+const ArrowIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M9 18l6-6-6-6" />
-  </svg>
-);
-
-const ArrowRight = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="5" y1="12" x2="19" y2="12" />
     <polyline points="12 5 19 12 12 19" />
   </svg>
 );
 
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
 export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -103,401 +263,413 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-obsidian overflow-x-hidden">
-      {/* Navigation */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? "bg-obsidian/95 backdrop-blur-md border-b border-slate-light" : "bg-transparent"
+      {/* ============================================
+          NAVIGATION
+          ============================================ */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
+        scrolled ? "bg-obsidian/98 backdrop-blur-md border-b border-gold/20" : "bg-transparent"
       }`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 border-2 border-gold rounded-sm flex items-center justify-center group-hover:bg-gold/10 transition-colors">
-              <span className="font-display text-gold text-xl font-bold">T</span>
+            <div className="w-11 h-11 border-2 border-gold flex items-center justify-center group-hover:bg-gold/10 transition-all duration-300">
+              <span className="font-display text-gold text-2xl font-bold">T</span>
             </div>
-            <span className="font-display text-xl text-ivory tracking-wide">TribunalCraft</span>
+            <div className="hidden sm:block">
+              <span className="font-display text-xl text-ivory tracking-wide">TribunalCraft</span>
+              <span className="block text-[10px] text-steel uppercase tracking-[0.3em]">Decentralized Justice</span>
+            </div>
           </Link>
 
-          <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-steel hover:text-parchment transition-colors text-sm">Features</a>
-            <a href="#how-it-works" className="text-steel hover:text-parchment transition-colors text-sm">How It Works</a>
-            <a href="#use-cases" className="text-steel hover:text-parchment transition-colors text-sm">Use Cases</a>
-            <a href="#roles" className="text-steel hover:text-parchment transition-colors text-sm">Roles</a>
+          <div className="hidden lg:flex items-center gap-10">
+            <a href="#economics" className="text-steel hover:text-gold transition-colors text-sm tracking-wide">Economics</a>
+            <a href="#roles" className="text-steel hover:text-gold transition-colors text-sm tracking-wide">Roles</a>
+            <a href="#how-it-works" className="text-steel hover:text-gold transition-colors text-sm tracking-wide">Process</a>
+            <a href="#use-cases" className="text-steel hover:text-gold transition-colors text-sm tracking-wide">Use Cases</a>
           </div>
 
           <div className="flex items-center gap-4">
-            <Link href="/overview" className="text-sm text-parchment hover:text-gold transition-colors">
+            <Link href="/overview" className="hidden sm:block text-sm text-steel hover:text-gold transition-colors">
               Dashboard
             </Link>
             <Link
               href="/registry"
-              className="btn btn-primary text-sm px-5 py-2"
+              className="group flex items-center gap-2 bg-gold hover:bg-gold-light text-obsidian font-semibold px-5 py-2.5 text-sm transition-all duration-300"
             >
-              Launch App
+              Enter Tribunal
+              <ArrowIcon />
             </Link>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden">
-        {/* Background effects */}
-        <div className="absolute inset-0 bg-gradient-to-b from-obsidian via-obsidian to-slate/30" />
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-gold/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
+      {/* ============================================
+          HERO SECTION
+          ============================================ */}
+      <section className="relative min-h-screen flex items-center pt-20 overflow-hidden">
+        {/* Background layers */}
+        <div className="absolute inset-0">
+          {/* Radial gradient */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-gold/[0.03] rounded-full blur-3xl" />
 
-        {/* Decorative grid */}
-        <div className="absolute inset-0 opacity-[0.02]" style={{
-          backgroundImage: `linear-gradient(var(--gold) 1px, transparent 1px), linear-gradient(90deg, var(--gold) 1px, transparent 1px)`,
-          backgroundSize: "60px 60px"
-        }} />
+          {/* Grid pattern */}
+          <div className="absolute inset-0 opacity-[0.015]" style={{
+            backgroundImage: `linear-gradient(var(--gold) 1px, transparent 1px), linear-gradient(90deg, var(--gold) 1px, transparent 1px)`,
+            backgroundSize: "80px 80px"
+          }} />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-16 items-center">
-          {/* Left: Text content */}
-          <div className="text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 px-4 py-2 border border-gold/30 rounded-full mb-8 animate-fade-in">
-              <span className="w-2 h-2 bg-emerald rounded-full animate-pulse" />
-              <span className="text-xs text-steel uppercase tracking-widest">Live on Solana Devnet</span>
+          {/* Bottom fade */}
+          <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-obsidian to-transparent" />
+        </div>
+
+        <div className="relative z-10 max-w-7xl mx-auto px-6 w-full">
+          <div className="grid lg:grid-cols-2 gap-16 items-center min-h-[calc(100vh-5rem)]">
+            {/* Left: Content */}
+            <div className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              {/* Badge */}
+              <div className="inline-flex items-center gap-3 px-4 py-2 border border-gold/30 mb-10">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald"></span>
+                </span>
+                <span className="text-xs text-steel uppercase tracking-[0.2em]">Live on Solana</span>
+              </div>
+
+              {/* Main headline */}
+              <h1 className="font-display mb-8">
+                <span className="block text-6xl md:text-7xl lg:text-8xl font-bold text-ivory leading-[0.9] tracking-tight">
+                  A Sovereign
+                </span>
+                <span className="block text-6xl md:text-7xl lg:text-8xl font-bold text-gold leading-[0.9] tracking-tight">
+                  Court
+                </span>
+                <span className="block text-3xl md:text-4xl text-steel font-normal mt-4 tracking-wide">
+                  for the Digital Age
+                </span>
+              </h1>
+
+              {/* Subheadline */}
+              <p className="text-lg md:text-xl text-steel max-w-lg mb-12 leading-relaxed">
+                Trustless dispute resolution where <span className="text-parchment">economic consensus</span> reveals truth.
+                No lawyers. No delays. Just stakes and outcomes.
+              </p>
+
+              {/* CTA buttons */}
+              <div className="flex flex-wrap gap-4 mb-16">
+                <Link
+                  href="/registry"
+                  className="group inline-flex items-center gap-3 bg-gold hover:bg-gold-light text-obsidian font-semibold px-8 py-4 text-lg transition-all duration-300"
+                >
+                  Launch App
+                  <ArrowIcon />
+                </Link>
+                <a
+                  href="#economics"
+                  className="inline-flex items-center gap-2 border-2 border-slate-light hover:border-gold/50 text-parchment px-8 py-4 transition-all duration-300"
+                >
+                  See How It Works
+                </a>
+              </div>
+
+              {/* Quick stats */}
+              <div className="grid grid-cols-3 gap-8 pt-8 border-t border-slate-light">
+                <div>
+                  <div className="font-display text-4xl text-gold font-bold">80%</div>
+                  <div className="text-xs text-steel uppercase tracking-wider mt-1">To Winners</div>
+                </div>
+                <div>
+                  <div className="font-display text-4xl text-gold font-bold">~400ms</div>
+                  <div className="text-xs text-steel uppercase tracking-wider mt-1">Finality</div>
+                </div>
+                <div>
+                  <div className="font-display text-4xl text-gold font-bold">$0</div>
+                  <div className="text-xs text-steel uppercase tracking-wider mt-1">Legal Fees</div>
+                </div>
+              </div>
             </div>
 
-            <h1 className="font-display text-5xl md:text-6xl lg:text-7xl font-semibold text-ivory leading-[1.1] mb-6 animate-slide-up">
-              <span className="block">Decentralized</span>
-              <span className="block text-gold">Justice</span>
-              <span className="block text-4xl md:text-5xl lg:text-6xl text-parchment/80">On-Chain</span>
-            </h1>
-
-            <p className="text-lg md:text-xl text-steel max-w-xl mx-auto lg:mx-0 mb-10 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-              A trustless dispute resolution protocol where truth emerges through
-              <span className="text-parchment"> economic consensus</span>.
-              Stake your conviction. Let the tribunal decide.
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-slide-up" style={{ animationDelay: "0.2s" }}>
-              <Link
-                href="/registry"
-                className="group inline-flex items-center justify-center gap-3 bg-gold hover:bg-gold-light text-obsidian font-semibold px-8 py-4 transition-all"
-              >
-                Enter the Tribunal
-                <ArrowRight />
-              </Link>
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center justify-center gap-2 border border-slate-light hover:border-gold/50 text-parchment px-8 py-4 transition-all"
-              >
-                Learn More
-                <ChevronRight />
-              </a>
-            </div>
-
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-8 mt-16 pt-8 border-t border-slate-light animate-slide-up" style={{ animationDelay: "0.3s" }}>
-              <div>
-                <div className="font-display text-3xl text-gold mb-1">100%</div>
-                <div className="text-xs text-steel uppercase tracking-wider">On-Chain</div>
-              </div>
-              <div>
-                <div className="font-display text-3xl text-gold mb-1">7 Days</div>
-                <div className="text-xs text-steel uppercase tracking-wider">Stake Lock</div>
-              </div>
-              <div>
-                <div className="font-display text-3xl text-gold mb-1">3 Roles</div>
-                <div className="text-xs text-steel uppercase tracking-wider">Ecosystem</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Animated Scale */}
-          <div className="hidden lg:flex items-center justify-center animate-fade-in" style={{ animationDelay: "0.4s" }}>
-            <div className="w-80 h-80 relative">
-              <AnimatedScale />
-              {/* Orbital decorations */}
-              <div className="absolute -top-4 -right-4 w-8 h-8 border border-gold/30 rotate-45" />
-              <div className="absolute -bottom-4 -left-4 w-12 h-12 border border-gold/20 rounded-full" />
+            {/* Right: Animated scales */}
+            <div className={`hidden lg:block h-[500px] transition-all duration-1000 delay-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              <AnimatedScales />
             </div>
           </div>
         </div>
 
         {/* Scroll indicator */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 animate-bounce">
-          <span className="text-xs text-steel uppercase tracking-widest">Scroll</span>
-          <div className="w-px h-8 bg-gradient-to-b from-gold to-transparent" />
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+          <div className="w-px h-12 bg-gradient-to-b from-gold/50 to-transparent animate-pulse" />
         </div>
       </section>
 
-      {/* Value Proposition */}
-      <section className="py-32 relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-slate/30 to-obsidian" />
-        <div className="relative z-10 max-w-7xl mx-auto px-6">
-          <div className="max-w-3xl mx-auto text-center mb-20">
-            <h2 className="font-display text-4xl md:text-5xl text-ivory mb-6">
-              Trust Through <span className="text-gold">Transparency</span>
+      {/* ============================================
+          PROCLAMATION BANNER
+          ============================================ */}
+      <section className="relative py-20 border-y border-gold/20 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-gold/5 to-transparent" />
+
+        <div className="relative max-w-5xl mx-auto px-6 text-center">
+          <div className="font-display text-2xl md:text-3xl lg:text-4xl text-ivory leading-relaxed">
+            <span className="text-gold">&ldquo;</span>
+            In matters of dispute, let not authority decide, but the collective wisdom
+            of those with <span className="text-gold">stake</span> in the outcome.
+            <span className="text-gold">&rdquo;</span>
+          </div>
+          <div className="mt-6 text-steel text-sm uppercase tracking-[0.3em]">
+            The TribunalCraft Manifesto
+          </div>
+        </div>
+      </section>
+
+      {/* ============================================
+          ECONOMICS SECTION
+          ============================================ */}
+      <section id="economics" className="py-32 relative">
+        <div className="max-w-7xl mx-auto px-6">
+          {/* Section header */}
+          <div className="text-center mb-20">
+            <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">Protocol Economics</span>
+            <h2 className="font-display text-4xl md:text-5xl lg:text-6xl text-ivory font-bold">
+              Transparent <span className="text-gold">Fee Structure</span>
             </h2>
-            <p className="text-lg text-steel">
-              In a world of broken promises and opaque arbitration, TribunalCraft brings
-              accountability to every agreement. Every stake is visible. Every vote is permanent.
-              Every outcome is immutable.
+            <p className="mt-6 text-steel max-w-2xl mx-auto text-lg">
+              Every SOL staked in a dispute is distributed according to immutable on-chain rules.
+              No hidden fees. No platform extraction.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: <LockIcon />,
-                title: "Immutable Records",
-                description: "Every dispute, vote, and resolution is permanently recorded on-chain. No tampering. No revision. Pure truth."
-              },
-              {
-                icon: <CoinsIcon />,
-                title: "Economic Alignment",
-                description: "Stake-weighted voting ensures participants have skin in the game. Truth becomes profitable; deception becomes costly."
-              },
-              {
-                icon: <UsersIcon />,
-                title: "Community Governed",
-                description: "No central authority decides outcomes. A decentralized network of jurors reaches consensus through incentive design."
-              }
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="group p-8 border border-slate-light hover:border-gold/30 bg-slate/30 backdrop-blur transition-all duration-500"
-              >
-                <div className="text-gold mb-6 group-hover:scale-110 transition-transform duration-300">
-                  {item.icon}
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Visualization */}
+            <div className="order-2 lg:order-1">
+              <EconomicsVisualization />
+            </div>
+
+            {/* Right: Breakdown */}
+            <div className="order-1 lg:order-2 space-y-8">
+              <div className="p-6 border border-gold/30 bg-slate/30">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-gold font-display text-xl">Winner Pool</span>
+                  <span className="font-mono text-2xl text-gold">80%</span>
                 </div>
-                <h3 className="font-display text-xl text-ivory mb-3">{item.title}</h3>
-                <p className="text-steel text-sm leading-relaxed">{item.description}</p>
+                <p className="text-steel text-sm">
+                  Distributed proportionally to winning parties based on their stake contribution.
+                  Defenders win if the challenge fails. Challengers win if the dispute succeeds.
+                </p>
               </div>
-            ))}
+
+              <div className="p-6 border border-emerald/30 bg-slate/30">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-emerald-light font-display text-xl">Juror Rewards</span>
+                  <span className="font-mono text-2xl text-emerald-light">19%</span>
+                </div>
+                <p className="text-steel text-sm">
+                  Split among jurors who voted with the majority, proportional to their voting power.
+                  Vote correctly, earn consistently.
+                </p>
+              </div>
+
+              <div className="p-6 border border-slate-light bg-slate/30">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-steel-light font-display text-xl">Protocol Treasury</span>
+                  <span className="font-mono text-2xl text-steel-light">1%</span>
+                </div>
+                <p className="text-steel text-sm">
+                  Minimal protocol fee for infrastructure and development.
+                  No rent extraction—just sustainability.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" className="py-32 relative">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <span className="text-gold text-sm uppercase tracking-widest mb-4 block">Protocol Features</span>
-            <h2 className="font-display text-4xl md:text-5xl text-ivory">
-              Built for <span className="text-gold">Fairness</span>
-            </h2>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: <ShieldIcon />,
-                title: "Bonded Subjects",
-                description: "Creators stake SOL as a bond of good faith. This bond becomes the prize pool if challenged."
-              },
-              {
-                icon: <ZapIcon />,
-                title: "Flash Disputes",
-                description: "Challenge any subject instantly. Your stake shows conviction; weak claims lose everything."
-              },
-              {
-                icon: <UsersIcon />,
-                title: "Juror Pools",
-                description: "Stake to join the jury pool. Vote on disputes to earn rewards from losing parties."
-              },
-              {
-                icon: <CoinsIcon />,
-                title: "Dynamic Rewards",
-                description: "Rewards scale with stake and reputation. Early jurors with strong track records earn more."
-              },
-              {
-                icon: <LockIcon />,
-                title: "7-Day Finality",
-                description: "Stakes lock for 7 days post-resolution, ensuring commitment and preventing gaming."
-              },
-              {
-                icon: <GlobeIcon />,
-                title: "Universal Protocol",
-                description: "Any platform can integrate TribunalCraft. One truth layer for all of Web3."
-              }
-            ].map((feature, i) => (
-              <div
-                key={i}
-                className="group relative p-6 border border-slate-light hover:border-gold/50 transition-all duration-300 overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gold/5 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="relative">
-                  <div className="text-gold/70 group-hover:text-gold transition-colors mb-4">
-                    {feature.icon}
-                  </div>
-                  <h3 className="font-display text-lg text-ivory mb-2">{feature.title}</h3>
-                  <p className="text-sm text-steel">{feature.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section id="how-it-works" className="py-32 relative bg-slate/20">
-        <div className="absolute inset-0 opacity-[0.03]" style={{
+      {/* ============================================
+          REPUTATION SECTION
+          ============================================ */}
+      <section className="py-32 relative bg-slate/20">
+        <div className="absolute inset-0 opacity-[0.02]" style={{
           backgroundImage: `radial-gradient(circle at 1px 1px, var(--gold) 1px, transparent 0)`,
-          backgroundSize: "40px 40px"
+          backgroundSize: "32px 32px"
         }} />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <span className="text-gold text-sm uppercase tracking-widest mb-4 block">The Process</span>
-            <h2 className="font-display text-4xl md:text-5xl text-ivory">
-              How <span className="text-gold">Justice</span> Unfolds
-            </h2>
-          </div>
+        <div className="relative max-w-7xl mx-auto px-6">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Content */}
+            <div>
+              <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">Reputation System</span>
+              <h2 className="font-display text-4xl md:text-5xl text-ivory font-bold mb-6">
+                Earn Your <span className="text-gold">Standing</span>
+              </h2>
+              <p className="text-steel text-lg mb-8">
+                Your reputation determines your minimum bond and maximum earning potential.
+                A novel <span className="text-parchment">stacked sigmoid curve</span> ensures
+                new participants can join while rewarding consistent accuracy.
+              </p>
 
-          <div className="relative">
-            {/* Timeline line */}
-            <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-gold via-gold/50 to-gold/20" />
-
-            {[
-              {
-                step: "01",
-                title: "Create Subject",
-                description: "A creator submits a claim, contract, or statement to the protocol. They bond SOL as a stake in their claim's validity.",
-                side: "left"
-              },
-              {
-                step: "02",
-                title: "Challenge Filed",
-                description: "Anyone can dispute the subject by staking SOL. Multiple challengers can join, pooling resources against the claim.",
-                side: "right"
-              },
-              {
-                step: "03",
-                title: "Jurors Vote",
-                description: "Registered jurors allocate stake to vote. Voting power is proportional to stake and reputation score.",
-                side: "left"
-              },
-              {
-                step: "04",
-                title: "Resolution",
-                description: "After the voting period, the majority wins. Losers forfeit stakes to winners. Subject status updates on-chain.",
-                side: "right"
-              },
-              {
-                step: "05",
-                title: "Claim Rewards",
-                description: "Winners claim proportional rewards after a 7-day lock period. Reputation scores update based on outcomes.",
-                side: "left"
-              }
-            ].map((item, i) => (
-              <div key={i} className={`relative flex items-center mb-16 last:mb-0 ${
-                item.side === "right" ? "lg:flex-row-reverse" : ""
-              }`}>
-                <div className={`flex-1 ${item.side === "right" ? "lg:text-right lg:pr-16" : "lg:pl-16"} ${
-                  item.side === "left" ? "lg:ml-auto" : ""
-                }`}>
-                  <div className={`max-w-md ${item.side === "right" ? "lg:ml-auto" : ""}`}>
-                    <span className="font-display text-5xl text-gold/30 block mb-2">{item.step}</span>
-                    <h3 className="font-display text-2xl text-ivory mb-3">{item.title}</h3>
-                    <p className="text-steel">{item.description}</p>
-                  </div>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-3 bg-crimson rounded-full" />
+                  <span className="text-steel">0% reputation: 0.2x minimum bond (low barrier)</span>
                 </div>
-
-                {/* Center dot */}
-                <div className="hidden lg:flex absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-gold rounded-full border-4 border-obsidian" />
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-3 bg-gold rounded-full" />
+                  <span className="text-steel">50% reputation: 1.0x standard bond</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-3 bg-emerald rounded-full" />
+                  <span className="text-steel">100% reputation: 2.0x maximum stake capacity</span>
+                </div>
               </div>
-            ))}
+
+              <div className="mt-8 p-4 border-l-2 border-gold bg-slate/50">
+                <p className="text-sm text-steel italic">
+                  <span className="text-gold">+1%</span> reputation per correct vote/challenge<br />
+                  <span className="text-crimson-light">-2%</span> reputation per incorrect vote/challenge
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Curve visualization */}
+            <div className="bg-slate/50 border border-slate-light p-8">
+              <div className="text-center mb-4">
+                <span className="text-sm text-steel uppercase tracking-wider">Bond Multiplier vs Reputation</span>
+              </div>
+              <ReputationCurve />
+              <div className="text-center mt-4">
+                <span className="text-xs text-steel">Higher reputation = higher earning potential</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Roles Section */}
+      {/* ============================================
+          THREE ROLES SECTION
+          ============================================ */}
       <section id="roles" className="py-32 relative">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-20">
-            <span className="text-gold text-sm uppercase tracking-widest mb-4 block">Participants</span>
-            <h2 className="font-display text-4xl md:text-5xl text-ivory">
-              Three Roles, One <span className="text-gold">Tribunal</span>
+            <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">Participants</span>
+            <h2 className="font-display text-4xl md:text-5xl lg:text-6xl text-ivory font-bold">
+              Three Pillars of <span className="text-gold">Justice</span>
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-3 gap-0">
             {/* Defender */}
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-b from-sky-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative p-8 border-2 border-sky-500/30 h-full">
-                <div className="w-16 h-16 rounded-full border-2 border-sky-500 flex items-center justify-center mb-6">
-                  <ShieldIcon />
+            <div className="group relative border-2 border-sky-500/30 hover:border-sky-500 transition-all duration-500 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-sky-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-sky-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500" />
+
+              <div className="relative p-10">
+                {/* Icon */}
+                <div className="w-20 h-20 border-2 border-sky-500 flex items-center justify-center mb-8 text-sky-400 group-hover:bg-sky-500/10 transition-colors">
+                  <ShieldIcon className="w-10 h-10" />
                 </div>
-                <h3 className="font-display text-2xl text-ivory mb-2">Defender</h3>
-                <p className="text-sky-400 text-sm mb-4">Protect Truth</p>
-                <ul className="space-y-3 text-sm text-steel">
-                  <li className="flex items-start gap-2">
-                    <span className="text-sky-500 mt-1">→</span>
-                    Create and bond subjects
+
+                {/* Title */}
+                <h3 className="font-display text-3xl text-ivory mb-2">Defender</h3>
+                <p className="text-sky-400 text-sm uppercase tracking-wider mb-6">Protect Truth</p>
+
+                {/* Description */}
+                <p className="text-steel text-sm mb-8 leading-relaxed">
+                  Bond SOL behind subjects you believe are valid. Your stake signals confidence
+                  and becomes the prize if challengers fail.
+                </p>
+
+                {/* Features */}
+                <ul className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    <span className="text-sky-500 mt-0.5">◆</span>
+                    <span className="text-parchment">Create & bond subjects</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-sky-500 mt-1">→</span>
-                    Auto-defend via pool deposits
+                  <li className="flex items-start gap-3">
+                    <span className="text-sky-500 mt-0.5">◆</span>
+                    <span className="text-parchment">Auto-defend via pool</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-sky-500 mt-1">→</span>
-                    Earn when challengers fail
+                  <li className="flex items-start gap-3">
+                    <span className="text-sky-500 mt-0.5">◆</span>
+                    <span className="text-parchment">Set max bond exposure</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-sky-500 mt-1">→</span>
-                    Build trust through valid claims
+                  <li className="flex items-start gap-3">
+                    <span className="text-sky-500 mt-0.5">◆</span>
+                    <span className="text-parchment">Win challenger stakes</span>
                   </li>
                 </ul>
               </div>
             </div>
 
             {/* Challenger */}
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-b from-crimson/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative p-8 border-2 border-crimson/30 h-full">
-                <div className="w-16 h-16 rounded-full border-2 border-crimson flex items-center justify-center mb-6 text-crimson-light">
-                  <ZapIcon />
+            <div className="group relative border-2 border-crimson/30 hover:border-crimson transition-all duration-500 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-crimson/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-crimson transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500" />
+
+              <div className="relative p-10">
+                <div className="w-20 h-20 border-2 border-crimson flex items-center justify-center mb-8 text-crimson-light group-hover:bg-crimson/10 transition-colors">
+                  <SwordIcon className="w-10 h-10" />
                 </div>
-                <h3 className="font-display text-2xl text-ivory mb-2">Challenger</h3>
-                <p className="text-crimson-light text-sm mb-4">Expose Falsehood</p>
-                <ul className="space-y-3 text-sm text-steel">
-                  <li className="flex items-start gap-2">
-                    <span className="text-crimson-light mt-1">→</span>
-                    Dispute invalid subjects
+
+                <h3 className="font-display text-3xl text-ivory mb-2">Challenger</h3>
+                <p className="text-crimson-light text-sm uppercase tracking-wider mb-6">Expose Falsehood</p>
+
+                <p className="text-steel text-sm mb-8 leading-relaxed">
+                  Dispute subjects you believe are false. Stake your conviction—if proven right,
+                  claim the defender&apos;s bond as your reward.
+                </p>
+
+                <ul className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    <span className="text-crimson-light mt-0.5">◆</span>
+                    <span className="text-parchment">File disputes instantly</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-crimson-light mt-1">→</span>
-                    Stake conviction behind claims
+                  <li className="flex items-start gap-3">
+                    <span className="text-crimson-light mt-0.5">◆</span>
+                    <span className="text-parchment">Coalition with others</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-crimson-light mt-1">→</span>
-                    Win defender bonds on success
+                  <li className="flex items-start gap-3">
+                    <span className="text-crimson-light mt-0.5">◆</span>
+                    <span className="text-parchment">Submit evidence on-chain</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-crimson-light mt-1">→</span>
-                    Join forces with other challengers
+                  <li className="flex items-start gap-3">
+                    <span className="text-crimson-light mt-0.5">◆</span>
+                    <span className="text-parchment">Win defender bonds</span>
                   </li>
                 </ul>
               </div>
             </div>
 
             {/* Juror */}
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-b from-gold/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative p-8 border-2 border-gold/30 h-full">
-                <div className="w-16 h-16 rounded-full border-2 border-gold flex items-center justify-center mb-6 text-gold">
-                  <UsersIcon />
+            <div className="group relative border-2 border-gold/30 hover:border-gold transition-all duration-500 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-gold/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gold transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500" />
+
+              <div className="relative p-10">
+                <div className="w-20 h-20 border-2 border-gold flex items-center justify-center mb-8 text-gold group-hover:bg-gold/10 transition-colors">
+                  <GavelIcon className="w-10 h-10" />
                 </div>
-                <h3 className="font-display text-2xl text-ivory mb-2">Juror</h3>
-                <p className="text-gold text-sm mb-4">Decide Outcomes</p>
-                <ul className="space-y-3 text-sm text-steel">
-                  <li className="flex items-start gap-2">
-                    <span className="text-gold mt-1">→</span>
-                    Register with staked SOL
+
+                <h3 className="font-display text-3xl text-ivory mb-2">Juror</h3>
+                <p className="text-gold text-sm uppercase tracking-wider mb-6">Decide Outcomes</p>
+
+                <p className="text-steel text-sm mb-8 leading-relaxed">
+                  Stake to join the tribunal. Vote on disputes to earn 19% of every
+                  resolution. Your stake is your voting power.
+                </p>
+
+                <ul className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    <span className="text-gold mt-0.5">◆</span>
+                    <span className="text-parchment">Register with stake</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-gold mt-1">→</span>
-                    Vote on active disputes
+                  <li className="flex items-start gap-3">
+                    <span className="text-gold mt-0.5">◆</span>
+                    <span className="text-parchment">Vote on active disputes</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-gold mt-1">→</span>
-                    Earn from losing party stakes
+                  <li className="flex items-start gap-3">
+                    <span className="text-gold mt-0.5">◆</span>
+                    <span className="text-parchment">Earn 19% of pool</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-gold mt-1">→</span>
-                    Build reputation over time
+                  <li className="flex items-start gap-3">
+                    <span className="text-gold mt-0.5">◆</span>
+                    <span className="text-parchment">Build reputation</span>
                   </li>
                 </ul>
               </div>
@@ -506,111 +678,249 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Use Cases */}
-      <section id="use-cases" className="py-32 relative bg-slate/20">
+      {/* ============================================
+          HOW IT WORKS - TIMELINE
+          ============================================ */}
+      <section id="how-it-works" className="py-32 relative bg-slate/20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-20">
-            <span className="text-gold text-sm uppercase tracking-widest mb-4 block">Applications</span>
-            <h2 className="font-display text-4xl md:text-5xl text-ivory">
-              Where <span className="text-gold">Truth</span> Matters
+            <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">The Process</span>
+            <h2 className="font-display text-4xl md:text-5xl lg:text-6xl text-ivory font-bold">
+              Five Steps to <span className="text-gold">Resolution</span>
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="relative">
+            {/* Vertical line */}
+            <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-px bg-gold/30" />
+
             {[
               {
-                title: "Freelance Contracts",
-                description: "Escrow payments with built-in dispute resolution. If work isn't delivered, challengers can claim the bond.",
-                tag: "Gig Economy"
+                num: "01",
+                title: "Subject Created",
+                desc: "Creator submits a claim with initial bond. Details stored on IPFS, hash committed on-chain.",
+                highlight: "Status: Valid"
               },
               {
-                title: "DAO Governance",
-                description: "Verify that proposal implementations match their descriptions. Challenge governance violations.",
-                tag: "DAOs"
+                num: "02",
+                title: "Challenge Filed",
+                desc: "Challenger stakes SOL to dispute. Bond at risk calculated based on match mode settings.",
+                highlight: "Status: Disputed"
               },
               {
-                title: "Content Verification",
-                description: "Stake behind the accuracy of information. Let the community verify or debunk claims.",
-                tag: "Media"
+                num: "03",
+                title: "Voting Period",
+                desc: "Jurors allocate stake to vote. Voting power proportional to stake. Typical period: 24-72 hours.",
+                highlight: "Votes Tallied"
               },
               {
-                title: "Prediction Markets",
-                description: "Decentralized oracle for event outcomes. Multiple jurors ensure accurate resolution.",
-                tag: "DeFi"
+                num: "04",
+                title: "Resolution",
+                desc: "Majority wins. Funds distributed: 80% to winners, 19% to jurors, 1% to protocol.",
+                highlight: "Outcome Final"
               },
               {
-                title: "NFT Authenticity",
-                description: "Challenge fraudulent collections. Protect buyers from rug pulls with staked verification.",
-                tag: "NFTs"
-              },
-              {
-                title: "Service Agreements",
-                description: "SLA enforcement with automatic penalties. Disputes resolved without legal overhead.",
-                tag: "Enterprise"
+                num: "05",
+                title: "Claims & Unlock",
+                desc: "Winners claim rewards after 7-day lock. Stakes unlock. Reputation updates. Subject status finalized.",
+                highlight: "Rewards Distributed"
               }
-            ].map((useCase, i) => (
-              <div
-                key={i}
-                className="group p-8 border border-slate-light hover:border-gold/30 transition-all duration-300"
-              >
-                <span className="inline-block px-3 py-1 text-xs text-gold border border-gold/30 rounded-full mb-4">
-                  {useCase.tag}
-                </span>
-                <h3 className="font-display text-xl text-ivory mb-3">{useCase.title}</h3>
-                <p className="text-steel text-sm">{useCase.description}</p>
+            ].map((step, i) => (
+              <div key={i} className={`relative flex items-start gap-8 mb-16 last:mb-0 ${
+                i % 2 === 0 ? 'md:flex-row' : 'md:flex-row-reverse'
+              }`}>
+                {/* Number bubble */}
+                <div className="absolute left-8 md:left-1/2 -translate-x-1/2 w-16 h-16 bg-obsidian border-2 border-gold flex items-center justify-center z-10">
+                  <span className="font-display text-2xl text-gold">{step.num}</span>
+                </div>
+
+                {/* Content */}
+                <div className={`ml-24 md:ml-0 md:w-1/2 ${i % 2 === 0 ? 'md:pr-24' : 'md:pl-24'}`}>
+                  <div className={`p-6 border border-slate-light hover:border-gold/30 transition-colors bg-obsidian ${
+                    i % 2 === 0 ? 'md:text-right' : ''
+                  }`}>
+                    <span className="inline-block px-3 py-1 text-xs text-gold border border-gold/30 mb-4">
+                      {step.highlight}
+                    </span>
+                    <h3 className="font-display text-2xl text-ivory mb-2">{step.title}</h3>
+                    <p className="text-steel text-sm">{step.desc}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* ============================================
+          USE CASES
+          ============================================ */}
+      <section id="use-cases" className="py-32 relative">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">Applications</span>
+            <h2 className="font-display text-4xl md:text-5xl lg:text-6xl text-ivory font-bold">
+              Where Stakes <span className="text-gold">Matter</span>
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              {
+                title: "Freelance Escrow",
+                desc: "Milestone-based payments with built-in dispute resolution. No more payment disputes—just stake and deliver.",
+                tag: "GIG ECONOMY",
+                stat: "90% cost reduction vs traditional arbitration"
+              },
+              {
+                title: "DAO Governance",
+                desc: "Challenge proposal implementations. Ensure treasury allocations match approved specs.",
+                tag: "GOVERNANCE",
+                stat: "Transparent, on-chain accountability"
+              },
+              {
+                title: "NFT Authentication",
+                desc: "Verify collection legitimacy. Challenge suspected rugs. Protect buyers through stake-backed verification.",
+                tag: "NFT / DIGITAL ART",
+                stat: "Community-verified authenticity"
+              },
+              {
+                title: "Oracle Disputes",
+                desc: "Decentralized resolution for prediction markets and real-world event outcomes.",
+                tag: "DEFI / ORACLES",
+                stat: "No single point of failure"
+              },
+              {
+                title: "Content Moderation",
+                desc: "Decentralized fact-checking. Stake behind claims. Let community consensus determine truth.",
+                tag: "MEDIA / CONTENT",
+                stat: "Incentive-aligned verification"
+              },
+              {
+                title: "Service Level Agreements",
+                desc: "Automatic SLA enforcement. Bond uptime guarantees. Disputes resolved without lawyers.",
+                tag: "ENTERPRISE / B2B",
+                stat: "Programmable accountability"
+              }
+            ].map((uc, i) => (
+              <div key={i} className="group p-8 border border-slate-light hover:border-gold/30 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-gold/5 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                <span className="inline-block px-3 py-1 text-[10px] text-gold border border-gold/30 mb-4 tracking-wider">
+                  {uc.tag}
+                </span>
+                <h3 className="font-display text-xl text-ivory mb-3">{uc.title}</h3>
+                <p className="text-steel text-sm mb-4">{uc.desc}</p>
+                <p className="text-xs text-gold/70">{uc.stat}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============================================
+          DIFFERENTIATORS
+          ============================================ */}
+      <section className="py-32 relative bg-slate/20">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <span className="text-gold text-xs uppercase tracking-[0.3em] mb-4 block">Why TribunalCraft</span>
+            <h2 className="font-display text-4xl md:text-5xl text-ivory font-bold">
+              Built <span className="text-gold">Different</span>
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="text-center p-8">
+              <div className="font-display text-6xl text-gold mb-4">~400ms</div>
+              <h3 className="font-display text-xl text-ivory mb-2">Solana Speed</h3>
+              <p className="text-steel text-sm">
+                Built on Solana for sub-second finality. No waiting for block confirmations.
+                Faster than any L1 competitor.
+              </p>
+            </div>
+
+            <div className="text-center p-8">
+              <div className="font-display text-6xl text-gold mb-4">0</div>
+              <h3 className="font-display text-xl text-ivory mb-2">Native Tokens</h3>
+              <p className="text-steel text-sm">
+                No protocol token required. Stake and earn in SOL directly.
+                No token inflation diluting rewards.
+              </p>
+            </div>
+
+            <div className="text-center p-8">
+              <div className="font-display text-6xl text-gold mb-4">∞</div>
+              <h3 className="font-display text-xl text-ivory mb-2">Restoration</h3>
+              <p className="text-steel text-sm">
+                Unique restoration mechanism allows invalid subjects to be rehabilitated.
+                Second chances, economically enforced.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ============================================
+          CTA SECTION
+          ============================================ */}
       <section className="py-32 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-t from-gold/5 to-transparent" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gold/10 rounded-full blur-3xl" />
+        <div className="absolute inset-0">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gold/5 rounded-full blur-3xl" />
+        </div>
 
         <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
-          <h2 className="font-display text-4xl md:text-6xl text-ivory mb-6">
-            The Tribunal <span className="text-gold">Awaits</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 border border-gold/30 mb-8">
+            <span className="text-xs text-gold uppercase tracking-[0.2em]">Devnet Live • Mainnet Q1 2025</span>
+          </div>
+
+          <h2 className="font-display text-5xl md:text-6xl lg:text-7xl text-ivory font-bold mb-8">
+            The Tribunal<br /><span className="text-gold">Awaits</span>
           </h2>
+
           <p className="text-xl text-steel mb-12 max-w-2xl mx-auto">
-            Join the decentralized arbitration revolution. Create subjects, challenge claims,
+            Join the decentralized arbitration protocol. Create subjects, challenge claims,
             or serve as a juror. Truth has never been more profitable.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/registry"
-              className="group inline-flex items-center justify-center gap-3 bg-gold hover:bg-gold-light text-obsidian font-semibold px-10 py-5 text-lg transition-all"
+              className="group inline-flex items-center justify-center gap-3 bg-gold hover:bg-gold-light text-obsidian font-semibold px-10 py-5 text-lg transition-all duration-300"
             >
               Launch App
-              <ArrowRight />
+              <ArrowIcon />
             </Link>
             <a
               href="https://github.com/tribunalcraft"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 border border-slate-light hover:border-gold/50 text-parchment px-10 py-5 text-lg transition-all"
+              className="inline-flex items-center justify-center gap-2 border-2 border-slate-light hover:border-gold/50 text-parchment px-10 py-5 text-lg transition-all duration-300"
             >
-              View on GitHub
+              View Source
             </a>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
+      {/* ============================================
+          FOOTER
+          ============================================ */}
       <footer className="border-t border-slate-light py-16">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid md:grid-cols-4 gap-12 mb-12">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 border-2 border-gold rounded-sm flex items-center justify-center">
+                <div className="w-10 h-10 border-2 border-gold flex items-center justify-center">
                   <span className="font-display text-gold text-xl font-bold">T</span>
                 </div>
                 <span className="font-display text-xl text-ivory">TribunalCraft</span>
               </div>
-              <p className="text-sm text-steel">
-                Decentralized dispute resolution protocol on Solana.
+              <p className="text-sm text-steel mb-4">
+                A sovereign court for the digital age. Decentralized dispute resolution on Solana.
+              </p>
+              <p className="text-xs text-steel/50 font-mono">
+                Program: FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q
               </p>
             </div>
 
@@ -625,68 +935,35 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <h4 className="font-display text-ivory mb-4">Resources</h4>
+              <h4 className="font-display text-ivory mb-4">Developers</h4>
               <ul className="space-y-2 text-sm text-steel">
-                <li><a href="#" className="hover:text-gold transition-colors">Documentation</a></li>
-                <li><a href="#" className="hover:text-gold transition-colors">SDK Reference</a></li>
+                <li><a href="https://github.com/tribunalcraft" target="_blank" rel="noopener noreferrer" className="hover:text-gold transition-colors">GitHub</a></li>
+                <li><a href="#" className="hover:text-gold transition-colors">SDK Docs</a></li>
                 <li><a href="#" className="hover:text-gold transition-colors">Integration Guide</a></li>
+                <li><a href="#" className="hover:text-gold transition-colors">API Reference</a></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-display text-ivory mb-4">Community</h4>
               <ul className="space-y-2 text-sm text-steel">
-                <li><a href="https://github.com/tribunalcraft" target="_blank" rel="noopener noreferrer" className="hover:text-gold transition-colors">GitHub</a></li>
                 <li><a href="#" className="hover:text-gold transition-colors">Discord</a></li>
                 <li><a href="#" className="hover:text-gold transition-colors">Twitter</a></li>
+                <li><a href="#" className="hover:text-gold transition-colors">Blog</a></li>
               </ul>
             </div>
           </div>
 
           <div className="pt-8 border-t border-slate-light flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-xs text-steel">
-              &copy; 2025 TribunalCraft. Built on Solana.
+              &copy; 2025 TribunalCraft. Open source protocol on Solana.
             </p>
-            <p className="text-xs text-steel">
-              Truth through consensus. Justice through code.
+            <p className="text-xs text-gold font-display italic">
+              &ldquo;Truth through consensus. Justice through code.&rdquo;
             </p>
           </div>
         </div>
       </footer>
-
-      {/* Custom styles for animations */}
-      <style jsx>{`
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slide-up {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes scale-left {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-        @keyframes scale-right {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(5px); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.8s ease-out forwards;
-          opacity: 0;
-        }
-        .animate-slide-up {
-          animation: slide-up 0.8s ease-out forwards;
-          opacity: 0;
-        }
-        .animate-scale-left {
-          animation: scale-left 3s ease-in-out infinite;
-        }
-        .animate-scale-right {
-          animation: scale-right 3s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 }
