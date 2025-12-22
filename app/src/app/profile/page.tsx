@@ -11,6 +11,7 @@ import Link from "next/link";
 import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { ShieldIcon, CheckIcon, LockIcon, PlusIcon, MinusIcon, ClockIcon, ChevronDownIcon } from "@/components/Icons";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { getSubjects, getDisputes } from "@/lib/supabase/queries";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
@@ -329,6 +330,13 @@ export default function JurorPage() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: "danger" | "warning" | "info";
+    onConfirm: () => void;
+  }>({ isOpen: false, title: "", message: "", variant: "warning", onConfirm: () => {} });
   const [collectableData, setCollectableData] = useState<{
     claims: number;
     unlocks: number;
@@ -752,20 +760,28 @@ export default function JurorPage() {
 
   const handleUnregister = async () => {
     if (!publicKey) return;
-    if (!confirm("Are you sure you want to unregister? You will withdraw all available stake.")) return;
 
-    setActionLoading(true);
-    setError(null);
-    setSuccess(null);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Unregister from Juror Pool",
+      message: "Are you sure you want to unregister? All available stake will be withdrawn to your wallet. This action cannot be undone.",
+      variant: "danger",
+      onConfirm: async () => {
+        setConfirmDialog(d => ({ ...d, isOpen: false }));
+        setActionLoading(true);
+        setError(null);
+        setSuccess(null);
 
-    try {
-      await unregisterJuror();
-      setSuccess("Unregistered successfully");
-      await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to unregister");
-    }
-    setActionLoading(false);
+        try {
+          await unregisterJuror();
+          setSuccess("Unregistered successfully");
+          await loadData();
+        } catch (err: any) {
+          setError(err.message || "Failed to unregister");
+        }
+        setActionLoading(false);
+      },
+    });
   };
 
   const handleCreatePool = async () => {
@@ -917,18 +933,28 @@ export default function JurorPage() {
 
   const handleResolve = useCallback(async (subjectIdKey: string) => {
     if (!publicKey || !selectedItem) return;
-    setActionLoading(true);
-    setError(null);
-    try {
-      const subjectId = new PublicKey(subjectIdKey);
-      await resolveDispute(subjectId);
-      setSuccess("Dispute resolved");
-      setSelectedItem(null);
-      await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to resolve");
-    }
-    setActionLoading(false);
+
+    setConfirmDialog({
+      isOpen: true,
+      title: "Resolve Dispute",
+      message: "Are you sure you want to resolve this dispute? The outcome will be finalized based on current votes and cannot be changed.",
+      variant: "warning",
+      onConfirm: async () => {
+        setConfirmDialog(d => ({ ...d, isOpen: false }));
+        setActionLoading(true);
+        setError(null);
+        try {
+          const subjectId = new PublicKey(subjectIdKey);
+          await resolveDispute(subjectId);
+          setSuccess("Dispute resolved");
+          setSelectedItem(null);
+          await loadData();
+        } catch (err: any) {
+          setError(err.message || "Failed to resolve");
+        }
+        setActionLoading(false);
+      },
+    });
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
   const handleClaimAll = useCallback(async (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => {
@@ -1549,12 +1575,25 @@ export default function JurorPage() {
       <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 pt-28 pb-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
-          <h1 className="font-display text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight mb-4">
-            Your <span className="text-gold">Profile</span>
-          </h1>
-          <p className="text-steel text-sm max-w-lg leading-relaxed">
-            Manage your accounts, track your activity, and claim rewards
-          </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="font-display text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight mb-4">
+                Your <span className="text-gold">Profile</span>
+              </h1>
+              <p className="text-steel text-sm max-w-lg leading-relaxed">
+                Manage your accounts, track your activity, and claim rewards
+              </p>
+            </div>
+            <Link
+              href="/activity"
+              className="text-sm text-steel hover:text-ivory transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Activity History
+            </Link>
+          </div>
         </div>
 
         {/* Alerts */}
@@ -2370,6 +2409,16 @@ export default function JurorPage() {
           getIpfsUrl={getUrl}
         />
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(d => ({ ...d, isOpen: false }))}
+      />
     </div>
   );
 }
