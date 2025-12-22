@@ -240,14 +240,14 @@ export default function LandingPage() {
       </nav>
 
       {/* HERO SECTION */}
-      <section className="relative min-h-screen flex items-center pt-24 overflow-hidden">
+      <section className="relative min-h-screen flex items-start pt-28 overflow-hidden">
         <div className="absolute inset-0">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/4 w-[800px] h-[500px] bg-gradient-radial from-gold/[0.03] to-transparent blur-3xl" />
           <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-obsidian to-transparent" />
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 w-full">
-          <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[calc(100vh-4rem)]">
+          <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[calc(100vh-8rem)]">
             <div className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-8">
                 <span className="relative flex h-1.5 w-1.5">
