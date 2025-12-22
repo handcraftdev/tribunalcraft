@@ -563,14 +563,14 @@ h4 {
    ============================================ */
 
 .wallet-adapter-button {
-  background: var(--gold) !important;
-  color: var(--obsidian) !important;
+  background: rgba(201, 162, 39, 0.1) !important;
+  color: var(--gold) !important;
   font-family: var(--font-body) !important;
   font-weight: 500 !important;
   font-size: 0.8125rem !important;
   line-height: 1 !important;
   border-radius: 0 !important;
-  border: 1px solid var(--gold) !important;
+  border: 1px solid rgba(201, 162, 39, 0.3) !important;
   transition: all var(--transition-base) !important;
   height: auto !important;
   min-height: 0 !important;
@@ -578,7 +578,7 @@ h4 {
 }
 
 .wallet-adapter-button-trigger {
-  background: var(--gold) !important;
+  background: rgba(201, 162, 39, 0.1) !important;
   height: auto !important;
   min-height: 0 !important;
 }
@@ -590,8 +590,8 @@ h4 {
 }
 
 .wallet-adapter-button:hover {
-  background: var(--gold-light) !important;
-  border-color: var(--gold-light) !important;
+  background: rgba(201, 162, 39, 0.2) !important;
+  border-color: rgba(201, 162, 39, 0.5) !important;
 }
 
 .wallet-adapter-dropdown-list {

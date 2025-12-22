@@ -9,7 +9,7 @@ const WalletButton = dynamic(
   {
     ssr: false,
     loading: () => (
-      <button className="bg-gold/10 border border-gold/30 text-gold px-4 py-2 text-sm opacity-50">
+      <button className="bg-gold/10 border border-gold/30 text-gold px-4 py-2 text-[13px] opacity-50">
         Connecting...
       </button>
     ),
