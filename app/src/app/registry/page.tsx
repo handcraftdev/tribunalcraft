@@ -1130,7 +1130,7 @@ export default function RegistryPage() {
 
       <Navigation />
 
-      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 pt-28 pb-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
           <div className="flex items-center justify-between mb-4">

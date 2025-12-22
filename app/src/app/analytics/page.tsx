@@ -590,7 +590,7 @@ export default function AnalyticsPage() {
 
       <Navigation />
 
-      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 py-12">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 pt-28 pb-12">
         {/* Header */}
         <div className="mb-10 animate-slide-up">
           <h1 className="font-display text-3xl md:text-4xl font-semibold text-ivory leading-tight tracking-tight mb-4">
