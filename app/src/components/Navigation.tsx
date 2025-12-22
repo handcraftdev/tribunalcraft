@@ -29,7 +29,7 @@ export const Navigation = () => {
   return (
     <nav className="sticky top-0 z-50 bg-obsidian/98 backdrop-blur-md border-b border-slate-light/30">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between py-4">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
