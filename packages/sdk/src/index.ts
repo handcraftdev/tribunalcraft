@@ -42,6 +42,7 @@ export {
   RestoreVoteChoiceEnum,
   BondSourceEnum,
   // Type Guards
+  isSubjectDormant,
   isSubjectValid,
   isSubjectDisputed,
   isSubjectInvalid,

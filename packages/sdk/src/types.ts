@@ -173,6 +173,7 @@ export interface JurorRecord {
 // =============================================================================
 
 export type SubjectStatus =
+  | { dormant: Record<string, never> }
   | { valid: Record<string, never> }
   | { disputed: Record<string, never> }
   | { invalid: Record<string, never> }
@@ -216,6 +217,7 @@ export type BondSource =
 // =============================================================================
 
 export const SubjectStatusEnum = {
+  Dormant: { dormant: {} } as SubjectStatus,
   Valid: { valid: {} } as SubjectStatus,
   Disputed: { disputed: {} } as SubjectStatus,
   Invalid: { invalid: {} } as SubjectStatus,
@@ -264,6 +266,10 @@ export const BondSourceEnum = {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+export function isSubjectDormant(status: SubjectStatus): boolean {
+  return "dormant" in status;
+}
 
 export function isSubjectValid(status: SubjectStatus): boolean {
   return "valid" in status;

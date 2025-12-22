@@ -91,6 +91,7 @@ __export(index_exports, {
   isJurorRewardClaimable: () => isJurorRewardClaimable,
   isNoParticipation: () => isNoParticipation,
   isSubjectDisputed: () => isSubjectDisputed,
+  isSubjectDormant: () => isSubjectDormant,
   isSubjectInvalid: () => isSubjectInvalid,
   isSubjectRestoring: () => isSubjectRestoring,
   isSubjectValid: () => isSubjectValid,
@@ -7648,6 +7649,7 @@ var TribunalCraftClient = _TribunalCraftClient;
 
 // src/types.ts
 var SubjectStatusEnum = {
+  Dormant: { dormant: {} },
   Valid: { valid: {} },
   Disputed: { disputed: {} },
   Invalid: { invalid: {} },
@@ -7686,6 +7688,9 @@ var BondSourceEnum = {
   Direct: { direct: {} },
   Pool: { pool: {} }
 };
+function isSubjectDormant(status) {
+  return "dormant" in status;
+}
 function isSubjectValid(status) {
   return "valid" in status;
 }
@@ -8627,6 +8632,7 @@ function validateVoteRationaleContent(content) {
   isJurorRewardClaimable,
   isNoParticipation,
   isSubjectDisputed,
+  isSubjectDormant,
   isSubjectInvalid,
   isSubjectRestoring,
   isSubjectValid,

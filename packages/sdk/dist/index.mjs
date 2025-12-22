@@ -7541,6 +7541,7 @@ var TribunalCraftClient = _TribunalCraftClient;
 
 // src/types.ts
 var SubjectStatusEnum = {
+  Dormant: { dormant: {} },
   Valid: { valid: {} },
   Disputed: { disputed: {} },
   Invalid: { invalid: {} },
@@ -7579,6 +7580,9 @@ var BondSourceEnum = {
   Direct: { direct: {} },
   Pool: { pool: {} }
 };
+function isSubjectDormant(status) {
+  return "dormant" in status;
+}
 function isSubjectValid(status) {
   return "valid" in status;
 }
@@ -8522,6 +8526,7 @@ export {
   isJurorRewardClaimable,
   isNoParticipation,
   isSubjectDisputed,
+  isSubjectDormant,
   isSubjectInvalid,
   isSubjectRestoring,
   isSubjectValid,
