@@ -68,6 +68,7 @@
 
 * {
   box-sizing: border-box;
+  border-color: var(--slate-light);
 }
 
 html {
@@ -725,8 +726,12 @@ h4 {
   .bg-steel-20 { background: rgba(107, 107, 115, 0.2); }
 
   .border-gold { border-color: var(--gold); }
-  .border-slate { border-color: var(--slate-light); }
+  .border-slate { border-color: var(--slate); }
+  .border-slate-light { border-color: var(--slate-light); }
   .border-steel { border-color: var(--steel); }
+  .border-crimson { border-color: var(--crimson); }
+  .border-emerald { border-color: var(--emerald); }
+  .border-sky { border-color: #0ea5e9; }
 
   .glow-gold { box-shadow: var(--shadow-gold); }
 
