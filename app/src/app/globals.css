@@ -567,14 +567,12 @@ h4 {
   color: var(--obsidian) !important;
   font-family: var(--font-body) !important;
   font-weight: 500 !important;
-  font-size: 0.875rem !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.05em !important;
+  font-size: 0.8125rem !important;
   border-radius: 0 !important;
-  border: var(--border-medium) solid var(--gold) !important;
+  border: 1px solid var(--gold) !important;
   transition: all var(--transition-base) !important;
   height: auto !important;
-  padding: 0.5rem 1rem !important;
+  padding: 0.4375rem 0.875rem !important;
 }
 
 .wallet-adapter-button-start-icon,
