@@ -666,7 +666,7 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer className="border-t border-slate-light/20 py-10">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
+          <div className="grid md:grid-cols-3 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-6 h-6 border border-gold/50 flex items-center justify-center">
@@ -675,15 +675,6 @@ export default function LandingPage() {
                 <span className="font-display text-ivory">TribunalCraft</span>
               </div>
               <p className="text-xs text-steel">Decentralized dispute resolution on Solana.</p>
-            </div>
-
-            <div>
-              <h4 className="text-ivory text-xs font-medium mb-3">Protocol</h4>
-              <ul className="space-y-1.5 text-xs text-steel">
-                <li><Link href="/registry" className="hover:text-parchment transition-colors">Registry</Link></li>
-                <li><Link href="/overview" className="hover:text-parchment transition-colors">Dashboard</Link></li>
-                <li><Link href="/analytics" className="hover:text-parchment transition-colors">Analytics</Link></li>
-              </ul>
             </div>
 
             <div>
