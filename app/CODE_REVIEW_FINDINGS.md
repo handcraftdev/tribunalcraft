@@ -11,7 +11,7 @@
 
 | Area | Status | Critical Issues | High Issues | Medium Issues |
 |------|--------|-----------------|-------------|---------------|
-| Features Completeness | 95% Complete | ~~1~~ 0 | ~~4~~ 3 | ~~4~~ 2 |
+| Features Completeness | 98% Complete | ~~1~~ 0 | ~~4~~ 1 | ~~4~~ 1 |
 | Data Integrity | Strong | ~~5~~ 0 | ~~2~~ 0 | 3 |
 | Economic Consistency | Good | 0 | 2 | 3 |
 | Security & Risk | Improved | ~~2~~ 0 | ~~3~~ 1 | ~~4~~ 1 |
@@ -44,6 +44,11 @@ The following issues have been resolved:
 | SR-8: No simulation | Enabled simulateFirst for better errors | `useTribunalcraft.ts` |
 | PC-2: Status badge priority | Reordered to show most actionable first | `types.ts` |
 | PC-3: Dormant revival UX | Clearer success messages with status + next steps | `registry/page.tsx`, `profile/page.tsx` |
+| SR-7: XSS prevention | Added content sanitization utilities | `sanitize.ts` |
+| PC-5: Confirmation dialogs | Added dialogs for irreversible actions | `ConfirmDialog.tsx`, pages |
+| FC-4: Mobile modal overflow | Responsive modal sizing and padding | `SubjectModal.tsx`, `registry/page.tsx` |
+| FC-7: Evidence viewer UI | Created EvidenceViewer component | `EvidenceViewer.tsx`, `SubjectModal.tsx` |
+| FC-2: Activity history page | Created /activity page with transaction history | `activity/page.tsx`, `profile/page.tsx` |
 
 ---
 
@@ -63,9 +68,9 @@ The TribunalCraft application has excellent core feature coverage with all proto
 
 | # | Issue | File | Status |
 |---|-------|------|--------|
-| FC-2 | Missing Activity History UI - `fetchUserActivity` exists but no UI page | Hook at `useTribunalcraft.ts:676-679` | Open |
+| ~~FC-2~~ | ~~Missing Activity History UI~~ | `/src/app/activity/page.tsx` | **FIXED** |
 | ~~FC-3~~ | ~~No Search/Filter in Registry~~ | `/src/app/registry/page.tsx` | **FIXED** |
-| FC-4 | Incomplete Mobile Experience - modals overflow on mobile | `SubjectModal.tsx`, `profile/page.tsx` | Open |
+| ~~FC-4~~ | ~~Mobile modal overflow~~ | `SubjectModal.tsx`, `registry/page.tsx` | **FIXED** |
 | FC-5 | No Real-time Updates - no WebSocket for live vote updates | Multiple files | Open |
 
 ### Medium Priority
@@ -73,7 +78,7 @@ The TribunalCraft application has excellent core feature coverage with all proto
 | # | Issue | File | Status |
 |---|-------|------|--------|
 | ~~FC-6~~ | ~~Limited Error Recovery - generic messages~~ | `SubjectModal.tsx` catch blocks | **FIXED** |
-| FC-7 | No Dispute Evidence Viewer - upload exists but no display UI | `/src/app/api/upload/evidence/route.ts` | Open |
+| ~~FC-7~~ | ~~No Dispute Evidence Viewer~~ | `EvidenceViewer.tsx`, `SubjectModal.tsx` | **FIXED** |
 | ~~FC-8~~ | ~~Leaderboard vote accuracy hardcoded~~ | `/src/app/analytics/page.tsx` | **FIXED** |
 | FC-9 | No test files found - zero automated test coverage | Entire codebase | Open |
 
@@ -305,8 +310,8 @@ All critical blockers have been resolved:
 
 | Priority | Count | Key Issues |
 |----------|-------|------------|
-| High | 4 | Activity history, mobile UX, real-time updates, Supabase RLS |
-| Medium | 5 | Evidence viewer, test coverage, XSS via IPFS, confirmation dialogs |
+| High | 2 | Real-time updates (WebSocket), Supabase RLS verification |
+| Medium | 2 | Test coverage (FC-9), Economic rounding display (EC-1) |
 
 ---
 
@@ -334,6 +339,11 @@ TribunalCraft demonstrates strong architectural design with comprehensive featur
 - Transaction simulation enabled for better errors
 - Status badge priority ordering fixed
 - Clear dormant revival/restore success messages
+- Content sanitization for XSS prevention
+- Confirmation dialogs for irreversible actions
+- Mobile-responsive modals
+- Evidence viewer for dispute attachments
+- Activity history page with transaction log
 
 The system is production-ready. All short-term sprint items are complete. Remaining issues are UX improvements that can be addressed post-launch.
 
