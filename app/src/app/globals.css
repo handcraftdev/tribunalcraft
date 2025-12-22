@@ -72,6 +72,7 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -563,35 +564,50 @@ h4 {
    ============================================ */
 
 .wallet-adapter-button {
-  background: rgba(201, 162, 39, 0.1) !important;
-  color: var(--gold) !important;
+  background: transparent !important;
+  color: var(--steel) !important;
   font-family: var(--font-body) !important;
-  font-weight: 500 !important;
-  font-size: 0.8125rem !important;
-  line-height: 1 !important;
+  font-weight: 400 !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
   border-radius: 0 !important;
-  border: 1px solid rgba(201, 162, 39, 0.3) !important;
-  transition: all var(--transition-base) !important;
+  border: 1px solid var(--slate-light) !important;
+  transition: all 150ms ease !important;
   height: auto !important;
   min-height: 0 !important;
   padding: 0.5rem 1rem !important;
 }
 
 .wallet-adapter-button-trigger {
-  background: rgba(201, 162, 39, 0.1) !important;
+  background: transparent !important;
+  border: 1px solid var(--slate-light) !important;
   height: auto !important;
   min-height: 0 !important;
+  padding: 0.5rem 1rem !important;
+}
+
+.wallet-adapter-dropdown {
+  background: transparent !important;
+  display: flex !important;
+}
+
+.wallet-adapter-dropdown-list-active {
+  background: transparent !important;
 }
 
 .wallet-adapter-button-start-icon,
+.wallet-adapter-button-end-icon,
 .wallet-adapter-button i,
-.wallet-adapter-button img {
+.wallet-adapter-button img,
+.wallet-adapter-button svg {
   display: none !important;
 }
 
-.wallet-adapter-button:hover {
-  background: rgba(201, 162, 39, 0.2) !important;
-  border-color: rgba(201, 162, 39, 0.5) !important;
+.wallet-adapter-button:hover,
+.wallet-adapter-button-trigger:hover {
+  background: var(--slate) !important;
+  border-color: var(--steel) !important;
+  color: var(--parchment) !important;
 }
 
 .wallet-adapter-dropdown-list {
