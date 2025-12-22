@@ -5,7 +5,8 @@ use crate::errors::TribunalCraftError;
 use crate::events::*;
 
 /// Create a subject with all persistent PDAs (Subject + Dispute + Escrow)
-/// Creator becomes first defender if they have a DefenderPool with balance
+/// Creator's pool is linked automatically. If initial_bond > 0, transfers from wallet.
+/// Subject starts as Valid if pool.balance > 0 or initial_bond > 0.
 #[derive(Accounts)]
 #[instruction(subject_id: Pubkey)]
 pub struct CreateSubject<'info> {
@@ -39,6 +40,31 @@ pub struct CreateSubject<'info> {
     )]
     pub escrow: Account<'info, Escrow>,
 
+    /// Creator's defender pool - created if doesn't exist
+    #[account(
+        init_if_needed,
+        payer = creator,
+        space = DefenderPool::LEN,
+        seeds = [DEFENDER_POOL_SEED, creator.key().as_ref()],
+        bump
+    )]
+    pub defender_pool: Account<'info, DefenderPool>,
+
+    /// Creator's defender record for round 0
+    #[account(
+        init,
+        payer = creator,
+        space = DefenderRecord::LEN,
+        seeds = [
+            DEFENDER_RECORD_SEED,
+            subject_id.as_ref(),
+            creator.key().as_ref(),
+            &0u32.to_le_bytes()
+        ],
+        bump
+    )]
+    pub defender_record: Account<'info, DefenderRecord>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -48,23 +74,61 @@ pub fn create_subject(
     details_cid: String,
     match_mode: bool,
     voting_period: i64,
+    initial_bond: u64,
 ) -> Result<()> {
     let subject = &mut ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
     let escrow = &mut ctx.accounts.escrow;
+    let defender_pool = &mut ctx.accounts.defender_pool;
+    let defender_record = &mut ctx.accounts.defender_record;
     let clock = Clock::get()?;
 
     require!(voting_period > 0, TribunalCraftError::InvalidConfig);
     require!(details_cid.len() <= Subject::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+
+    // Initialize DefenderPool if newly created
+    if defender_pool.owner == Pubkey::default() {
+        defender_pool.owner = ctx.accounts.creator.key();
+        defender_pool.balance = 0;
+        defender_pool.max_bond = u64::MAX; // No limit by default
+        defender_pool.bump = ctx.bumps.defender_pool;
+        defender_pool.created_at = clock.unix_timestamp;
+        defender_pool.updated_at = clock.unix_timestamp;
+    }
+
+    // Transfer initial bond from wallet if specified
+    if initial_bond > 0 {
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: subject.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, initial_bond)?;
+    }
+
+    // Initialize DefenderRecord (links creator's pool to subject)
+    defender_record.subject_id = subject_id;
+    defender_record.defender = ctx.accounts.creator.key();
+    defender_record.round = 0;
+    defender_record.bond = initial_bond; // 0 if just linking, > 0 if direct bond
+    defender_record.source = if initial_bond > 0 { BondSource::Direct } else { BondSource::Pool };
+    defender_record.reward_claimed = false;
+    defender_record.bump = ctx.bumps.defender_record;
+    defender_record.bonded_at = clock.unix_timestamp;
+
+    // Determine subject status: Valid if pool has balance OR initial_bond > 0
+    let has_backing = defender_pool.balance > 0 || initial_bond > 0;
 
     // Initialize Subject
     subject.subject_id = subject_id;
     subject.creator = ctx.accounts.creator.key();
     subject.details_cid = details_cid;
     subject.round = 0;
-    subject.available_bond = 0;
-    subject.defender_count = 0;
-    subject.status = SubjectStatus::Dormant;
+    subject.available_bond = initial_bond;
+    subject.defender_count = 1; // Creator is first defender
+    subject.status = if has_backing { SubjectStatus::Valid } else { SubjectStatus::Dormant };
     subject.match_mode = match_mode;
     subject.voting_period = voting_period;
     subject.dispute = dispute.key();
@@ -79,6 +143,7 @@ pub fn create_subject(
     dispute.round = 0;
     dispute.status = DisputeStatus::None;
     dispute.dispute_type = DisputeType::Other;
+    dispute.details_cid = String::new();
     dispute.total_stake = 0;
     dispute.challenger_count = 0;
     dispute.bond_at_risk = 0;
@@ -110,7 +175,8 @@ pub fn create_subject(
         timestamp: clock.unix_timestamp,
     });
 
-    msg!("Subject created: {} (match_mode: {})", subject_id, match_mode);
+    msg!("Subject created: {} (match_mode: {}, initial_bond: {}, valid: {})",
+         subject_id, match_mode, initial_bond, has_backing);
     Ok(())
 }
 
@@ -305,8 +371,41 @@ pub fn add_bond_from_pool(ctx: Context<AddBondFromPool>, amount: u64) -> Result<
     let defender_record = &mut ctx.accounts.defender_record;
     let clock = Clock::get()?;
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+    // Special case: amount == 0 for reviving dormant subjects (link pool, no transfer)
+    // Pool will back the subject when dispute is created
+    if amount == 0 {
+        // Only allow for dormant subjects with pool balance
+        require!(
+            subject.status == SubjectStatus::Dormant,
+            TribunalCraftError::InvalidSubjectStatus
+        );
+        require!(
+            defender_pool.balance > 0,
+            TribunalCraftError::InsufficientPoolBalance
+        );
 
+        // Revive subject - pool backs it (funds transfer on dispute)
+        subject.status = SubjectStatus::Valid;
+        subject.updated_at = clock.unix_timestamp;
+
+        // Create defender record with 0 bond (pool-backed)
+        if defender_record.bonded_at == 0 {
+            defender_record.subject_id = subject.subject_id;
+            defender_record.defender = ctx.accounts.defender.key();
+            defender_record.round = subject.round;
+            defender_record.bond = 0;
+            defender_record.source = BondSource::Pool;
+            defender_record.reward_claimed = false;
+            defender_record.bump = ctx.bumps.defender_record;
+            defender_record.bonded_at = clock.unix_timestamp;
+            subject.defender_count += 1;
+        }
+
+        msg!("Subject revived from dormant (pool-backed, funds transfer on dispute)");
+        return Ok(());
+    }
+
+    // Regular flow: amount > 0, transfer from pool
     // Cap amount to max_bond setting
     let capped_amount = amount.min(defender_pool.max_bond);
     require!(capped_amount > 0, TribunalCraftError::StakeBelowMinimum);

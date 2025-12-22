@@ -149,3 +149,29 @@ pub fn withdraw_pool(ctx: Context<WithdrawPool>, amount: u64) -> Result<()> {
     msg!("Withdrew {} lamports from defender pool", amount);
     Ok(())
 }
+
+/// Update max_bond setting for defender pool
+#[derive(Accounts)]
+pub struct UpdateMaxBond<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = defender_pool.owner == owner.key() @ TribunalCraftError::Unauthorized,
+        seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
+        bump = defender_pool.bump
+    )]
+    pub defender_pool: Account<'info, DefenderPool>,
+}
+
+pub fn update_max_bond(ctx: Context<UpdateMaxBond>, new_max_bond: u64) -> Result<()> {
+    let defender_pool = &mut ctx.accounts.defender_pool;
+    let clock = Clock::get()?;
+
+    defender_pool.max_bond = new_max_bond;
+    defender_pool.updated_at = clock.unix_timestamp;
+
+    msg!("Updated max_bond to {} lamports", new_max_bond);
+    Ok(())
+}

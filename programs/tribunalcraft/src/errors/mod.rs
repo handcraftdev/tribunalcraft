@@ -41,6 +41,13 @@ pub enum TribunalCraftError {
     #[msg("Subject cannot be restored")]
     SubjectCannotBeRestored,
 
+    #[msg("Invalid subject status for this operation")]
+    InvalidSubjectStatus,
+
+    // Pool errors
+    #[msg("Insufficient pool balance")]
+    InsufficientPoolBalance,
+
     // Restoration errors
     #[msg("Restore stake below minimum (must match previous dispute total)")]
     RestoreStakeBelowMinimum,

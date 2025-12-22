@@ -61,19 +61,29 @@ pub mod tribunalcraft {
         instructions::withdraw_pool(ctx, amount)
     }
 
+    /// Update max_bond setting for defender pool
+    pub fn update_max_bond(
+        ctx: Context<UpdateMaxBond>,
+        new_max_bond: u64,
+    ) -> Result<()> {
+        instructions::update_max_bond(ctx, new_max_bond)
+    }
+
     // =========================================================================
     // Subject Instructions
     // =========================================================================
 
     /// Create a subject with Subject + Dispute + Escrow PDAs
+    /// Creator's pool is linked. If initial_bond > 0, transfers from wallet.
     pub fn create_subject(
         ctx: Context<CreateSubject>,
         subject_id: Pubkey,
         details_cid: String,
         match_mode: bool,
         voting_period: i64,
+        initial_bond: u64,
     ) -> Result<()> {
-        instructions::create_subject(ctx, subject_id, details_cid, match_mode, voting_period)
+        instructions::create_subject(ctx, subject_id, details_cid, match_mode, voting_period, initial_bond)
     }
 
     /// Add bond directly from wallet

@@ -2,14 +2,16 @@ use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{
     SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, CHALLENGER_RECORD_SEED,
-    CHALLENGER_POOL_SEED, PROTOCOL_CONFIG_SEED, INITIAL_REPUTATION, SLASH_THRESHOLD,
+    CHALLENGER_POOL_SEED, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED,
+    PROTOCOL_CONFIG_SEED, INITIAL_REPUTATION, SLASH_THRESHOLD,
 };
 use crate::errors::TribunalCraftError;
-use crate::events::{DisputeCreatedEvent, ChallengerJoinedEvent, PoolDepositEvent, PoolWithdrawEvent, PoolType};
+use crate::events::{DisputeCreatedEvent, ChallengerJoinedEvent, PoolDepositEvent, PoolWithdrawEvent, PoolType, BondAddedEvent};
 
 /// Create a dispute against a subject
 /// Reallocs Escrow to add RoundResult slot
 /// Also creates ChallengerPool if it doesn't exist
+/// Auto-pulls min(pool.balance, pool.max_bond) from creator's pool
 #[derive(Accounts)]
 pub struct CreateDispute<'info> {
     #[account(mut)]
@@ -62,6 +64,29 @@ pub struct CreateDispute<'info> {
     )]
     pub challenger_pool: Account<'info, ChallengerPool>,
 
+    /// Creator's defender pool - for auto-matching
+    #[account(
+        mut,
+        seeds = [DEFENDER_POOL_SEED, subject.creator.as_ref()],
+        bump = creator_defender_pool.bump,
+    )]
+    pub creator_defender_pool: Account<'info, DefenderPool>,
+
+    /// Creator's defender record for this round - init_if_needed for pool contribution
+    #[account(
+        init_if_needed,
+        payer = challenger,
+        space = DefenderRecord::LEN,
+        seeds = [
+            DEFENDER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            subject.creator.as_ref(),
+            &subject.round.to_le_bytes()
+        ],
+        bump
+    )]
+    pub creator_defender_record: Account<'info, DefenderRecord>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -76,6 +101,8 @@ pub fn create_dispute(
     let escrow = &mut ctx.accounts.escrow;
     let challenger_record = &mut ctx.accounts.challenger_record;
     let challenger_pool = &mut ctx.accounts.challenger_pool;
+    let creator_defender_pool = &mut ctx.accounts.creator_defender_pool;
+    let creator_defender_record = &mut ctx.accounts.creator_defender_record;
     let clock = Clock::get()?;
 
     // Initialize challenger pool if newly created
@@ -89,7 +116,70 @@ pub fn create_dispute(
 
     require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
 
-    // In match mode, stake cannot exceed available_bond
+    // Auto-pull from creator's defender pool only if available_bond == 0
+    // If subject already has direct bond, don't pull from pool
+    let pool_contribution = if subject.available_bond == 0 {
+        creator_defender_pool.balance.min(creator_defender_pool.max_bond)
+    } else {
+        0
+    };
+
+    if pool_contribution > 0 {
+        // Deduct from pool balance
+        creator_defender_pool.balance = creator_defender_pool.balance.saturating_sub(pool_contribution);
+        creator_defender_pool.updated_at = clock.unix_timestamp;
+
+        // Transfer from pool PDA to subject PDA
+        let creator_key = subject.creator;
+        let pool_seeds = &[
+            DEFENDER_POOL_SEED,
+            creator_key.as_ref(),
+            &[creator_defender_pool.bump],
+        ];
+        let pool_signer = &[&pool_seeds[..]];
+
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: creator_defender_pool.to_account_info(),
+                to: subject.to_account_info(),
+            },
+            pool_signer,
+        );
+        anchor_lang::system_program::transfer(cpi_context, pool_contribution)?;
+
+        // Update subject's available_bond
+        subject.available_bond = subject.available_bond.saturating_add(pool_contribution);
+
+        // Update or initialize creator's defender record for this round
+        let is_new_record = creator_defender_record.bonded_at == 0;
+        if is_new_record {
+            creator_defender_record.subject_id = subject.subject_id;
+            creator_defender_record.defender = subject.creator;
+            creator_defender_record.round = subject.round;
+            creator_defender_record.bond = pool_contribution;
+            creator_defender_record.source = BondSource::Pool;
+            creator_defender_record.reward_claimed = false;
+            creator_defender_record.bump = ctx.bumps.creator_defender_record;
+            creator_defender_record.bonded_at = clock.unix_timestamp;
+            subject.defender_count += 1;
+        } else {
+            creator_defender_record.bond = creator_defender_record.bond.saturating_add(pool_contribution);
+        }
+
+        emit!(BondAddedEvent {
+            subject_id: subject.subject_id,
+            defender: subject.creator,
+            round: subject.round,
+            amount: pool_contribution,
+            source: BondSource::Pool,
+            timestamp: clock.unix_timestamp,
+        });
+
+        msg!("Auto-pulled {} lamports from creator's pool to available_bond", pool_contribution);
+    }
+
+    // In match mode, stake cannot exceed available_bond (after pool contribution)
     if subject.match_mode {
         require!(
             stake <= subject.available_bond,
@@ -107,7 +197,7 @@ pub fn create_dispute(
     );
     anchor_lang::system_program::transfer(cpi_context, stake)?;
 
-    // Calculate bond_at_risk based on mode
+    // Calculate bond_at_risk based on mode (using updated available_bond)
     let bond_at_risk = if subject.match_mode {
         stake.min(subject.available_bond)
     } else {
