@@ -14,8 +14,8 @@
 | Features Completeness | 95% Complete | ~~1~~ 0 | ~~4~~ 3 | ~~4~~ 2 |
 | Data Integrity | Strong | ~~5~~ 0 | ~~2~~ 0 | 3 |
 | Economic Consistency | Good | 0 | 2 | 3 |
-| Security & Risk | Improved | ~~2~~ 0 | ~~3~~ 1 | ~~4~~ 3 |
-| Process Congruency | Strong | ~~1~~ 0 | ~~3~~ 2 | 1 |
+| Security & Risk | Improved | ~~2~~ 0 | ~~3~~ 1 | ~~4~~ 1 |
+| Process Congruency | Strong | ~~1~~ 0 | ~~3~~ 0 | 1 |
 
 **Production Blockers:** ~~4~~ 0 critical issues - All resolved
 
@@ -40,6 +40,10 @@ The following issues have been resolved:
 | FC-8: Vote accuracy hardcoded | Added getJurorVoteStats query with real accuracy | `queries.ts`, `analytics/page.tsx` |
 | DI-5: Hardcoded round 0 | Added round params to hook functions, callers pass round | `useTribunalcraft.ts`, `registry/page.tsx`, `profile/page.tsx` |
 | SR-9: Debug console.log | Removed debug logs, kept error logging | `SubjectModal.tsx`, `profile/page.tsx` |
+| SR-6: Missing CORS config | Added CORS headers for API routes | `next.config.ts` |
+| SR-8: No simulation | Enabled simulateFirst for better errors | `useTribunalcraft.ts` |
+| PC-2: Status badge priority | Reordered to show most actionable first | `types.ts` |
+| PC-3: Dormant revival UX | Clearer success messages with status + next steps | `registry/page.tsx`, `profile/page.tsx` |
 
 ---
 
@@ -188,11 +192,11 @@ Critical security vulnerabilities have been addressed. Rate limiting now protect
 
 ### Medium Priority
 
-| # | Issue | Severity | File | Confidence |
-|---|-------|----------|------|------------|
-| SR-6 | Missing CORS configuration | Medium | `next.config.ts` | Open |
+| # | Issue | Severity | File | Status |
+|---|-------|----------|------|--------|
+| ~~SR-6~~ | ~~Missing CORS configuration~~ | Medium | `next.config.ts` | **FIXED** |
 | SR-7 | Potential XSS via IPFS content | Medium | `/src/hooks/useUpload.ts` | Open |
-| SR-8 | Transaction simulation disabled in production | Medium | `/src/hooks/useTribunalcraft.ts:72-78` | Open |
+| ~~SR-8~~ | ~~Transaction simulation disabled in production~~ | Medium | `/src/hooks/useTribunalcraft.ts` | **FIXED** |
 | ~~SR-9~~ | ~~Excessive debug logging~~ | Medium | Multiple files | **FIXED** |
 
 ### Positive Findings
@@ -223,8 +227,8 @@ State machines and business logic are well-architected with consistent implement
 
 | # | Issue | File | Status |
 |---|-------|------|--------|
-| PC-2 | UI status badge priority issues - race conditions may show wrong status | `/src/components/subject/types.ts:27-34` | Open |
-| PC-3 | Dormant subject revival UX confusion - unclear success messages | `/src/app/registry/page.tsx:955-967` | Open |
+| ~~PC-2~~ | ~~UI status badge priority issues~~ | `/src/components/subject/types.ts` | **FIXED** |
+| ~~PC-3~~ | ~~Dormant subject revival UX confusion~~ | `/src/app/registry/page.tsx`, `/src/app/profile/page.tsx` | **FIXED** |
 | ~~PC-4~~ | ~~Generic error handling in UI~~ | Multiple UI components | **FIXED** |
 
 ### Medium Priority
@@ -293,6 +297,7 @@ All critical blockers have been resolved:
 | `src/lib/supabase/sync.ts` | Slot-aware upsert, LRU failure tracking |
 | `src/lib/error-utils.ts` | **NEW** - SDK-based error parsing utilities |
 | `src/components/subject/SubjectModal.tsx` | Improved error handling with help text |
+| `src/components/subject/types.ts` | Status badge priority reordering |
 
 ---
 
@@ -300,8 +305,8 @@ All critical blockers have been resolved:
 
 | Priority | Count | Key Issues |
 |----------|-------|------------|
-| High | 4 | Activity history, mobile UX, real-time updates, status badge race |
-| Medium | 6 | Evidence viewer, test coverage, CORS, XSS, simulation |
+| High | 4 | Activity history, mobile UX, real-time updates, Supabase RLS |
+| Medium | 5 | Evidence viewer, test coverage, XSS via IPFS, confirmation dialogs |
 
 ---
 
@@ -325,6 +330,10 @@ TribunalCraft demonstrates strong architectural design with comprehensive featur
 - Real vote accuracy calculation in analytics
 - Proper round tracking in all sync operations
 - Debug console.log statements removed
+- CORS headers configured for API routes
+- Transaction simulation enabled for better errors
+- Status badge priority ordering fixed
+- Clear dormant revival/restore success messages
 
 The system is production-ready. All short-term sprint items are complete. Remaining issues are UX improvements that can be addressed post-launch.
 
