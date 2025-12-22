@@ -38,6 +38,26 @@ import {
 } from "@tribunalcraft/sdk";
 import { BN } from "@coral-xyz/anchor";
 
+// Supabase sync functions (fire-and-forget after successful TX)
+import {
+  syncAfterCreateSubject,
+  syncAfterAddBond,
+  syncAfterCreateDispute,
+  syncAfterJoinChallengers,
+  syncAfterVote,
+  syncAfterResolve,
+  syncAfterClaimJuror,
+  syncAfterClaimChallenger,
+  syncAfterClaimDefender,
+  syncAfterUnlockJurorStake,
+  syncAfterRegisterJuror,
+  syncAfterJurorStakeChange,
+  syncAfterCreateDefenderPool,
+  syncAfterDefenderPoolChange,
+  syncAfterChallengerStakeChange,
+  syncAfterSubmitRestore,
+} from "@/lib/supabase/sync";
+
 /**
  * React hook wrapper for TribunalCraft SDK (V2)
  * Integrates with Solana wallet adapter for seamless wallet management
@@ -135,18 +155,40 @@ export const useTribunalcraft = () => {
 
   const createDefenderPool = useCallback(async (initialAmount: BN, maxBond: BN = new BN(0)) => {
     if (!client) throw new Error("Client not initialized");
-    return client.createDefenderPool(initialAmount, maxBond);
-  }, [client]);
+    const result = await client.createDefenderPool(initialAmount, maxBond);
+    // Sync fires on success (throws on failure)
+    if (wallet.publicKey) {
+      syncAfterCreateDefenderPool(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const depositDefenderPool = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.depositDefenderPool(amount);
-  }, [client]);
+    const result = await client.depositDefenderPool(amount);
+    if (wallet.publicKey) {
+      syncAfterDefenderPoolChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const withdrawDefenderPool = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.withdrawDefenderPool(amount);
-  }, [client]);
+    const result = await client.withdrawDefenderPool(amount);
+    if (wallet.publicKey) {
+      syncAfterDefenderPoolChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
+
+  const updateMaxBond = useCallback(async (newMaxBond: BN) => {
+    if (!client) throw new Error("Client not initialized");
+    const result = await client.updateMaxBond(newMaxBond);
+    if (wallet.publicKey) {
+      syncAfterDefenderPoolChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   // ===========================================================================
   // Subject Management
@@ -157,20 +199,34 @@ export const useTribunalcraft = () => {
     detailsCid: string;
     matchMode?: boolean;
     votingPeriod: BN;
+    initialBond?: BN;
   }) => {
     if (!client) throw new Error("Client not initialized");
-    return client.createSubject(params);
-  }, [client]);
+    const result = await client.createSubject(params);
+    // Fire-and-forget sync to Supabase (SDK throws on failure)
+    if (wallet.publicKey) {
+      syncAfterCreateSubject(connection, params.subjectId, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const addBondDirect = useCallback(async (subjectId: PublicKey, amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addBondDirect(subjectId, amount);
-  }, [client]);
+    const result = await client.addBondDirect(subjectId, amount);
+    if (wallet.publicKey) {
+      syncAfterAddBond(connection, subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const addBondFromPool = useCallback(async (subjectId: PublicKey, amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addBondFromPool(subjectId, amount);
-  }, [client]);
+    const result = await client.addBondFromPool(subjectId, amount);
+    if (wallet.publicKey) {
+      syncAfterAddBond(connection, subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   // ===========================================================================
   // Juror Management
@@ -178,23 +234,39 @@ export const useTribunalcraft = () => {
 
   const registerJuror = useCallback(async (stakeAmount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.registerJuror(stakeAmount);
-  }, [client]);
+    const result = await client.registerJuror(stakeAmount);
+    if (wallet.publicKey) {
+      syncAfterRegisterJuror(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const addJurorStake = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addJurorStake(amount);
-  }, [client]);
+    const result = await client.addJurorStake(amount);
+    if (wallet.publicKey) {
+      syncAfterJurorStakeChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const withdrawJurorStake = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.withdrawJurorStake(amount);
-  }, [client]);
+    const result = await client.withdrawJurorStake(amount);
+    if (wallet.publicKey) {
+      syncAfterJurorStakeChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const unregisterJuror = useCallback(async () => {
     if (!client) throw new Error("Client not initialized");
-    return client.unregisterJuror();
-  }, [client]);
+    const result = await client.unregisterJuror();
+    if (wallet.publicKey) {
+      syncAfterJurorStakeChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   // ===========================================================================
   // Dispute Management
@@ -207,8 +279,12 @@ export const useTribunalcraft = () => {
     stake: BN;
   }) => {
     if (!client) throw new Error("Client not initialized");
-    return client.createDispute(params);
-  }, [client]);
+    const result = await client.createDispute(params);
+    if (wallet.publicKey) {
+      syncAfterCreateDispute(connection, params.subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const joinChallengers = useCallback(async (params: {
     subjectId: PublicKey;
@@ -216,18 +292,30 @@ export const useTribunalcraft = () => {
     stake: BN;
   }) => {
     if (!client) throw new Error("Client not initialized");
-    return client.joinChallengers(params);
-  }, [client]);
+    const result = await client.joinChallengers(params);
+    if (wallet.publicKey) {
+      syncAfterJoinChallengers(connection, params.subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const addChallengerStake = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.addChallengerStake(amount);
-  }, [client]);
+    const result = await client.addChallengerStake(amount);
+    if (wallet.publicKey) {
+      syncAfterChallengerStakeChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const withdrawChallengerStake = useCallback(async (amount: BN) => {
     if (!client) throw new Error("Client not initialized");
-    return client.withdrawChallengerStake(amount);
-  }, [client]);
+    const result = await client.withdrawChallengerStake(amount);
+    if (wallet.publicKey) {
+      syncAfterChallengerStakeChange(connection, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const submitRestore = useCallback(async (params: {
     subjectId: PublicKey;
@@ -236,8 +324,12 @@ export const useTribunalcraft = () => {
     stakeAmount: BN;
   }) => {
     if (!client) throw new Error("Client not initialized");
-    return client.submitRestore(params);
-  }, [client]);
+    const result = await client.submitRestore(params);
+    if (wallet.publicKey) {
+      syncAfterSubmitRestore(connection, params.subjectId, wallet.publicKey);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   // ===========================================================================
   // Voting
@@ -250,13 +342,17 @@ export const useTribunalcraft = () => {
     rationaleCid: string = ""
   ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.voteOnDispute({
+    const result = await client.voteOnDispute({
       subjectId,
       choice,
       stakeAllocation,
       rationaleCid,
     });
-  }, [client]);
+    if (wallet.publicKey) {
+      syncAfterVote(connection, subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const voteOnRestore = useCallback(async (
     subjectId: PublicKey,
@@ -265,13 +361,17 @@ export const useTribunalcraft = () => {
     rationaleCid: string = ""
   ) => {
     if (!client) throw new Error("Client not initialized");
-    return client.voteOnRestore({
+    const result = await client.voteOnRestore({
       subjectId,
       choice,
       stakeAllocation,
       rationaleCid,
     });
-  }, [client]);
+    if (wallet.publicKey) {
+      syncAfterVote(connection, subjectId, wallet.publicKey, 0);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   // ===========================================================================
   // Resolution
@@ -279,8 +379,10 @@ export const useTribunalcraft = () => {
 
   const resolveDispute = useCallback(async (subjectId: PublicKey) => {
     if (!client) throw new Error("Client not initialized");
-    return client.resolveDispute({ subjectId });
-  }, [client]);
+    const result = await client.resolveDispute({ subjectId });
+    syncAfterResolve(connection, subjectId);
+    return result;
+  }, [client, connection]);
 
   // ===========================================================================
   // Reward Claims
@@ -288,23 +390,39 @@ export const useTribunalcraft = () => {
 
   const claimJuror = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.claimJuror({ subjectId, round });
-  }, [client]);
+    const result = await client.claimJuror({ subjectId, round });
+    if (wallet.publicKey) {
+      syncAfterClaimJuror(connection, subjectId, wallet.publicKey, round);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const claimChallenger = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.claimChallenger({ subjectId, round });
-  }, [client]);
+    const result = await client.claimChallenger({ subjectId, round });
+    if (wallet.publicKey) {
+      syncAfterClaimChallenger(connection, subjectId, wallet.publicKey, round);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const claimDefender = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.claimDefender({ subjectId, round });
-  }, [client]);
+    const result = await client.claimDefender({ subjectId, round });
+    if (wallet.publicKey) {
+      syncAfterClaimDefender(connection, subjectId, wallet.publicKey, round);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const unlockJurorStake = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.unlockJurorStake({ subjectId, round });
-  }, [client]);
+    const result = await client.unlockJurorStake({ subjectId, round });
+    if (wallet.publicKey) {
+      syncAfterUnlockJurorStake(connection, subjectId, wallet.publicKey, round);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
 
   const batchClaimRewards = useCallback(async (params: {
     jurorClaims?: Array<{ subjectId: PublicKey; round: number }>;
@@ -625,6 +743,7 @@ export const useTribunalcraft = () => {
     createDefenderPool,
     depositDefenderPool,
     withdrawDefenderPool,
+    updateMaxBond,
     // Subject
     createSubject,
     addBondDirect,
