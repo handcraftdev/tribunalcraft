@@ -978,7 +978,7 @@ export default function RegistryPage() {
         stakeAmount,
       });
 
-      setSuccess("Restoration request submitted");
+      setSuccess("Restoration request submitted! Subject is now in 'Restoring' status. Jurors will vote on whether to restore it to Valid.");
       setShowRestore(null);
       await loadData();
     } catch (err: any) {
@@ -1004,11 +1004,13 @@ export default function RegistryPage() {
       if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
         await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
-        setSuccess("Vote cast on restoration request");
+        const voteDirection = choice === "forRestoration" ? "for restoration" : "against restoration";
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
-        setSuccess("Vote cast");
+        const voteDirection = choice === "forChallenger" ? "for challenger" : "for defender";
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
       }
       await loadData();
     } catch (err: any) {
@@ -1035,11 +1037,17 @@ export default function RegistryPage() {
         // Revive from pool - just link pool, no fund transfer (funds transfer on dispute)
         await addBondFromPool(subject.account.subjectId, new BN(0), round);
         const poolBacking = creatorPoolBackings[subject.publicKey.toBase58()] ?? 0;
-        setSuccess(isDormant ? `Subject revived (backed by pool: ${(poolBacking / LAMPORTS_PER_SOL).toFixed(6)} SOL)` : "Linked to pool");
+        setSuccess(isDormant
+          ? `Subject is now Valid. Backed by pool (${(poolBacking / LAMPORTS_PER_SOL).toFixed(4)} SOL). Can be challenged again.`
+          : "Linked to defender pool"
+        );
       } else {
         // Direct bond from wallet
         await addBondDirect(subject.account.subjectId, bond, round);
-        setSuccess(isDormant ? `Subject revived with ${amount} SOL` : `Added ${amount} SOL bond`);
+        setSuccess(isDormant
+          ? `Subject is now Valid. Added ${amount} SOL bond. Can be challenged again.`
+          : `Added ${amount} SOL bond`
+        );
       }
       await loadData();
     } catch (err: any) {

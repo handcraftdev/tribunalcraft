@@ -900,11 +900,13 @@ export default function JurorPage() {
       if (isRestore) {
         const restoreChoice = { [choice]: {} } as any;
         await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
-        setSuccess("Vote cast on restoration request");
+        const voteDirection = choice === "forRestoration" ? "for restoration" : "against restoration";
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
-        setSuccess("Vote cast");
+        const voteDirection = choice === "forChallenger" ? "for challenger" : "for defender";
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
       }
       await loadData();
     } catch (err: any) {
