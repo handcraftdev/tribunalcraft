@@ -247,7 +247,7 @@ export default function LandingPage() {
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 w-full">
-          <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[calc(100vh-10rem)]">
+          <div className="grid lg:grid-cols-2 gap-12 items-start min-h-[calc(100vh-10rem)]">
             <div className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-8">
                 <span className="relative flex h-1.5 w-1.5">
@@ -298,7 +298,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className={`hidden lg:block h-[380px] transition-all duration-1000 delay-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+            <div className={`hidden lg:flex items-center h-[380px] self-center transition-all duration-1000 delay-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
               <AnimatedScales />
             </div>
           </div>
