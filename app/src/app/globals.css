@@ -74,6 +74,12 @@
 html {
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+  scroll-padding-top: 6rem;
+}
+
+/* Anchor link offset for fixed navbar */
+[id] {
+  scroll-margin-top: 6rem;
 }
 
 body {
