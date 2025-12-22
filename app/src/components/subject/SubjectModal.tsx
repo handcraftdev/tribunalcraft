@@ -20,6 +20,7 @@ import {
 } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
+import { EvidenceViewer } from "./EvidenceViewer";
 import type { DisputeContent } from "@tribunalcraft/sdk";
 
 // Safe BN to number conversion (handles overflow)
@@ -514,8 +515,8 @@ const HistoryItem = memo(function HistoryItem({
 
       {/* Claim Modal - V1 style */}
       {showClaimModal && (
-        <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-[60] pt-28 px-4 pb-4" onClick={() => setShowClaimModal(false)}>
-          <div className="tribunal-modal max-w-md w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-[60] pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={() => setShowClaimModal(false)}>
+          <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-md max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
               <h3 className="font-display text-sm font-semibold text-gold">Claim Rewards</h3>
               <button onClick={() => setShowClaimModal(false)} className="text-steel hover:text-parchment">
@@ -620,6 +621,9 @@ const HistoryItem = memo(function HistoryItem({
                 <p className="text-[10px] text-steel uppercase tracking-wider mb-0.5">Requested Outcome</p>
                 <p className="text-xs text-parchment">{disputeContent.requestedOutcome}</p>
               </div>
+            )}
+            {disputeContent?.evidence && disputeContent.evidence.length > 0 && (
+              <EvidenceViewer evidence={disputeContent.evidence} />
             )}
             {/* Resolution info */}
             {!isPending && (
@@ -1319,10 +1323,10 @@ export const SubjectModal = memo(function SubjectModal({
   });
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
       <div
         ref={modalScrollRef}
-        className="tribunal-modal max-w-4xl w-full max-h-[calc(100vh-8rem)] overflow-y-auto relative"
+        className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto relative"
         onClick={e => e.stopPropagation()}
       >
         {/* Close button */}
@@ -1330,7 +1334,7 @@ export const SubjectModal = memo(function SubjectModal({
           <XIcon />
         </button>
 
-        <div className="p-4 space-y-4">
+        <div className="p-3 sm:p-4 space-y-4">
           {/* SUBJECT INFO (when no active dispute) */}
           {(!activeDispute || !isPending) && (
             <div className="space-y-2">
@@ -1339,7 +1343,7 @@ export const SubjectModal = memo(function SubjectModal({
                   <div className="w-1 h-4 bg-sky-500 rounded"></div>
                   <h4 className="text-xs font-semibold text-sky-400 uppercase tracking-wider">Subject</h4>
                 </div>
-                <p className="text-[10px] text-steel mt-1 ml-3">{subjectKey}</p>
+                <p className="text-[10px] text-steel mt-1 ml-3 truncate">{subjectKey}</p>
               </div>
               <div className="p-3 bg-obsidian border border-sky-500/30 space-y-2">
                 <div className="flex items-center justify-between">
@@ -1608,7 +1612,7 @@ export const SubjectModal = memo(function SubjectModal({
                     <div className="w-1 h-4 bg-sky rounded"></div>
                     <h4 className="text-xs font-semibold text-sky uppercase tracking-wider">Defender</h4>
                   </div>
-                  <p className="text-[10px] text-steel mt-1 ml-3">{subjectKey}</p>
+                  <p className="text-[10px] text-steel mt-1 ml-3 truncate">{subjectKey}</p>
                 </div>
                 <div className="p-3 bg-obsidian border border-sky-500/30 space-y-2 flex-1">
                   <div className="flex items-center justify-between">
@@ -1745,6 +1749,9 @@ export const SubjectModal = memo(function SubjectModal({
                           <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Requested Outcome</p>
                           <p className="text-steel text-xs">{disputeContent.requestedOutcome}</p>
                         </div>
+                      )}
+                      {disputeContent.evidence && disputeContent.evidence.length > 0 && (
+                        <EvidenceViewer evidence={disputeContent.evidence} getIpfsUrl={getIpfsUrl} />
                       )}
                     </>
                   ) : (

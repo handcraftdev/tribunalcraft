@@ -11,6 +11,7 @@ import type { DisputeType, JurorPool, ChallengerPool } from "@/hooks/useTribunal
 import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { getSubjects, getDisputes } from "@/lib/supabase/queries";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
@@ -66,10 +67,10 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
-          <h3 className="font-display text-lg font-semibold text-ivory">File Dispute</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">File Dispute</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
@@ -160,10 +161,10 @@ const RestoreModal = memo(function RestoreModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
-          <h3 className="font-display text-lg font-semibold text-ivory">Restore Subject</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">Restore Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
@@ -255,10 +256,10 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-28 px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal max-w-lg w-full max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
-          <h3 className="font-display text-lg font-semibold text-ivory">Create Subject</h3>
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
+      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
+          <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">Create Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
         </div>
         <div className="p-4 space-y-4">
@@ -397,6 +398,13 @@ export default function RegistryPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: "danger" | "warning" | "info";
+    onConfirm: () => void;
+  }>({ isOpen: false, title: "", message: "", variant: "warning", onConfirm: () => {} });
 
   // Juror state
   const [jurorPool, setJurorPool] = useState<any>(null);
@@ -1085,21 +1093,31 @@ export default function RegistryPage() {
   // V2: handleResolve uses subjectId
   const handleResolve = useCallback(async (subjectIdKey: string) => {
     if (!publicKey || !selectedItem) return;
-    setActionLoading(true);
-    setError(null);
-    try {
-      const subjectId = new PublicKey(subjectIdKey);
-      await resolveDispute(subjectId);
-      setSuccess("Dispute resolved");
-      setSelectedItem(null);
-      await loadData();
-    } catch (err: any) {
-      if (isUserCancellation(err)) return;
-      const message = getUserFriendlyErrorMessage(err);
-      const help = getErrorHelp(err);
-      setError(help ? `${message} ${help}` : message);
-    }
-    setActionLoading(false);
+
+    setConfirmDialog({
+      isOpen: true,
+      title: "Resolve Dispute",
+      message: "Are you sure you want to resolve this dispute? The outcome will be finalized based on current votes and cannot be changed.",
+      variant: "warning",
+      onConfirm: async () => {
+        setConfirmDialog(d => ({ ...d, isOpen: false }));
+        setActionLoading(true);
+        setError(null);
+        try {
+          const subjectId = new PublicKey(subjectIdKey);
+          await resolveDispute(subjectId);
+          setSuccess("Dispute resolved");
+          setSelectedItem(null);
+          await loadData();
+        } catch (err: any) {
+          if (isUserCancellation(err)) return;
+          const message = getUserFriendlyErrorMessage(err);
+          const help = getErrorHelp(err);
+          setError(help ? `${message} ${help}` : message);
+        }
+        setActionLoading(false);
+      },
+    });
   }, [publicKey, selectedItem, resolveDispute, loadData]);
 
   // V2: handleClaimAll uses subjectId and round
@@ -1636,6 +1654,16 @@ export default function RegistryPage() {
         subjectContent={restoreSubjectContent}
         minStake={restoreSubject?.account.lastDisputeTotal?.toNumber() ?? 0}
         isLoading={actionLoading || isUploading}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(d => ({ ...d, isOpen: false }))}
       />
     </div>
   );
