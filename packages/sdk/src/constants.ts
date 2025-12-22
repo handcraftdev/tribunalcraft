@@ -29,9 +29,9 @@ export const TREASURY_SWEEP_PERIOD = 90 * 24 * 60 * 60; // 90 days in seconds
 export const BOT_REWARD_BPS = 100; // 1% bot reward for treasury sweep
 
 // Stake Constants
-export const MIN_JUROR_STAKE = 100_000_000; // 0.1 SOL in lamports
-export const MIN_CHALLENGER_BOND = 100_000_000; // 0.1 SOL in lamports
-export const MIN_DEFENDER_STAKE = 100_000_000; // 0.1 SOL in lamports
+export const MIN_JUROR_STAKE = 10_000_000; // 0.01 SOL in lamports
+export const MIN_CHALLENGER_BOND = 10_000_000; // 0.01 SOL in lamports
+export const MIN_DEFENDER_STAKE = 10_000_000; // 0.01 SOL in lamports
 export const BASE_CHALLENGER_BOND = 10_000_000; // 0.01 SOL - base for reputation calculation
 
 // Time Constants

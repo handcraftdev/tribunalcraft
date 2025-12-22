@@ -437,30 +437,61 @@ export class TribunalCraftClient {
     return { signature };
   }
 
+  /**
+   * Update max_bond setting for defender pool
+   */
+  async updateMaxBond(newMaxBond: BN): Promise<TransactionResult> {
+    const { program } = this.getWalletAndProgram();
+
+    const signature = await program.methods
+      .updateMaxBond(newMaxBond)
+      .rpc();
+
+    return { signature };
+  }
+
   // ===========================================================================
   // Subject Management
   // ===========================================================================
 
   /**
    * Create a subject with its associated Dispute and Escrow accounts
-   * In V2, subjects are created in Dormant status and become Valid when bond is added
+   * Creator's pool is linked automatically. If initialBond > 0, transfers from wallet.
+   * Subject starts as Valid if pool.balance > 0 or initialBond > 0.
    */
   async createSubject(params: {
     subjectId: PublicKey;
     detailsCid: string;
     matchMode?: boolean;
     votingPeriod: BN;
+    initialBond?: BN;
   }): Promise<TransactionResult> {
     const { wallet, program } = this.getWalletAndProgram();
     const [subject] = this.pda.subject(params.subjectId);
     const [dispute] = this.pda.dispute(params.subjectId);
     const [escrow] = this.pda.escrow(params.subjectId);
+    const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
+    const [defenderRecord] = this.pda.defenderRecord(params.subjectId, wallet.publicKey, 0);
 
     const signature = await program.methods
-      .createSubject(params.subjectId, params.detailsCid, params.matchMode ?? true, params.votingPeriod)
+      .createSubject(
+        params.subjectId,
+        params.detailsCid,
+        params.matchMode ?? true,
+        params.votingPeriod,
+        params.initialBond ?? new BN(0)
+      )
+      .accountsPartial({
+        creator: wallet.publicKey,
+        subject,
+        dispute,
+        escrow,
+        defenderPool,
+        defenderRecord,
+      })
       .rpc();
 
-    return { signature, accounts: { subject, dispute, escrow } };
+    return { signature, accounts: { subject, dispute, escrow, defenderPool, defenderRecord } };
   }
 
   /**
@@ -632,6 +663,7 @@ export class TribunalCraftClient {
   /**
    * Create a new dispute against a subject
    * This initiates the dispute and creates a ChallengerRecord for the caller
+   * Auto-pulls min(pool.balance, max_bond) from creator's defender pool
    */
   async createDispute(params: {
     subjectId: PublicKey;
@@ -653,6 +685,14 @@ export class TribunalCraftClient {
     );
     const [challengerPool] = this.pda.challengerPool(wallet.publicKey);
 
+    // Creator's defender pool and record for auto-matching
+    const [creatorDefenderPool] = this.pda.defenderPool(subject.creator);
+    const [creatorDefenderRecord] = this.pda.defenderRecord(
+      params.subjectId,
+      subject.creator,
+      subject.round
+    );
+
     const methodBuilder = program.methods
       .createDispute(params.disputeType, params.detailsCid, params.stake)
       .accountsPartial({
@@ -662,6 +702,8 @@ export class TribunalCraftClient {
         escrow: escrowPda,
         challengerRecord,
         challengerPool,
+        creatorDefenderPool,
+        creatorDefenderRecord,
       });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "createDispute");

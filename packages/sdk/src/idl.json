@@ -1469,6 +1469,86 @@
           }
         },
         {
+          "name": "creator_defender_pool",
+          "docs": [
+            "Creator's defender pool - for auto-matching"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.creator",
+                "account": "Subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_defender_record",
+          "docs": [
+            "Creator's defender record for this round - init_if_needed for pool contribution"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "Subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.creator",
+                "account": "Subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.round",
+                "account": "Subject"
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1495,7 +1575,8 @@
     {
       "name": "create_subject",
       "docs": [
-        "Create a subject with Subject + Dispute + Escrow PDAs"
+        "Create a subject with Subject + Dispute + Escrow PDAs",
+        "Creator's pool is linked. If initial_bond > 0, transfers from wallet."
       ],
       "discriminator": [
         243,
@@ -1585,6 +1666,87 @@
           }
         },
         {
+          "name": "defender_pool",
+          "docs": [
+            "Creator's defender pool - created if doesn't exist"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "defender_record",
+          "docs": [
+            "Creator's defender record for round 0"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "subject_id"
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1605,6 +1767,10 @@
         {
           "name": "voting_period",
           "type": "i64"
+        },
+        {
+          "name": "initial_bond",
+          "type": "u64"
         }
       ]
     },
@@ -2681,6 +2847,65 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "update_max_bond",
+      "docs": [
+        "Update max_bond setting for defender pool"
+      ],
+      "discriminator": [
+        19,
+        70,
+        113,
+        22,
+        140,
+        149,
+        203,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "defender_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_max_bond",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "update_treasury",

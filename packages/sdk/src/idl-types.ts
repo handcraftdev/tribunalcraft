@@ -1475,6 +1475,86 @@ export type Tribunalcraft = {
           }
         },
         {
+          "name": "creatorDefenderPool",
+          "docs": [
+            "Creator's defender pool - for auto-matching"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.creator",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creatorDefenderRecord",
+          "docs": [
+            "Creator's defender record for this round - init_if_needed for pool contribution"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.creator",
+                "account": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "subject.round",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -1501,7 +1581,8 @@ export type Tribunalcraft = {
     {
       "name": "createSubject",
       "docs": [
-        "Create a subject with Subject + Dispute + Escrow PDAs"
+        "Create a subject with Subject + Dispute + Escrow PDAs",
+        "Creator's pool is linked. If initial_bond > 0, transfers from wallet."
       ],
       "discriminator": [
         243,
@@ -1591,6 +1672,87 @@ export type Tribunalcraft = {
           }
         },
         {
+          "name": "defenderPool",
+          "docs": [
+            "Creator's defender pool - created if doesn't exist"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "defenderRecord",
+          "docs": [
+            "Creator's defender record for round 0"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "subjectId"
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -1611,6 +1773,10 @@ export type Tribunalcraft = {
         {
           "name": "votingPeriod",
           "type": "i64"
+        },
+        {
+          "name": "initialBond",
+          "type": "u64"
         }
       ]
     },
@@ -2687,6 +2853,65 @@ export type Tribunalcraft = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "updateMaxBond",
+      "docs": [
+        "Update max_bond setting for defender pool"
+      ],
+      "discriminator": [
+        19,
+        70,
+        113,
+        22,
+        140,
+        149,
+        203,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "defenderPool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newMaxBond",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "updateTreasury",
@@ -4804,6 +5029,10 @@ export type Tribunalcraft = {
             "type": "pubkey"
           },
           {
+            "name": "round",
+            "type": "u32"
+          },
+          {
             "name": "juror",
             "type": "pubkey"
           },
@@ -5312,4 +5541,3 @@ export type Tribunalcraft = {
     }
   ]
 };
-
