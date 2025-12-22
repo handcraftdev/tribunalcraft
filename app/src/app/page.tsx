@@ -198,7 +198,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
               <span className="font-display text-gold text-sm font-semibold">T</span>
             </div>
-            <span className="font-display text-ivory hidden sm:block">TribunalCraft</span>
+            <span className="font-display text-lg text-ivory hidden sm:block">TribunalCraft</span>
           </Link>
 
           <div className="hidden lg:flex items-center gap-8">
@@ -210,7 +210,7 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-4">
             <Link href="/overview" className="hidden sm:block text-sm text-steel hover:text-parchment transition-colors">
-              Dashboard
+              Overview
             </Link>
             <Link
               href="/registry"
@@ -230,7 +230,7 @@ export default function LandingPage() {
           <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-obsidian to-transparent" />
         </div>
 
-        <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 w-full">
           <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[calc(100vh-4rem)]">
             <div className={`transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate/50 border border-slate-light/50 mb-8">
@@ -301,7 +301,7 @@ export default function LandingPage() {
 
       {/* HOW IT WORKS */}
       <section id="how-it-works" className="py-16">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">How It Works</h2>
             <p className="mt-3 text-steel text-sm max-w-md mx-auto">A simple five-step process from creation to resolution</p>
@@ -333,7 +333,7 @@ export default function LandingPage() {
 
       {/* ECONOMICS */}
       <section className="py-16 bg-gradient-to-b from-slate/20 to-transparent">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div className="order-2 lg:order-1">
               <EconomicsVisualization />
@@ -368,7 +368,7 @@ export default function LandingPage() {
 
       {/* TRUST & SECURITY */}
       <section id="trust" className="py-16">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">Trust & Security</h2>
             <p className="mt-3 text-steel text-sm max-w-lg mx-auto">
@@ -413,7 +413,7 @@ export default function LandingPage() {
 
       {/* REPUTATION */}
       <section className="py-16 bg-gradient-to-b from-slate/20 to-transparent">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="max-w-2xl mx-auto text-center">
             <h2 className="font-display text-3xl text-ivory font-medium mb-4">Reputation-Driven Trust</h2>
             <p className="text-steel text-sm mb-8">
@@ -448,7 +448,7 @@ export default function LandingPage() {
 
       {/* THREE ROLES */}
       <section id="roles" className="py-16">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">Three Roles</h2>
             <p className="mt-3 text-steel text-sm">Each participant plays a crucial part in the tribunal</p>
@@ -535,7 +535,7 @@ export default function LandingPage() {
 
       {/* USE CASES */}
       <section id="use-cases" className="py-16 bg-gradient-to-b from-slate/20 to-transparent">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">Use Cases</h2>
             <p className="mt-3 text-steel text-sm">Any scenario where trust and accountability matter</p>
@@ -624,7 +624,7 @@ export default function LandingPage() {
 
       {/* FOOTER */}
       <footer className="border-t border-slate-light/20 py-10">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
