@@ -76,7 +76,6 @@ export const SubjectCard = memo(function SubjectCard({
   const totalVotes = dispute
     ? dispute.account.votesForChallenger.toNumber() + dispute.account.votesForDefender.toNumber()
     : 0;
-  const hasNoVotes = totalVotes === 0;
   const favorPercent = totalVotes > 0
     ? (dispute!.account.votesForChallenger.toNumber() / totalVotes) * 100
     : 50;
@@ -172,102 +171,91 @@ export const SubjectCard = memo(function SubjectCard({
             {disputeContent?.reason?.slice(0, 50) || "..."}
           </p>
 
-          {/* No votes indicator for ended disputes */}
-          {hasNoVotes && votingEnded && (
-            <div className="text-center py-2 mb-2 bg-slate/30 rounded">
-              <span className="text-[10px] text-steel">No votes cast</span>
-            </div>
-          )}
+          {/* Power bar - always show */}
+          <div className="h-1.5 rounded overflow-hidden flex mb-1 bg-obsidian">
+            {isRestore ? (
+              <>
+                <div
+                  className="h-full transition-all"
+                  style={{ width: `${favorPercent}%`, backgroundColor: '#a855f7' }}
+                />
+                <div
+                  className="h-full transition-all"
+                  style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }}
+                />
+              </>
+            ) : (
+              <>
+                <div
+                  className="h-full transition-all"
+                  style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }}
+                />
+                <div
+                  className="h-full transition-all"
+                  style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }}
+                />
+              </>
+            )}
+          </div>
 
-          {/* Power bar - only show if there were votes */}
-          {!hasNoVotes && (
-            <>
-              <div className="h-1.5 rounded overflow-hidden flex mb-1 bg-obsidian">
-                {isRestore ? (
-                  <>
-                    <div
-                      className="h-full transition-all"
-                      style={{ width: `${favorPercent}%`, backgroundColor: '#a855f7' }}
-                    />
-                    <div
-                      className="h-full transition-all"
-                      style={{ width: `${100 - favorPercent}%`, backgroundColor: '#dc2626' }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <div
-                      className="h-full transition-all"
-                      style={{ width: `${100 - favorPercent}%`, backgroundColor: '#0ea5e9' }}
-                    />
-                    <div
-                      className="h-full transition-all"
-                      style={{ width: `${favorPercent}%`, backgroundColor: '#dc2626' }}
-                    />
-                  </>
-                )}
-              </div>
-
-              {/* Vote stats with amounts and counts - combined line */}
-              <div className="flex items-center justify-between text-[10px]">
-                {isRestore ? (
-                  <>
-                    <span>
-                      <span className="text-purple-400">
-                        {(dispute!.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
-                      </span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-purple-400">
-                        {voteCounts ? voteCounts.forChallenger : 0}
-                      </span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
-                    </span>
-                    <span className="text-steel flex items-center gap-1">
-                      <ClockIcon />
-                      <Countdown endTime={dispute!.account.votingEndsAt.toNumber() * 1000} />
-                    </span>
-                    <span>
-                      <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-crimson">
-                        {voteCounts ? voteCounts.forDefender : 0}
-                      </span>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span>
-                      <span className="text-sky">
-                        {(safeToNumber(dispute!.account.bondAtRisk) / LAMPORTS_PER_SOL).toFixed(4)}
-                      </span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-sky">
-                        {voteCounts ? voteCounts.forDefender : 0}
-                      </span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-sky">{(100 - favorPercent).toFixed(0)}%</span>
-                    </span>
-                    <span className="text-steel flex items-center gap-1">
-                      <ClockIcon />
-                      <Countdown endTime={safeToNumber(dispute!.account.votingEndsAt) * 1000} />
-                    </span>
-                    <span>
-                      <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-crimson">
-                        {voteCounts ? voteCounts.forChallenger : 0}
-                      </span>
-                      <span className="text-steel"> · </span>
-                      <span className="text-crimson">
-                        {(safeToNumber(dispute!.account.totalStake) / LAMPORTS_PER_SOL).toFixed(4)}
-                      </span>
-                    </span>
-                  </>
-                )}
-              </div>
-            </>
-          )}
+          {/* Vote stats with amounts and counts - combined line */}
+          <div className="flex items-center justify-between text-[10px]">
+            {isRestore ? (
+              <>
+                <span>
+                  <span className="text-purple-400">
+                    {(dispute!.account.restoreStake.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-purple-400">
+                    {voteCounts ? voteCounts.forChallenger : 0}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-purple-400">{favorPercent.toFixed(0)}%</span>
+                </span>
+                <span className="text-steel flex items-center gap-1">
+                  <ClockIcon />
+                  <Countdown endTime={dispute!.account.votingEndsAt.toNumber() * 1000} />
+                </span>
+                <span>
+                  <span className="text-crimson">{(100 - favorPercent).toFixed(0)}%</span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {voteCounts ? voteCounts.forDefender : 0}
+                  </span>
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  <span className="text-sky">
+                    {(safeToNumber(dispute!.account.bondAtRisk) / LAMPORTS_PER_SOL).toFixed(4)}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-sky">
+                    {voteCounts ? voteCounts.forDefender : 0}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-sky">{(100 - favorPercent).toFixed(0)}%</span>
+                </span>
+                <span className="text-steel flex items-center gap-1">
+                  <ClockIcon />
+                  <Countdown endTime={safeToNumber(dispute!.account.votingEndsAt) * 1000} />
+                </span>
+                <span>
+                  <span className="text-crimson">{favorPercent.toFixed(0)}%</span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {voteCounts ? voteCounts.forChallenger : 0}
+                  </span>
+                  <span className="text-steel"> · </span>
+                  <span className="text-crimson">
+                    {(safeToNumber(dispute!.account.totalStake) / LAMPORTS_PER_SOL).toFixed(4)}
+                  </span>
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
 
