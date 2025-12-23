@@ -96,6 +96,25 @@ pub fn create_dispute(
     details_cid: String,
     stake: u64,
 ) -> Result<()> {
+    // Log ALL account lamports at START
+    let start_challenger = ctx.accounts.challenger.lamports();
+    let start_subject = ctx.accounts.subject.to_account_info().lamports();
+    let start_dispute = ctx.accounts.dispute.to_account_info().lamports();
+    let start_escrow = ctx.accounts.escrow.to_account_info().lamports();
+    let start_challenger_record = ctx.accounts.challenger_record.to_account_info().lamports();
+    let start_challenger_pool = ctx.accounts.challenger_pool.to_account_info().lamports();
+    let start_defender_pool = ctx.accounts.creator_defender_pool.to_account_info().lamports();
+    let start_defender_record = ctx.accounts.creator_defender_record.to_account_info().lamports();
+    let start_total = start_challenger + start_subject + start_dispute + start_escrow
+        + start_challenger_record + start_challenger_pool + start_defender_pool + start_defender_record;
+
+    msg!("=== START BALANCES ===");
+    msg!("challenger={}, subject={}, dispute={}, escrow={}",
+        start_challenger, start_subject, start_dispute, start_escrow);
+    msg!("challenger_record={}, challenger_pool={}, defender_pool={}, defender_record={}",
+        start_challenger_record, start_challenger_pool, start_defender_pool, start_defender_record);
+    msg!("TOTAL START: {}", start_total);
+
     let subject = &mut ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
     let escrow = &mut ctx.accounts.escrow;
@@ -116,56 +135,64 @@ pub fn create_dispute(
 
     require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
 
-    // Auto-pull from creator's defender pool only if available_bond == 0
-    // If subject already has direct bond, don't pull from pool
+    // Auto-pull from creator's defender pool if available_bond == 0
+    // This handles both fresh subjects and pool-backed defenders (where bond wasn't transferred yet)
+    let pool_lamports = creator_defender_pool.to_account_info().lamports();
+    let rent = Rent::get()?;
+    let pool_min_rent = rent.minimum_balance(DefenderPool::LEN);
+    let available_pool_lamports = pool_lamports.saturating_sub(pool_min_rent);
+
+    msg!(
+        "Pool state: lamports={}, min_rent={}, available={}, balance={}, max_bond={}",
+        pool_lamports,
+        pool_min_rent,
+        available_pool_lamports,
+        creator_defender_pool.balance,
+        creator_defender_pool.max_bond
+    );
+    msg!("Subject state: available_bond={}, defender_count={}", subject.available_bond, subject.defender_count);
+
+    // In match mode, only pull what's needed to match the stake
+    // In prop mode, pull up to max_bond (entire bond is at risk)
+    let max_needed = if subject.match_mode {
+        stake  // Only need to match the challenger's stake
+    } else {
+        creator_defender_pool.max_bond  // Prop mode uses full max_bond
+    };
+
+    // Calculate pool contribution
     let pool_contribution = if subject.available_bond == 0 {
-        creator_defender_pool.balance.min(creator_defender_pool.max_bond)
+        // Take minimum of: available lamports, tracked balance, and what's needed
+        available_pool_lamports
+            .min(creator_defender_pool.balance)
+            .min(max_needed)
     } else {
         0
     };
+    msg!("Pool contribution: {} (max_needed={}, match_mode={})", pool_contribution, max_needed, subject.match_mode);
+
+    // Always initialize defender record if it's newly created (init_if_needed)
+    // This ensures proper serialization even when pool_contribution = 0
+    let is_new_record = creator_defender_record.bonded_at == 0;
+    if is_new_record {
+        creator_defender_record.subject_id = subject.subject_id;
+        creator_defender_record.defender = subject.creator;
+        creator_defender_record.round = subject.round;
+        creator_defender_record.bond = 0; // Will be updated if pool_contribution > 0
+        creator_defender_record.source = BondSource::Pool;
+        creator_defender_record.reward_claimed = false;
+        creator_defender_record.bump = ctx.bumps.creator_defender_record;
+        creator_defender_record.bonded_at = clock.unix_timestamp;
+        subject.defender_count += 1;
+        msg!("Initialized new defender record for creator");
+    }
 
     if pool_contribution > 0 {
-        // Deduct from pool balance
+        // Update the data fields first (bookkeeping) - lamport transfer happens at end
         creator_defender_pool.balance = creator_defender_pool.balance.saturating_sub(pool_contribution);
         creator_defender_pool.updated_at = clock.unix_timestamp;
-
-        // Transfer from pool PDA to subject PDA
-        let creator_key = subject.creator;
-        let pool_seeds = &[
-            DEFENDER_POOL_SEED,
-            creator_key.as_ref(),
-            &[creator_defender_pool.bump],
-        ];
-        let pool_signer = &[&pool_seeds[..]];
-
-        let cpi_context = CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            anchor_lang::system_program::Transfer {
-                from: creator_defender_pool.to_account_info(),
-                to: subject.to_account_info(),
-            },
-            pool_signer,
-        );
-        anchor_lang::system_program::transfer(cpi_context, pool_contribution)?;
-
-        // Update subject's available_bond
         subject.available_bond = subject.available_bond.saturating_add(pool_contribution);
-
-        // Update or initialize creator's defender record for this round
-        let is_new_record = creator_defender_record.bonded_at == 0;
-        if is_new_record {
-            creator_defender_record.subject_id = subject.subject_id;
-            creator_defender_record.defender = subject.creator;
-            creator_defender_record.round = subject.round;
-            creator_defender_record.bond = pool_contribution;
-            creator_defender_record.source = BondSource::Pool;
-            creator_defender_record.reward_claimed = false;
-            creator_defender_record.bump = ctx.bumps.creator_defender_record;
-            creator_defender_record.bonded_at = clock.unix_timestamp;
-            subject.defender_count += 1;
-        } else {
-            creator_defender_record.bond = creator_defender_record.bond.saturating_add(pool_contribution);
-        }
+        creator_defender_record.bond = creator_defender_record.bond.saturating_add(pool_contribution);
 
         emit!(BondAddedEvent {
             subject_id: subject.subject_id,
@@ -176,7 +203,7 @@ pub fn create_dispute(
             timestamp: clock.unix_timestamp,
         });
 
-        msg!("Auto-pulled {} lamports from creator's pool to available_bond", pool_contribution);
+        msg!("Pool contribution {} will be transferred at end of instruction", pool_contribution);
     }
 
     // In match mode, stake cannot exceed available_bond (after pool contribution)
@@ -268,8 +295,17 @@ pub fn create_dispute(
     let new_minimum_balance = rent.minimum_balance(new_size);
     let current_lamports = escrow.to_account_info().lamports();
 
+    msg!(
+        "Escrow realloc: rounds={}, new_size={}, current_lamports={}, need={}",
+        escrow.rounds.len(),
+        new_size,
+        current_lamports,
+        new_minimum_balance
+    );
+
     if current_lamports < new_minimum_balance {
         let diff = new_minimum_balance - current_lamports;
+        msg!("Transferring {} lamports for escrow rent", diff);
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             anchor_lang::system_program::Transfer {
@@ -278,9 +314,12 @@ pub fn create_dispute(
             },
         );
         anchor_lang::system_program::transfer(cpi_context, diff)?;
+        msg!("Transfer complete, new escrow lamports: {}", escrow.to_account_info().lamports());
     }
 
+    msg!("Calling resize to new_size={}", new_size);
     escrow.to_account_info().resize(new_size)?;
+    msg!("Resize complete");
 
     emit!(DisputeCreatedEvent {
         subject_id: subject.subject_id,
@@ -291,6 +330,40 @@ pub fn create_dispute(
         voting_ends_at: dispute.voting_ends_at,
         timestamp: clock.unix_timestamp,
     });
+
+    // Do pool contribution lamport transfer at the VERY END, after all CPI calls
+    if pool_contribution > 0 {
+        let pool_before = creator_defender_pool.to_account_info().lamports();
+        let subject_before = subject.to_account_info().lamports();
+        msg!("Pool transfer (at end): pool={}, subject={}", pool_before, subject_before);
+
+        **creator_defender_pool.to_account_info().try_borrow_mut_lamports()? -= pool_contribution;
+        **subject.to_account_info().try_borrow_mut_lamports()? += pool_contribution;
+
+        let pool_after = creator_defender_pool.to_account_info().lamports();
+        let subject_after = subject.to_account_info().lamports();
+        msg!("Pool transfer done: pool={}, subject={}", pool_after, subject_after);
+    }
+
+    // Log ALL account lamports at END
+    let end_challenger = ctx.accounts.challenger.lamports();
+    let end_subject = subject.to_account_info().lamports();
+    let end_dispute = dispute.to_account_info().lamports();
+    let end_escrow = escrow.to_account_info().lamports();
+    let end_challenger_record = challenger_record.to_account_info().lamports();
+    let end_challenger_pool = challenger_pool.to_account_info().lamports();
+    let end_defender_pool = creator_defender_pool.to_account_info().lamports();
+    let end_defender_record = creator_defender_record.to_account_info().lamports();
+    let end_total = end_challenger + end_subject + end_dispute + end_escrow
+        + end_challenger_record + end_challenger_pool + end_defender_pool + end_defender_record;
+
+    msg!("=== END BALANCES ===");
+    msg!("challenger={}, subject={}, dispute={}, escrow={}",
+        end_challenger, end_subject, end_dispute, end_escrow);
+    msg!("challenger_record={}, challenger_pool={}, defender_pool={}, defender_record={}",
+        end_challenger_record, end_challenger_pool, end_defender_pool, end_defender_record);
+    msg!("TOTAL END: {}", end_total);
+    msg!("DIFF: {} (should be 0)", end_total as i128 - start_total as i128);
 
     msg!("Dispute created: round={}, stake={}, bond_at_risk={}", subject.round, stake, bond_at_risk);
     Ok(())
