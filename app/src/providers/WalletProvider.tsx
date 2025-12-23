@@ -1,13 +1,36 @@
 "use client";
 
-import { FC, ReactNode, useMemo, useState, useEffect } from "react";
+import { FC, ReactNode, useMemo, useState, useEffect, useCallback } from "react";
 import {
   ConnectionProvider,
   WalletProvider as SolanaWalletProvider,
+  useWallet,
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { WalletError, WalletReadyState } from "@solana/wallet-adapter-base";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
+
+// Debug component to log wallet state changes
+const WalletDebugger: FC<{ children: ReactNode }> = ({ children }) => {
+  const { wallet, publicKey, connected, connecting, disconnecting, wallets } = useWallet();
+
+  useEffect(() => {
+    console.log("[Wallet Debug] State change:", {
+      wallet: wallet?.adapter.name,
+      publicKey: publicKey?.toBase58(),
+      connected,
+      connecting,
+      disconnecting,
+      availableWallets: wallets.map(w => ({
+        name: w.adapter.name,
+        readyState: WalletReadyState[w.adapter.readyState],
+      })),
+    });
+  }, [wallet, publicKey, connected, connecting, disconnecting, wallets]);
+
+  return <>{children}</>;
+};
 
 interface Props {
   children: ReactNode;
@@ -22,14 +45,24 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
 
-  // Modern wallets (Phantom, Solflare, etc.) auto-register via Standard Wallet interface
+  // Modern wallets auto-register via Standard Wallet interface
   const wallets = useMemo(() => [], []);
 
-  // Use Helius WSS endpoint for transaction confirmations
+  // Connection config with WSS for transaction confirmations
   const config = useMemo(() => ({
     commitment: "confirmed" as const,
     wsEndpoint: process.env.NEXT_PUBLIC_SOLANA_WSS_URL,
   }), []);
+
+  // Log detailed wallet errors
+  const onError = useCallback((error: WalletError) => {
+    console.error("[Wallet] Connection error:", {
+      name: error.name,
+      message: error.message,
+      error: error.error,
+      stack: error.stack,
+    });
+  }, []);
 
   // Don't render children until endpoint is set to ensure we use the Helius RPC proxy
   if (!endpoint) {
@@ -38,8 +71,10 @@ export const WalletProvider: FC<Props> = ({ children }) => {
 
   return (
     <ConnectionProvider endpoint={endpoint} config={config}>
-      <SolanaWalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>{children}</WalletModalProvider>
+      <SolanaWalletProvider wallets={wallets} autoConnect onError={onError}>
+        <WalletModalProvider>
+          <WalletDebugger>{children}</WalletDebugger>
+        </WalletModalProvider>
       </SolanaWalletProvider>
     </ConnectionProvider>
   );
