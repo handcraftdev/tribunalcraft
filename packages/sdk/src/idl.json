@@ -1,5 +1,5 @@
 {
-  "address": "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q",
+  "address": "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz",
   "metadata": {
     "name": "tribunalcraft",
     "version": "0.1.0",
@@ -407,6 +407,157 @@
       "args": [
         {
           "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "add_to_vote",
+      "docs": [
+        "Add stake to an existing vote"
+      ],
+      "discriminator": [
+        202,
+        66,
+        94,
+        152,
+        90,
+        103,
+        240,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "juror",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "juror_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "subject",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "Subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "Subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "juror_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "Subject"
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              },
+              {
+                "kind": "arg",
+                "path": "round"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "round",
+          "type": "u32"
+        },
+        {
+          "name": "additional_stake",
           "type": "u64"
         }
       ]
@@ -3647,6 +3798,19 @@
   ],
   "events": [
     {
+      "name": "AddToVoteEvent",
+      "discriminator": [
+        228,
+        249,
+        101,
+        93,
+        5,
+        47,
+        190,
+        66
+      ]
+    },
+    {
       "name": "BondAddedEvent",
       "discriminator": [
         139,
@@ -3876,6 +4040,46 @@
     }
   ],
   "types": [
+    {
+      "name": "AddToVoteEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "subject_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "juror",
+            "type": "pubkey"
+          },
+          {
+            "name": "additional_stake",
+            "type": "u64"
+          },
+          {
+            "name": "additional_voting_power",
+            "type": "u64"
+          },
+          {
+            "name": "total_stake",
+            "type": "u64"
+          },
+          {
+            "name": "total_voting_power",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "BondAddedEvent",
       "type": {

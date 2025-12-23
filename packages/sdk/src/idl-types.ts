@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/tribunalcraft.json`.
  */
 export type Tribunalcraft = {
-  "address": "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q",
+  "address": "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz",
   "metadata": {
     "name": "tribunalcraft",
     "version": "0.1.0",
@@ -413,6 +413,157 @@ export type Tribunalcraft = {
       "args": [
         {
           "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "addToVote",
+      "docs": [
+        "Add stake to an existing vote"
+      ],
+      "discriminator": [
+        202,
+        66,
+        94,
+        152,
+        90,
+        103,
+        240,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "juror",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "jurorPool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "subject",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "jurorRecord",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "subject"
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              },
+              {
+                "kind": "arg",
+                "path": "round"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "round",
+          "type": "u32"
+        },
+        {
+          "name": "additionalStake",
           "type": "u64"
         }
       ]
@@ -2323,6 +2474,49 @@ export type Tribunalcraft = {
           "writable": true
         },
         {
+          "name": "creatorDefenderPool",
+          "docs": [
+            "Optional: Creator's defender pool for auto-rebond on defender win"
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "subject.creator",
+                "account": "subject"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creatorDefenderRecord",
+          "docs": [
+            "Optional: Creator's defender record to initialize on auto-rebond"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -3653,6 +3847,19 @@ export type Tribunalcraft = {
   ],
   "events": [
     {
+      "name": "addToVoteEvent",
+      "discriminator": [
+        228,
+        249,
+        101,
+        93,
+        5,
+        47,
+        190,
+        66
+      ]
+    },
+    {
       "name": "bondAddedEvent",
       "discriminator": [
         139,
@@ -3882,6 +4089,46 @@ export type Tribunalcraft = {
     }
   ],
   "types": [
+    {
+      "name": "addToVoteEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "subjectId",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "juror",
+            "type": "pubkey"
+          },
+          {
+            "name": "additionalStake",
+            "type": "u64"
+          },
+          {
+            "name": "additionalVotingPower",
+            "type": "u64"
+          },
+          {
+            "name": "totalStake",
+            "type": "u64"
+          },
+          {
+            "name": "totalVotingPower",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "bondAddedEvent",
       "type": {

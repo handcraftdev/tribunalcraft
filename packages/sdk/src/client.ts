@@ -359,7 +359,26 @@ export class TribunalCraftClient {
       }
     }
 
-    return methodBuilder.rpc();
+    try {
+      return await methodBuilder.rpc();
+    } catch (rpcError) {
+      // Log full error details for debugging
+      console.error(`[RPC] ${actionName} failed:`, rpcError);
+
+      // Try to extract and log transaction logs
+      if (rpcError && typeof rpcError === "object") {
+        const err = rpcError as Record<string, unknown>;
+        if ("logs" in err && Array.isArray(err.logs)) {
+          console.error(`[RPC] Transaction logs:`);
+          err.logs.forEach((log: string, i: number) => console.error(`  ${i}: ${log}`));
+        }
+        if ("transactionLogs" in err && Array.isArray(err.transactionLogs)) {
+          console.error(`[RPC] Transaction logs:`);
+          err.transactionLogs.forEach((log: string, i: number) => console.error(`  ${i}: ${log}`));
+        }
+      }
+      throw rpcError;
+    }
   }
 
   // ===========================================================================
@@ -507,12 +526,14 @@ export class TribunalCraftClient {
     const subject = await this.fetchSubjectById(subjectId);
     if (!subject) throw new Error("Subject not found");
 
+    console.log(`[SDK] addBondDirect: amount=${amount.toString()} lamports (${amount.toNumber() / 1e9} SOL)`);
+
     const [subjectPda] = this.pda.subject(subjectId);
     const [disputePda] = this.pda.dispute(subjectId);
     const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
 
-    const signature = await program.methods
+    const methodBuilder = program.methods
       .addBondDirect(amount)
       .accountsPartial({
         defender: wallet.publicKey,
@@ -520,8 +541,9 @@ export class TribunalCraftClient {
         defenderRecord,
         defenderPool,
         dispute: disputePda,
-      })
-      .rpc();
+      });
+
+    const signature = await this.rpcWithSimulation(methodBuilder, "addBondDirect");
 
     return { signature, accounts: { defenderRecord } };
   }
@@ -875,12 +897,48 @@ export class TribunalCraftClient {
     return { signature, accounts: { jurorRecord } };
   }
 
+  /**
+   * Add stake to an existing vote
+   * Increases voting power on an existing JurorRecord
+   */
+  async addToVote(params: {
+    subjectId: PublicKey;
+    round: number;
+    additionalStake: BN;
+  }): Promise<TransactionResult> {
+    const { wallet, program } = this.getWalletAndProgram();
+
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      params.round
+    );
+
+    const methodBuilder = program.methods
+      .addToVote(params.round, params.additionalStake)
+      .accountsPartial({
+        juror: wallet.publicKey,
+        subject: subjectPda,
+        dispute: disputePda,
+        jurorPool,
+        jurorRecord,
+      });
+
+    const signature = await this.rpcWithSimulation(methodBuilder, "addToVote");
+
+    return { signature, accounts: { jurorRecord } };
+  }
+
   // ===========================================================================
   // Resolution
   // ===========================================================================
 
   /**
    * Resolve a dispute after voting period ends (permissionless)
+   * Optionally auto-rebonds from creator's pool if available
    */
   async resolveDispute(params: {
     subjectId: PublicKey;
@@ -895,6 +953,27 @@ export class TribunalCraftClient {
     // Fetch protocol config to get treasury address
     const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
 
+    // Fetch subject to get creator and current round for auto-rebond
+    const subject = await program.account.subject.fetch(subjectPda);
+    const creator = subject.creator;
+    const nextRound = subject.round + 1; // After reset_for_next_round, round will be incremented
+
+    // Check if creator has a defender pool
+    const [creatorDefenderPoolPda] = this.pda.defenderPool(creator);
+    let creatorDefenderPool: PublicKey | null = null;
+    let creatorDefenderRecord: PublicKey | null = null;
+
+    try {
+      const pool = await program.account.defenderPool.fetch(creatorDefenderPoolPda);
+      if (pool && pool.balance.toNumber() > 0) {
+        // Pool exists and has balance, include it for auto-rebond
+        creatorDefenderPool = creatorDefenderPoolPda;
+        [creatorDefenderRecord] = this.pda.defenderRecord(params.subjectId, creator, nextRound);
+      }
+    } catch {
+      // Pool doesn't exist, proceed without auto-rebond
+    }
+
     const methodBuilder = program.methods
       .resolveDispute()
       .accountsPartial({
@@ -904,6 +983,8 @@ export class TribunalCraftClient {
         escrow: escrowPda,
         protocolConfig: protocolConfigPda,
         treasury: protocolConfig.treasury,
+        creatorDefenderPool,
+        creatorDefenderRecord,
       });
 
     const signature = await this.rpcWithSimulation(methodBuilder, "resolveDispute");
@@ -1810,6 +1891,32 @@ export class TribunalCraftClient {
       defenderRecords: defenderRecords.length,
     });
 
+    // Collect unique subject IDs to fetch their disputes
+    const subjectIds = new Set<string>();
+    for (const jr of jurorRecords) subjectIds.add(jr.account.subjectId.toBase58());
+    for (const cr of challengerRecords) subjectIds.add(cr.account.subjectId.toBase58());
+    for (const dr of defenderRecords) subjectIds.add(dr.account.subjectId.toBase58());
+
+    // Fetch disputes to check resolution status and round
+    const disputeInfoMap = new Map<string, { isResolved: boolean; round: number }>(); // subjectId -> info
+    for (const subjectIdStr of subjectIds) {
+      try {
+        const subjectId = new PublicKey(subjectIdStr);
+        const [disputePda] = this.pda.dispute(subjectId);
+        const dispute = await this.fetchDispute(disputePda);
+        if (dispute) {
+          disputeInfoMap.set(subjectIdStr, {
+            isResolved: "resolved" in dispute.status,
+            round: dispute.round,
+          });
+        } else {
+          disputeInfoMap.set(subjectIdStr, { isResolved: false, round: -1 });
+        }
+      } catch {
+        disputeInfoMap.set(subjectIdStr, { isResolved: false, round: -1 });
+      }
+    }
+
     // Build results
     const claims = {
       juror: [] as Array<{ subjectId: PublicKey; round: number; jurorRecord: PublicKey }>,
@@ -1826,57 +1933,104 @@ export class TribunalCraftClient {
 
     const RENT_PER_RECORD = 0.002 * 1e9; // ~0.002 SOL in lamports
 
-    // Process juror records
+    // Process juror records - only claimable if dispute is resolved AND round matches
     for (const jr of jurorRecords) {
-      if (!jr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(jr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = jr.account.round === disputeRound;
+
+      console.log("[scanCollectableRecords] Juror record:", {
+        subjectId: jr.account.subjectId.toBase58(),
+        recordRound: jr.account.round,
+        disputeRound,
+        rewardClaimed: jr.account.rewardClaimed,
+        stakeUnlocked: jr.account.stakeUnlocked,
+        stakeAllocation: jr.account.stakeAllocation.toString(),
+        isResolved,
+        roundMatches,
+      });
+
+      if (!jr.account.rewardClaimed && isResolved && roundMatches) {
+        console.log("[scanCollectableRecords] → Added to CLAIMS");
         claims.juror.push({
           subjectId: jr.account.subjectId,
           round: jr.account.round,
           jurorRecord: jr.publicKey,
         });
         estimatedRewards += 0.001 * 1e9; // placeholder
-      } else {
+      } else if (jr.account.rewardClaimed &&
+                 (jr.account.stakeUnlocked || jr.account.stakeAllocation.toNumber() === 0)) {
+        // Only closeable if reward claimed AND stake is unlocked (or no stake was allocated)
+        console.log("[scanCollectableRecords] → Added to CLOSES");
         closes.juror.push({
           subjectId: jr.account.subjectId,
           round: jr.account.round,
         });
         estimatedRent += RENT_PER_RECORD;
+      } else {
+        console.log("[scanCollectableRecords] → SKIPPED (claimed but stake locked, round mismatch, or not resolved)");
       }
     }
 
-    // Process challenger records
+    // Process challenger records - only claimable if dispute is resolved AND round matches
     for (const cr of challengerRecords) {
-      if (!cr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(cr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = cr.account.round === disputeRound;
+
+      if (!cr.account.rewardClaimed && isResolved && roundMatches) {
         claims.challenger.push({
           subjectId: cr.account.subjectId,
           round: cr.account.round,
           challengerRecord: cr.publicKey,
         });
         estimatedRewards += 0.001 * 1e9; // placeholder
-      } else {
+      } else if (cr.account.rewardClaimed) {
         closes.challenger.push({
           subjectId: cr.account.subjectId,
           round: cr.account.round,
         });
         estimatedRent += RENT_PER_RECORD;
       }
+      // If not resolved, round mismatch, or not claimed, it's an active challenge - skip
     }
 
-    // Process defender records
+    // Process defender records - only claimable if dispute is resolved AND round matches
     for (const dr of defenderRecords) {
-      if (!dr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(dr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = dr.account.round === disputeRound;
+
+      console.log("[scanCollectableRecords] Defender record:", {
+        subjectId: dr.account.subjectId.toBase58(),
+        recordRound: dr.account.round,
+        disputeRound,
+        rewardClaimed: dr.account.rewardClaimed,
+        isResolved,
+        roundMatches,
+      });
+
+      // Only claimable if dispute is resolved AND this record is for that resolved round
+      if (!dr.account.rewardClaimed && isResolved && roundMatches) {
+        console.log("[scanCollectableRecords] → Added to CLAIMS");
         claims.defender.push({
           subjectId: dr.account.subjectId,
           round: dr.account.round,
           defenderRecord: dr.publicKey,
         });
         estimatedRewards += 0.001 * 1e9; // placeholder
-      } else {
+      } else if (dr.account.rewardClaimed) {
+        console.log("[scanCollectableRecords] → Added to CLOSES");
         closes.defender.push({
           subjectId: dr.account.subjectId,
           round: dr.account.round,
         });
         estimatedRent += RENT_PER_RECORD;
+      } else {
+        console.log("[scanCollectableRecords] → SKIPPED (round mismatch, not resolved, or already claimed)");
       }
     }
 

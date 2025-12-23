@@ -119,7 +119,7 @@ var import_web32 = require("@solana/web3.js");
 // src/constants.ts
 var import_web3 = require("@solana/web3.js");
 var PROGRAM_ID = new import_web3.PublicKey(
-  "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q"
+  "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz"
 );
 var PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");
 var DEFENDER_POOL_SEED = Buffer.from("defender_pool");
@@ -302,7 +302,7 @@ var pda = new PDA();
 
 // src/idl.json
 var idl_default = {
-  address: "FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q",
+  address: "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz",
   metadata: {
     name: "tribunalcraft",
     version: "0.1.0",
@@ -710,6 +710,157 @@ var idl_default = {
       args: [
         {
           name: "amount",
+          type: "u64"
+        }
+      ]
+    },
+    {
+      name: "add_to_vote",
+      docs: [
+        "Add stake to an existing vote"
+      ],
+      discriminator: [
+        202,
+        66,
+        94,
+        152,
+        90,
+        103,
+        240,
+        68
+      ],
+      accounts: [
+        {
+          name: "juror",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "juror_pool",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                kind: "account",
+                path: "juror"
+              }
+            ]
+          }
+        },
+        {
+          name: "subject",
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  115,
+                  117,
+                  98,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "dispute",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              }
+            ]
+          }
+        },
+        {
+          name: "juror_record",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  106,
+                  117,
+                  114,
+                  111,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "juror"
+              },
+              {
+                kind: "arg",
+                path: "round"
+              }
+            ]
+          }
+        },
+        {
+          name: "system_program",
+          address: "11111111111111111111111111111111"
+        }
+      ],
+      args: [
+        {
+          name: "round",
+          type: "u32"
+        },
+        {
+          name: "additional_stake",
           type: "u64"
         }
       ]
@@ -3950,6 +4101,19 @@ var idl_default = {
   ],
   events: [
     {
+      name: "AddToVoteEvent",
+      discriminator: [
+        228,
+        249,
+        101,
+        93,
+        5,
+        47,
+        190,
+        66
+      ]
+    },
+    {
       name: "BondAddedEvent",
       discriminator: [
         139,
@@ -4179,6 +4343,46 @@ var idl_default = {
     }
   ],
   types: [
+    {
+      name: "AddToVoteEvent",
+      type: {
+        kind: "struct",
+        fields: [
+          {
+            name: "subject_id",
+            type: "pubkey"
+          },
+          {
+            name: "round",
+            type: "u32"
+          },
+          {
+            name: "juror",
+            type: "pubkey"
+          },
+          {
+            name: "additional_stake",
+            type: "u64"
+          },
+          {
+            name: "additional_voting_power",
+            type: "u64"
+          },
+          {
+            name: "total_stake",
+            type: "u64"
+          },
+          {
+            name: "total_voting_power",
+            type: "u64"
+          },
+          {
+            name: "timestamp",
+            type: "i64"
+          }
+        ]
+      }
+    },
     {
       name: "BondAddedEvent",
       type: {
@@ -6058,7 +6262,23 @@ var _TribunalCraftClient = class _TribunalCraftClient {
         }
       }
     }
-    return methodBuilder.rpc();
+    try {
+      return await methodBuilder.rpc();
+    } catch (rpcError) {
+      console.error(`[RPC] ${actionName} failed:`, rpcError);
+      if (rpcError && typeof rpcError === "object") {
+        const err = rpcError;
+        if ("logs" in err && Array.isArray(err.logs)) {
+          console.error(`[RPC] Transaction logs:`);
+          err.logs.forEach((log, i) => console.error(`  ${i}: ${log}`));
+        }
+        if ("transactionLogs" in err && Array.isArray(err.transactionLogs)) {
+          console.error(`[RPC] Transaction logs:`);
+          err.transactionLogs.forEach((log, i) => console.error(`  ${i}: ${log}`));
+        }
+      }
+      throw rpcError;
+    }
   }
   // ===========================================================================
   // Protocol Config
@@ -6156,17 +6376,19 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     const { wallet, program } = this.getWalletAndProgram();
     const subject = await this.fetchSubjectById(subjectId);
     if (!subject) throw new Error("Subject not found");
+    console.log(`[SDK] addBondDirect: amount=${amount.toString()} lamports (${amount.toNumber() / 1e9} SOL)`);
     const [subjectPda] = this.pda.subject(subjectId);
     const [disputePda] = this.pda.dispute(subjectId);
     const [defenderRecord] = this.pda.defenderRecord(subjectId, wallet.publicKey, subject.round);
     const [defenderPool] = this.pda.defenderPool(wallet.publicKey);
-    const signature = await program.methods.addBondDirect(amount).accountsPartial({
+    const methodBuilder = program.methods.addBondDirect(amount).accountsPartial({
       defender: wallet.publicKey,
       subject: subjectPda,
       defenderRecord,
       defenderPool,
       dispute: disputePda
-    }).rpc();
+    });
+    const signature = await this.rpcWithSimulation(methodBuilder, "addBondDirect");
     return { signature, accounts: { defenderRecord } };
   }
   /**
@@ -6407,11 +6629,36 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     const signature = await this.rpcWithSimulation(methodBuilder, "voteOnRestore");
     return { signature, accounts: { jurorRecord } };
   }
+  /**
+   * Add stake to an existing vote
+   * Increases voting power on an existing JurorRecord
+   */
+  async addToVote(params) {
+    const { wallet, program } = this.getWalletAndProgram();
+    const [subjectPda] = this.pda.subject(params.subjectId);
+    const [disputePda] = this.pda.dispute(params.subjectId);
+    const [jurorPool] = this.pda.jurorPool(wallet.publicKey);
+    const [jurorRecord] = this.pda.jurorRecord(
+      params.subjectId,
+      wallet.publicKey,
+      params.round
+    );
+    const methodBuilder = program.methods.addToVote(params.round, params.additionalStake).accountsPartial({
+      juror: wallet.publicKey,
+      subject: subjectPda,
+      dispute: disputePda,
+      jurorPool,
+      jurorRecord
+    });
+    const signature = await this.rpcWithSimulation(methodBuilder, "addToVote");
+    return { signature, accounts: { jurorRecord } };
+  }
   // ===========================================================================
   // Resolution
   // ===========================================================================
   /**
    * Resolve a dispute after voting period ends (permissionless)
+   * Optionally auto-rebonds from creator's pool if available
    */
   async resolveDispute(params) {
     const { wallet, program } = this.getWalletAndProgram();
@@ -6420,13 +6667,29 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     const [escrowPda] = this.pda.escrow(params.subjectId);
     const [protocolConfigPda] = this.pda.protocolConfig();
     const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
+    const subject = await program.account.subject.fetch(subjectPda);
+    const creator = subject.creator;
+    const nextRound = subject.round + 1;
+    const [creatorDefenderPoolPda] = this.pda.defenderPool(creator);
+    let creatorDefenderPool = null;
+    let creatorDefenderRecord = null;
+    try {
+      const pool = await program.account.defenderPool.fetch(creatorDefenderPoolPda);
+      if (pool && pool.balance.toNumber() > 0) {
+        creatorDefenderPool = creatorDefenderPoolPda;
+        [creatorDefenderRecord] = this.pda.defenderRecord(params.subjectId, creator, nextRound);
+      }
+    } catch {
+    }
     const methodBuilder = program.methods.resolveDispute().accountsPartial({
       resolver: wallet.publicKey,
       subject: subjectPda,
       dispute: disputePda,
       escrow: escrowPda,
       protocolConfig: protocolConfigPda,
-      treasury: protocolConfig.treasury
+      treasury: protocolConfig.treasury,
+      creatorDefenderPool,
+      creatorDefenderRecord
     });
     const signature = await this.rpcWithSimulation(methodBuilder, "resolveDispute");
     return { signature };
@@ -7079,6 +7342,28 @@ var _TribunalCraftClient = class _TribunalCraftClient {
       challengerRecords: challengerRecords.length,
       defenderRecords: defenderRecords.length
     });
+    const subjectIds = /* @__PURE__ */ new Set();
+    for (const jr of jurorRecords) subjectIds.add(jr.account.subjectId.toBase58());
+    for (const cr of challengerRecords) subjectIds.add(cr.account.subjectId.toBase58());
+    for (const dr of defenderRecords) subjectIds.add(dr.account.subjectId.toBase58());
+    const disputeInfoMap = /* @__PURE__ */ new Map();
+    for (const subjectIdStr of subjectIds) {
+      try {
+        const subjectId = new import_web33.PublicKey(subjectIdStr);
+        const [disputePda] = this.pda.dispute(subjectId);
+        const dispute = await this.fetchDispute(disputePda);
+        if (dispute) {
+          disputeInfoMap.set(subjectIdStr, {
+            isResolved: "resolved" in dispute.status,
+            round: dispute.round
+          });
+        } else {
+          disputeInfoMap.set(subjectIdStr, { isResolved: false, round: -1 });
+        }
+      } catch {
+        disputeInfoMap.set(subjectIdStr, { isResolved: false, round: -1 });
+      }
+    }
     const claims = {
       juror: [],
       challenger: [],
@@ -7093,30 +7378,52 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     let estimatedRent = 0;
     const RENT_PER_RECORD = 2e-3 * 1e9;
     for (const jr of jurorRecords) {
-      if (!jr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(jr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = jr.account.round === disputeRound;
+      console.log("[scanCollectableRecords] Juror record:", {
+        subjectId: jr.account.subjectId.toBase58(),
+        recordRound: jr.account.round,
+        disputeRound,
+        rewardClaimed: jr.account.rewardClaimed,
+        stakeUnlocked: jr.account.stakeUnlocked,
+        stakeAllocation: jr.account.stakeAllocation.toString(),
+        isResolved,
+        roundMatches
+      });
+      if (!jr.account.rewardClaimed && isResolved && roundMatches) {
+        console.log("[scanCollectableRecords] \u2192 Added to CLAIMS");
         claims.juror.push({
           subjectId: jr.account.subjectId,
           round: jr.account.round,
           jurorRecord: jr.publicKey
         });
         estimatedRewards += 1e-3 * 1e9;
-      } else {
+      } else if (jr.account.rewardClaimed && (jr.account.stakeUnlocked || jr.account.stakeAllocation.toNumber() === 0)) {
+        console.log("[scanCollectableRecords] \u2192 Added to CLOSES");
         closes.juror.push({
           subjectId: jr.account.subjectId,
           round: jr.account.round
         });
         estimatedRent += RENT_PER_RECORD;
+      } else {
+        console.log("[scanCollectableRecords] \u2192 SKIPPED (claimed but stake locked, round mismatch, or not resolved)");
       }
     }
     for (const cr of challengerRecords) {
-      if (!cr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(cr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = cr.account.round === disputeRound;
+      if (!cr.account.rewardClaimed && isResolved && roundMatches) {
         claims.challenger.push({
           subjectId: cr.account.subjectId,
           round: cr.account.round,
           challengerRecord: cr.publicKey
         });
         estimatedRewards += 1e-3 * 1e9;
-      } else {
+      } else if (cr.account.rewardClaimed) {
         closes.challenger.push({
           subjectId: cr.account.subjectId,
           round: cr.account.round
@@ -7125,19 +7432,35 @@ var _TribunalCraftClient = class _TribunalCraftClient {
       }
     }
     for (const dr of defenderRecords) {
-      if (!dr.account.rewardClaimed) {
+      const disputeInfo = disputeInfoMap.get(dr.account.subjectId.toBase58());
+      const isResolved = disputeInfo?.isResolved ?? false;
+      const disputeRound = disputeInfo?.round ?? -1;
+      const roundMatches = dr.account.round === disputeRound;
+      console.log("[scanCollectableRecords] Defender record:", {
+        subjectId: dr.account.subjectId.toBase58(),
+        recordRound: dr.account.round,
+        disputeRound,
+        rewardClaimed: dr.account.rewardClaimed,
+        isResolved,
+        roundMatches
+      });
+      if (!dr.account.rewardClaimed && isResolved && roundMatches) {
+        console.log("[scanCollectableRecords] \u2192 Added to CLAIMS");
         claims.defender.push({
           subjectId: dr.account.subjectId,
           round: dr.account.round,
           defenderRecord: dr.publicKey
         });
         estimatedRewards += 1e-3 * 1e9;
-      } else {
+      } else if (dr.account.rewardClaimed) {
+        console.log("[scanCollectableRecords] \u2192 Added to CLOSES");
         closes.defender.push({
           subjectId: dr.account.subjectId,
           round: dr.account.round
         });
         estimatedRent += RENT_PER_RECORD;
+      } else {
+        console.log("[scanCollectableRecords] \u2192 SKIPPED (round mismatch, not resolved, or already claimed)");
       }
     }
     return {
