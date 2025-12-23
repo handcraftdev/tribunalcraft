@@ -376,6 +376,23 @@ export const useTribunalcraft = () => {
     return result;
   }, [client, connection, wallet.publicKey]);
 
+  const addToVote = useCallback(async (
+    subjectId: PublicKey,
+    round: number,
+    additionalStake: BN
+  ) => {
+    if (!client) throw new Error("Client not initialized");
+    const result = await client.addToVote({
+      subjectId,
+      round,
+      additionalStake,
+    });
+    if (wallet.publicKey) {
+      syncAfterVote(connection, subjectId, wallet.publicKey, round);
+    }
+    return result;
+  }, [client, connection, wallet.publicKey]);
+
   // ===========================================================================
   // Resolution
   // ===========================================================================
@@ -765,6 +782,7 @@ export const useTribunalcraft = () => {
     // Voting
     voteOnDispute,
     voteOnRestore,
+    addToVote,
     // Resolution
     resolveDispute,
     // Rewards

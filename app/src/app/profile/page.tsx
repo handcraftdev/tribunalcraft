@@ -917,12 +917,12 @@ export default function JurorPage() {
         const restoreChoice = { [choice]: {} } as any;
         await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
         const voteDirection = choice === "forRestoration" ? "for restoration" : "against restoration";
-        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked for 7 days after voting ends.`);
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
         const voteDirection = choice === "forChallenger" ? "for challenger" : "for defender";
-        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked for 7 days after voting ends.`);
       }
       await loadData();
     } catch (err: any) {
@@ -1912,10 +1912,24 @@ export default function JurorPage() {
                       {/* Stats */}
                       <div className="space-y-0 border-t border-slate-light/20 pt-3">
                         <StatRow
-                          label="Balance"
-                          value={(jurorAccount.balance.toNumber() / LAMPORTS_PER_SOL).toFixed(4)}
+                          label="Available"
+                          value={(safeToNumber(jurorAccount.balance) / LAMPORTS_PER_SOL).toFixed(4)}
                           subValue="SOL"
                           color="emerald"
+                        />
+                        {lockedStake > 0 && (
+                          <StatRow
+                            label="Locked"
+                            value={(lockedStake / LAMPORTS_PER_SOL).toFixed(4)}
+                            subValue="SOL"
+                            color="gold"
+                          />
+                        )}
+                        <StatRow
+                          label="Total Stake"
+                          value={((safeToNumber(jurorAccount.balance) + lockedStake) / LAMPORTS_PER_SOL).toFixed(4)}
+                          subValue="SOL"
+                          color="ivory"
                         />
                       </div>
 

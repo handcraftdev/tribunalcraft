@@ -12,8 +12,9 @@ import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { getSubjects, getDisputes } from "@/lib/supabase/queries";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+// Supabase sync not implemented yet - using RPC directly
+// import { getSubjects, getDisputes } from "@/lib/supabase/queries";
+// import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
@@ -530,23 +531,13 @@ export default function RegistryPage() {
       let subjectsData: SubjectData[] = [];
       let disputesData: DisputeData[] = [];
 
-      // Try Supabase first for faster initial load
-      if (isSupabaseConfigured()) {
-        const [supaSubjects, supaDisputes] = await Promise.all([
-          getSubjects(),
-          getDisputes(),
+      // Always use RPC for fresh on-chain data (Supabase sync not implemented yet)
+      if (client) {
+        const [rpcSubjects, rpcDisputes] = await Promise.all([
+          fetchAllSubjects(),
+          fetchAllDisputes(),
         ]);
-        subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
-        disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
-      }
-
-      // Fallback to RPC if Supabase not configured or returned empty
-      if (subjectsData.length === 0 && client) {
-        const rpcSubjects = await fetchAllSubjects();
         subjectsData = rpcSubjects || [];
-      }
-      if (disputesData.length === 0 && client) {
-        const rpcDisputes = await fetchAllDisputes();
         disputesData = rpcDisputes || [];
       }
 
@@ -1013,12 +1004,12 @@ export default function RegistryPage() {
         const restoreChoice = { [choice]: {} } as any;
         await voteOnRestore(subjectId, restoreChoice, stake, rationale, round);
         const voteDirection = choice === "forRestoration" ? "for restoration" : "against restoration";
-        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked for 7 days after voting ends.`);
       } else {
         const voteChoice = { [choice]: {} } as any;
         await voteOnDispute(subjectId, voteChoice, stake, rationale, round);
         const voteDirection = choice === "forChallenger" ? "for challenger" : "for defender";
-        setSuccess(`Vote cast ${voteDirection}. Your stake is locked until voting ends.`);
+        setSuccess(`Vote cast ${voteDirection}. Your stake is locked for 7 days after voting ends.`);
       }
       await loadData();
     } catch (err: any) {
@@ -1038,7 +1029,10 @@ export default function RegistryPage() {
     try {
       const subject = selectedItem.subject;
       const isDormant = subject.account.status.dormant;
-      const bond = new BN(parseFloat(amount || "0") * LAMPORTS_PER_SOL);
+      const parsedAmount = parseFloat(amount || "0");
+      const lamports = parsedAmount * LAMPORTS_PER_SOL;
+      const bond = new BN(lamports);
+      console.log(`[handleAddBond] amount="${amount}", parsed=${parsedAmount}, lamports=${lamports}, BN=${bond.toString()}`);
 
       const round = subject.account.round;
       if (fromPool) {
