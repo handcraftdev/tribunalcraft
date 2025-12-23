@@ -2771,11 +2771,71 @@ var idl_default = {
           writable: true
         },
         {
+          name: "creator_defender_pool",
+          docs: [
+            "Optional: Creator's defender pool to check for auto-rebond"
+          ],
+          writable: true,
+          optional: true
+        },
+        {
+          name: "creator_defender_record",
+          docs: [
+            "Optional: Creator's defender record - initialized via init_if_needed",
+            "Uses subject.creator and next_round for PDA seeds"
+          ],
+          writable: true,
+          optional: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  102,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                kind: "account",
+                path: "subject.subject_id",
+                account: "Subject"
+              },
+              {
+                kind: "account",
+                path: "subject.creator",
+                account: "Subject"
+              },
+              {
+                kind: "arg",
+                path: "next_round"
+              }
+            ]
+          }
+        },
+        {
           name: "system_program",
           address: "11111111111111111111111111111111"
         }
       ],
-      args: []
+      args: [
+        {
+          name: "next_round",
+          type: "u32"
+        }
+      ]
     },
     {
       name: "submit_restore",
@@ -6681,7 +6741,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
       }
     } catch {
     }
-    const methodBuilder = program.methods.resolveDispute().accountsPartial({
+    const methodBuilder = program.methods.resolveDispute(nextRound).accountsPartial({
       resolver: wallet.publicKey,
       subject: subjectPda,
       dispute: disputePda,

@@ -2479,49 +2479,50 @@ export type Tribunalcraft = {
             "Optional: Creator's defender pool for auto-rebond on defender win"
           ],
           "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creatorDefenderRecord",
+          "docs": [
+            "Optional: Creator's defender record - initialized via init_if_needed",
+            "Uses subject.creator and next_round for PDA seeds"
+          ],
+          "writable": true,
           "optional": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  102,
-                  101,
-                  110,
-                  100,
-                  101,
-                  114,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
-                ]
+                "value": [100, 101, 102, 101, 110, 100, 101, 114, 95, 114, 101, 99, 111, 114, 100]
+              },
+              {
+                "kind": "account",
+                "path": "subject.subject_id",
+                "account": "subject"
               },
               {
                 "kind": "account",
                 "path": "subject.creator",
                 "account": "subject"
+              },
+              {
+                "kind": "arg",
+                "path": "next_round"
               }
             ]
           }
-        },
-        {
-          "name": "creatorDefenderRecord",
-          "docs": [
-            "Optional: Creator's defender record to initialize on auto-rebond"
-          ],
-          "writable": true,
-          "optional": true
         },
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "nextRound",
+          "type": "u32"
+        }
+      ]
     },
     {
       "name": "submitRestore",

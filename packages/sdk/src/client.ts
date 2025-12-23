@@ -975,7 +975,7 @@ export class TribunalCraftClient {
     }
 
     const methodBuilder = program.methods
-      .resolveDispute()
+      .resolveDispute(nextRound)
       .accountsPartial({
         resolver: wallet.publicKey,
         subject: subjectPda,
@@ -2746,5 +2746,123 @@ export class TribunalCraftClient {
     } catch {
       return { received: 0, sent: 0, rentReclaimed: 0 };
     }
+  }
+
+  // ===========================================================================
+  // Batch Fetching - Single RPC call for multiple accounts
+  // ===========================================================================
+
+  /**
+   * Account types that can be batch fetched
+   */
+  static readonly ACCOUNT_TYPES = [
+    "dispute",
+    "escrow",
+    "jurorRecord",
+    "challengerRecord",
+    "defenderRecord",
+    "jurorPool",
+    "challengerPool",
+    "defenderPool",
+    "subject",
+  ] as const;
+
+  /**
+   * Batch fetch multiple accounts in a single RPC call
+   *
+   * @example
+   * ```ts
+   * const results = await client.fetchMultiple([
+   *   { address: disputePda, type: "dispute" },
+   *   { address: escrowPda, type: "escrow" },
+   *   { address: jurorRecordPda, type: "jurorRecord" },
+   * ]);
+   * // results[0] is Dispute | null
+   * // results[1] is Escrow | null
+   * // results[2] is JurorRecord | null
+   * ```
+   */
+  async fetchMultiple<T extends { address: PublicKey; type: string }[]>(
+    requests: T
+  ): Promise<Array<any | null>> {
+    if (requests.length === 0) return [];
+
+    // Fetch all accounts in one RPC call
+    const addresses = requests.map(r => r.address);
+    const accountInfos = await this.connection.getMultipleAccountsInfo(addresses);
+
+    // Decode each account based on its type
+    return accountInfos.map((info, i) => {
+      if (!info || !info.data) return null;
+
+      const { type } = requests[i];
+      try {
+        // Map type string to Anchor account name (capitalize first letter)
+        const anchorName = type.charAt(0).toUpperCase() + type.slice(1);
+        return this.anchorProgram.coder.accounts.decode(anchorName, info.data);
+      } catch (err) {
+        // Account doesn't match expected type or decode failed
+        return null;
+      }
+    });
+  }
+
+  /**
+   * Batch fetch for modal - fetches all required data in minimal RPC calls
+   *
+   * This is optimized for the SubjectModal use case where we need:
+   * - Dispute (current round)
+   * - Escrow
+   * - User's records (juror, challenger, defender) for current round
+   *
+   * @returns Object with all fetched data, nulls for missing accounts
+   */
+  async fetchModalData(
+    subjectId: PublicKey,
+    disputeRound: number,
+    userPubkey?: PublicKey | null
+  ): Promise<{
+    dispute: Dispute | null;
+    escrow: Escrow | null;
+    jurorRecord: JurorRecord | null;
+    challengerRecord: ChallengerRecord | null;
+    defenderRecord: DefenderRecord | null;
+  }> {
+    // Calculate all PDAs upfront
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [escrowPda] = this.pda.escrow(subjectId);
+
+    // Build request list
+    const requests: Array<{ address: PublicKey; type: string }> = [
+      { address: disputePda, type: "dispute" },
+      { address: escrowPda, type: "escrow" },
+    ];
+
+    // Add user record PDAs if wallet connected
+    let jurorIdx = -1, challengerIdx = -1, defenderIdx = -1;
+    if (userPubkey) {
+      jurorIdx = requests.length;
+      const [jurorPda] = this.pda.jurorRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: jurorPda, type: "jurorRecord" });
+
+      challengerIdx = requests.length;
+      const [challengerPda] = this.pda.challengerRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: challengerPda, type: "challengerRecord" });
+
+      defenderIdx = requests.length;
+      const [defenderPda] = this.pda.defenderRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: defenderPda, type: "defenderRecord" });
+    }
+
+    // Single RPC call for all accounts
+    const results = await this.fetchMultiple(requests);
+
+    return {
+      dispute: results[0] as Dispute | null,
+      escrow: results[1] as Escrow | null,
+      jurorRecord: jurorIdx >= 0 ? (results[jurorIdx] as JurorRecord | null) : null,
+      challengerRecord: challengerIdx >= 0 ? (results[challengerIdx] as ChallengerRecord | null) : null,
+      defenderRecord: defenderIdx >= 0 ? (results[defenderIdx] as DefenderRecord | null) : null,
+    };
   }
 }
