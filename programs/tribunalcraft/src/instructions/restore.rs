@@ -133,7 +133,6 @@ pub fn submit_restore(
         defender_claims: 0,
         challenger_claims: 0,
         juror_claims: 0,
-        is_restore: true, // Mark as restoration round
     });
 
     // Reset dispute for restoration

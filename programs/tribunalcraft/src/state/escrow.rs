@@ -60,9 +60,6 @@ pub struct RoundResult {
 
     /// Number of jurors who have claimed
     pub juror_claims: u16,
-
-    /// Whether this round is a restoration attempt
-    pub is_restore: bool,
 }
 
 impl RoundResult {
@@ -83,8 +80,12 @@ impl RoundResult {
         2 +     // juror_count
         2 +     // defender_claims
         2 +     // challenger_claims
-        2 +     // juror_claims
-        1;      // is_restore
+        2;      // juror_claims
+
+    /// Check if this round is a restoration (bond_at_risk == 0 means restoration)
+    pub fn is_restore(&self) -> bool {
+        self.bond_at_risk == 0 && self.total_stake > 0
+    }
 
     /// Check if all participants have claimed
     pub fn is_fully_claimed(&self) -> bool {

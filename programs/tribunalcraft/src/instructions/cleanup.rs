@@ -198,7 +198,7 @@ pub fn claim_challenger(ctx: Context<ClaimChallenger>, round: u32) -> Result<()>
     let winner_pool = escrow.rounds[round_idx].winner_pool;
     let total_stake = escrow.rounds[round_idx].total_stake;
     let bond_at_risk = escrow.rounds[round_idx].bond_at_risk;
-    let is_restore = escrow.rounds[round_idx].is_restore;
+    let is_restore = escrow.rounds[round_idx].is_restore();
 
     // Challengers claim based on outcome
     // For restorations: restorer always gets 80% back regardless of outcome
