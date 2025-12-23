@@ -92,8 +92,27 @@ pub fn submit_restore(
     subject.status = SubjectStatus::Restoring;
     subject.updated_at = clock.unix_timestamp;
 
-    // Realloc escrow for new round
+    // Realloc escrow for new round - need to pay for additional rent
     let new_size = Escrow::size_for_rounds(escrow.rounds.len() + 1);
+    let current_size = escrow.to_account_info().data_len();
+    let rent = Rent::get()?;
+    let current_rent = rent.minimum_balance(current_size);
+    let new_rent = rent.minimum_balance(new_size);
+    let rent_diff = new_rent.saturating_sub(current_rent);
+
+    // Transfer rent difference from restorer to escrow
+    if rent_diff > 0 {
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.restorer.to_account_info(),
+                to: escrow.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, rent_diff)?;
+    }
+
+    // Now resize the escrow account
     escrow.to_account_info().resize(new_size)?;
 
     // Add new round result slot
