@@ -46,6 +46,7 @@ import {
   syncAfterJoinChallengers,
   syncAfterVote,
   syncAfterResolve,
+  syncAfterResolveVerified,
   syncAfterClaimJuror,
   syncAfterClaimChallenger,
   syncAfterClaimDefender,
@@ -56,6 +57,15 @@ import {
   syncAfterDefenderPoolChange,
   syncAfterChallengerStakeChange,
   syncAfterSubmitRestore,
+  syncTransaction, // Sync events from transaction
+  // Pre-close sync functions (MUST await before closing)
+  syncBeforeCloseJurorRecord,
+  syncBeforeCloseChallengerRecord,
+  syncBeforeCloseDefenderRecord,
+  syncBeforeBatchClose,
+  // Mark as closed functions
+  markRecordClosed,
+  markRecordsClosed,
 } from "@/lib/supabase/sync";
 
 /**
@@ -206,6 +216,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterCreateSubject(connection, params.subjectId, wallet.publicKey);
     }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -283,6 +297,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterCreateDispute(connection, params.subjectId, wallet.publicKey, params.round ?? 0);
     }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -296,6 +314,10 @@ export const useTribunalcraft = () => {
     const result = await client.joinChallengers(params);
     if (wallet.publicKey) {
       syncAfterJoinChallengers(connection, params.subjectId, wallet.publicKey, params.round ?? 0);
+    }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -353,6 +375,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterVote(connection, subjectId, wallet.publicKey, round);
     }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -373,6 +399,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterVote(connection, subjectId, wallet.publicKey, round);
     }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -390,6 +420,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterVote(connection, subjectId, wallet.publicKey, round);
     }
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -401,6 +435,10 @@ export const useTribunalcraft = () => {
     if (!client) throw new Error("Client not initialized");
     const result = await client.resolveDispute({ subjectId });
     syncAfterResolve(connection, subjectId);
+    // Sync events from transaction
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection]);
 
@@ -414,6 +452,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterClaimJuror(connection, subjectId, wallet.publicKey, round);
     }
+    // Sync events from transaction (RewardClaimedEvent)
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -422,6 +464,10 @@ export const useTribunalcraft = () => {
     const result = await client.claimChallenger({ subjectId, round });
     if (wallet.publicKey) {
       syncAfterClaimChallenger(connection, subjectId, wallet.publicKey, round);
+    }
+    // Sync events from transaction (RewardClaimedEvent)
+    if (result.signature) {
+      syncTransaction(result.signature);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -432,6 +478,10 @@ export const useTribunalcraft = () => {
     if (wallet.publicKey) {
       syncAfterClaimDefender(connection, subjectId, wallet.publicKey, round);
     }
+    // Sync events from transaction (RewardClaimedEvent)
+    if (result.signature) {
+      syncTransaction(result.signature);
+    }
     return result;
   }, [client, connection, wallet.publicKey]);
 
@@ -440,6 +490,10 @@ export const useTribunalcraft = () => {
     const result = await client.unlockJurorStake({ subjectId, round });
     if (wallet.publicKey) {
       syncAfterUnlockJurorStake(connection, subjectId, wallet.publicKey, round);
+    }
+    // Sync events from transaction (StakeUnlockedEvent)
+    if (result.signature) {
+      syncTransaction(result.signature);
     }
     return result;
   }, [client, connection, wallet.publicKey]);
@@ -459,18 +513,78 @@ export const useTribunalcraft = () => {
 
   const closeJurorRecord = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.closeJurorRecord({ subjectId, round });
-  }, [client]);
+    if (!wallet.publicKey) throw new Error("Wallet not connected");
+
+    // Get record PDA for marking as closed
+    const [recordPda] = pda.jurorRecord(subjectId, wallet.publicKey, round);
+
+    // CRITICAL: Sync before closing to preserve historical data
+    try {
+      await syncBeforeCloseJurorRecord(subjectId, wallet.publicKey, round);
+    } catch (err) {
+      console.error("Pre-close sync failed, proceeding with close:", err);
+    }
+
+    // Close the record on-chain
+    const result = await client.closeJurorRecord({ subjectId, round });
+
+    // Mark as closed in Supabase (if transaction succeeded, there's a signature)
+    if (result.signature) {
+      markRecordClosed("jurorRecord", recordPda.toBase58()).catch(console.error);
+    }
+
+    return result;
+  }, [client, wallet.publicKey]);
 
   const closeChallengerRecord = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.closeChallengerRecord({ subjectId, round });
-  }, [client]);
+    if (!wallet.publicKey) throw new Error("Wallet not connected");
+
+    // Get record PDA for marking as closed
+    const [recordPda] = pda.challengerRecord(subjectId, wallet.publicKey, round);
+
+    // CRITICAL: Sync before closing to preserve historical data
+    try {
+      await syncBeforeCloseChallengerRecord(subjectId, wallet.publicKey, round);
+    } catch (err) {
+      console.error("Pre-close sync failed, proceeding with close:", err);
+    }
+
+    // Close the record on-chain
+    const result = await client.closeChallengerRecord({ subjectId, round });
+
+    // Mark as closed in Supabase (if transaction succeeded, there's a signature)
+    if (result.signature) {
+      markRecordClosed("challengerRecord", recordPda.toBase58()).catch(console.error);
+    }
+
+    return result;
+  }, [client, wallet.publicKey]);
 
   const closeDefenderRecord = useCallback(async (subjectId: PublicKey, round: number) => {
     if (!client) throw new Error("Client not initialized");
-    return client.closeDefenderRecord({ subjectId, round });
-  }, [client]);
+    if (!wallet.publicKey) throw new Error("Wallet not connected");
+
+    // Get record PDA for marking as closed
+    const [recordPda] = pda.defenderRecord(subjectId, wallet.publicKey, round);
+
+    // CRITICAL: Sync before closing to preserve historical data
+    try {
+      await syncBeforeCloseDefenderRecord(subjectId, wallet.publicKey, round);
+    } catch (err) {
+      console.error("Pre-close sync failed, proceeding with close:", err);
+    }
+
+    // Close the record on-chain
+    const result = await client.closeDefenderRecord({ subjectId, round });
+
+    // Mark as closed in Supabase (if transaction succeeded, there's a signature)
+    if (result.signature) {
+      markRecordClosed("defenderRecord", recordPda.toBase58()).catch(console.error);
+    }
+
+    return result;
+  }, [client, wallet.publicKey]);
 
   const batchCloseRecords = useCallback(async (records: Array<{
     type: "juror" | "challenger" | "defender";
@@ -478,8 +592,56 @@ export const useTribunalcraft = () => {
     round: number;
   }>) => {
     if (!client) throw new Error("Client not initialized");
-    return client.batchCloseRecords(records);
-  }, [client]);
+    if (!wallet.publicKey) throw new Error("Wallet not connected");
+
+    // Prepare sync requests and record PDAs
+    const syncRequests = records.map(r => {
+      const typeMap = {
+        juror: "jurorRecord" as const,
+        challenger: "challengerRecord" as const,
+        defender: "defenderRecord" as const,
+      };
+      return {
+        type: typeMap[r.type],
+        subjectId: r.subjectId,
+        owner: wallet.publicKey!,
+        round: r.round,
+      };
+    });
+
+    // Get record PDAs for marking as closed
+    const recordPdas = records.map(r => {
+      const pdaFn = {
+        juror: pda.jurorRecord,
+        challenger: pda.challengerRecord,
+        defender: pda.defenderRecord,
+      }[r.type];
+      const [recordPda] = pdaFn(r.subjectId, wallet.publicKey!, r.round);
+      const typeMap = {
+        juror: "jurorRecord" as const,
+        challenger: "challengerRecord" as const,
+        defender: "defenderRecord" as const,
+      };
+      return { recordType: typeMap[r.type], recordId: recordPda.toBase58() };
+    });
+
+    // CRITICAL: Sync before closing to preserve historical data
+    try {
+      await syncBeforeBatchClose(syncRequests);
+    } catch (err) {
+      console.error("Pre-close sync failed, proceeding with close:", err);
+    }
+
+    // Close records on-chain
+    const result = await client.batchCloseRecords(records);
+
+    // Mark all as closed in Supabase (if transaction succeeded, there's a signature)
+    if (result.signature) {
+      markRecordsClosed(recordPdas).catch(console.error);
+    }
+
+    return result;
+  }, [client, wallet.publicKey]);
 
   // ===========================================================================
   // Collect All (batch operations)
@@ -699,6 +861,51 @@ export const useTribunalcraft = () => {
   }, [client]);
 
   // ===========================================================================
+  // Batch Fetching - Parallel fetch for modal data
+  // ===========================================================================
+
+  /**
+   * Fetch modal data in parallel using Promise.all
+   * Fetches: dispute, escrow, and user's records (juror, challenger, defender)
+   */
+  const fetchModalData = useCallback(async (
+    subjectId: PublicKey,
+    disputeRound: number,
+    userPubkey?: PublicKey | null
+  ): Promise<{
+    dispute: Dispute | null;
+    escrow: Escrow | null;
+    jurorRecord: JurorRecord | null;
+    challengerRecord: ChallengerRecord | null;
+    defenderRecord: DefenderRecord | null;
+  }> => {
+    if (!client) return {
+      dispute: null,
+      escrow: null,
+      jurorRecord: null,
+      challengerRecord: null,
+      defenderRecord: null,
+    };
+
+    // Fetch all accounts in parallel
+    const [dispute, escrow, jurorRecord, challengerRecord, defenderRecord] = await Promise.all([
+      client.fetchDisputeBySubjectId(subjectId).catch(() => null),
+      client.fetchEscrowBySubjectId(subjectId).catch(() => null),
+      userPubkey
+        ? client.fetchJurorRecordBySubjectAndJuror(subjectId, userPubkey, disputeRound).catch(() => null)
+        : Promise.resolve(null),
+      userPubkey
+        ? client.fetchChallengerRecordBySubject(subjectId, userPubkey, disputeRound).catch(() => null)
+        : Promise.resolve(null),
+      userPubkey
+        ? client.fetchDefenderRecordBySubject(subjectId, userPubkey, disputeRound).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    return { dispute, escrow, jurorRecord, challengerRecord, defenderRecord };
+  }, [client]);
+
+  // ===========================================================================
   // Event Parsing (for closed records)
   // ===========================================================================
 
@@ -838,6 +1045,8 @@ export const useTribunalcraft = () => {
     fetchDefenderRecordsByDefender,
     // Transaction history
     fetchUserActivity,
+    // Batch fetching
+    fetchModalData,
     // Event parsing (for closed records)
     fetchUserClaimHistory,
     getClaimSummary,
