@@ -28,6 +28,7 @@ import {
   getDefenderRecords,
   getEscrowBySubject,
   getDisputeBySubject,
+  getAllDisputesBySubject,
   type JurorRecord as SupabaseJurorRecord,
   type ChallengerRecord as SupabaseChallengerRecord,
   type DefenderRecord as SupabaseDefenderRecord,
@@ -153,6 +154,68 @@ const supabaseToEscrow = (record: { id: string; subject_id: string; total_collec
       jurorClaims: r.juror_claims,
     })),
     bump: 0,
+  };
+};
+
+// Helper to convert Supabase dispute to DisputeData format
+const supabaseToDispute = (record: SupabaseDispute): DisputeData => {
+  const parseStatus = (status: string): any => {
+    switch (status) {
+      case "pending": return { pending: {} };
+      case "resolved": return { resolved: {} };
+      default: return { none: {} };
+    }
+  };
+
+  const parseOutcome = (outcome: string | null): any => {
+    switch (outcome) {
+      case "challengerWins": return { challengerWins: {} };
+      case "defenderWins": return { defenderWins: {} };
+      case "noParticipation": return { noParticipation: {} };
+      default: return { none: {} };
+    }
+  };
+
+  const parseDisputeType = (disputeType: string | null): any => {
+    switch (disputeType) {
+      case "accuracy": return { accuracy: {} };
+      case "bias": return { bias: {} };
+      case "outdated": return { outdated: {} };
+      case "plagiarism": return { plagiarism: {} };
+      case "harmful": return { harmful: {} };
+      default: return { other: {} };
+    }
+  };
+
+  return {
+    publicKey: new PublicKey(record.id),
+    account: {
+      subjectId: new PublicKey(record.subject_id),
+      round: record.round,
+      status: parseStatus(record.status),
+      disputeType: parseDisputeType(record.dispute_type),
+      totalStake: new BN(record.total_stake || 0),
+      challengerCount: record.challenger_count || 0,
+      bondAtRisk: new BN(record.bond_at_risk || 0),
+      defenderCount: record.defender_count || 0,
+      votesForChallenger: new BN(record.votes_for_challenger || 0),
+      votesForDefender: new BN(record.votes_for_defender || 0),
+      voteCount: record.vote_count || 0,
+      votingStartsAt: new BN(record.voting_starts_at || 0),
+      votingEndsAt: new BN(record.voting_ends_at || 0),
+      outcome: parseOutcome(record.outcome),
+      resolvedAt: new BN(record.resolved_at || 0),
+      isRestore: record.is_restore || false,
+      restoreStake: new BN(record.restore_stake || 0),
+      restorer: record.restorer ? new PublicKey(record.restorer) : PublicKey.default,
+      detailsCid: record.details_cid || "",
+      bump: 0,
+      createdAt: new BN(record.created_at || 0),
+      // Extended fields from Supabase
+      safeBond: new BN(record.safe_bond || 0),
+      winnerPool: new BN(record.winner_pool || 0),
+      jurorPool: new BN(record.juror_pool || 0),
+    },
   };
 };
 
@@ -1244,7 +1307,23 @@ export const SubjectModal = memo(function SubjectModal({
         }
       }
 
-      const disputeList = dispute ? [dispute] : [];
+      // Fetch ALL disputes from Supabase (including historical rounds)
+      const disputeList: DisputeData[] = dispute ? [dispute] : [];
+      try {
+        const allSupabaseDisputes = await getAllDisputesBySubject(subjectId.toBase58());
+        for (const sd of allSupabaseDisputes) {
+          // Skip if this round is already in the list (current dispute)
+          const alreadyExists = disputeList.some(d => d.account.round === sd.round);
+          if (!alreadyExists) {
+            // Convert Supabase dispute to DisputeData format
+            disputeList.push(supabaseToDispute(sd));
+          }
+        }
+      } catch {
+        // Supabase fetch failed - continue with on-chain data only
+      }
+      // Sort by round descending (newest first)
+      disputeList.sort((a, b) => b.account.round - a.account.round);
       setAllDisputes(disputeList);
 
       // Fetch escrow data for claim calculations (safe_bond, pools, etc.)

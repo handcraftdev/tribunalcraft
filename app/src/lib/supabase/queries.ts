@@ -152,6 +152,24 @@ export async function getDisputeBySubject(
   return data;
 }
 
+export async function getAllDisputesBySubject(
+  subjectId: string
+): Promise<Dispute[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("disputes")
+    .select("*")
+    .eq("subject_id", subjectId)
+    .order("round", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching disputes:", error);
+    return [];
+  }
+  return data || [];
+}
+
 // =============================================================================
 // Record Queries
 // =============================================================================
