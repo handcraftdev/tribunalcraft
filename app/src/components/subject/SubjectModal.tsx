@@ -22,6 +22,139 @@ import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import { EvidenceViewer } from "./EvidenceViewer";
 import type { DisputeContent } from "@tribunalcraft/sdk";
+import {
+  getJurorRecords,
+  getChallengerRecords,
+  getDefenderRecords,
+  getEscrowBySubject,
+  getDisputeBySubject,
+  type JurorRecord as SupabaseJurorRecord,
+  type ChallengerRecord as SupabaseChallengerRecord,
+  type DefenderRecord as SupabaseDefenderRecord,
+  type Dispute as SupabaseDispute,
+} from "@/lib/supabase/queries";
+
+// Helper to convert Supabase juror record to component format
+const supabaseToJurorRecord = (record: SupabaseJurorRecord): VoteData => {
+  // Parse choice from string (e.g., "forChallenger" or "forDefender")
+  const choice = record.choice === "forChallenger"
+    ? { forChallenger: {} }
+    : { forDefender: {} };
+  const restoreChoice = record.restore_choice === "forRestoration"
+    ? { forRestoration: {} }
+    : { againstRestoration: {} };
+
+  return {
+    publicKey: new PublicKey(record.id),
+    account: {
+      subjectId: new PublicKey(record.subject_id),
+      juror: new PublicKey(record.juror),
+      round: record.round,
+      choice,
+      restoreChoice,
+      isRestoreVote: record.is_restore_vote,
+      votingPower: new BN(record.voting_power),
+      stakeAllocation: new BN(record.stake_allocation),
+      rewardClaimed: record.reward_claimed,
+      stakeUnlocked: record.stake_unlocked,
+      bump: 0,
+      votedAt: new BN(record.voted_at || 0),
+      rationaleCid: record.rationale_cid || "",
+    },
+  };
+};
+
+// Helper to convert Supabase challenger record to component format
+const supabaseToChallengerRecord = (record: SupabaseChallengerRecord): ChallengerRecordData => {
+  return {
+    publicKey: new PublicKey(record.id),
+    account: {
+      subjectId: new PublicKey(record.subject_id),
+      challenger: new PublicKey(record.challenger),
+      round: record.round,
+      stake: new BN(record.stake),
+      detailsCid: record.details_cid || "",
+      rewardClaimed: record.reward_claimed,
+      bump: 0,
+      challengedAt: new BN(record.challenged_at || 0),
+    },
+  };
+};
+
+// Helper to convert Supabase defender record to component format
+const supabaseToDefenderRecord = (record: SupabaseDefenderRecord): DefenderRecordData => {
+  const source = record.source === "pool" ? { pool: {} } : { direct: {} };
+  return {
+    publicKey: new PublicKey(record.id),
+    account: {
+      subjectId: new PublicKey(record.subject_id),
+      defender: new PublicKey(record.defender),
+      round: record.round,
+      bond: new BN(record.bond),
+      source,
+      rewardClaimed: record.reward_claimed,
+      bump: 0,
+      bondedAt: new BN(record.bonded_at || 0),
+    },
+  };
+};
+
+// Helper to convert Supabase escrow round_results to SDK RoundResult format
+interface SupabaseRoundResult {
+  round: number;
+  creator: string;
+  resolved_at: number;
+  outcome: string;
+  total_stake: number;
+  bond_at_risk: number;
+  safe_bond: number;
+  total_vote_weight: number;
+  winner_pool: number;
+  juror_pool: number;
+  defender_count: number;
+  challenger_count: number;
+  juror_count: number;
+  defender_claims: number;
+  challenger_claims: number;
+  juror_claims: number;
+}
+
+const supabaseToEscrow = (record: { id: string; subject_id: string; total_collected: number; round_results: unknown }): Escrow => {
+  const roundResults = (record.round_results as SupabaseRoundResult[]) || [];
+
+  const parseOutcome = (outcome: string): any => {
+    switch (outcome) {
+      case "challengerWins": return { challengerWins: {} };
+      case "defenderWins": return { defenderWins: {} };
+      case "noParticipation": return { noParticipation: {} };
+      default: return { none: {} };
+    }
+  };
+
+  return {
+    subjectId: new PublicKey(record.subject_id),
+    balance: new BN(record.total_collected),
+    rounds: roundResults.map(r => ({
+      round: r.round,
+      creator: new PublicKey(r.creator),
+      resolvedAt: new BN(r.resolved_at),
+      outcome: parseOutcome(r.outcome),
+      totalStake: new BN(r.total_stake),
+      bondAtRisk: new BN(r.bond_at_risk),
+      safeBond: new BN(r.safe_bond),
+      totalVoteWeight: new BN(r.total_vote_weight),
+      winnerPool: new BN(r.winner_pool),
+      jurorPool: new BN(r.juror_pool),
+      defenderCount: r.defender_count,
+      challengerCount: r.challenger_count,
+      jurorCount: r.juror_count,
+      defenderClaims: r.defender_claims,
+      challengerClaims: r.challenger_claims,
+      jurorClaims: r.juror_claims,
+    })),
+    bump: 0,
+  };
+};
 
 // Safe BN to number conversion (handles overflow)
 const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
@@ -33,6 +166,26 @@ const safeToNumber = (bn: BN | number | undefined, fallback = 0): number => {
   } catch {
     return fallback;
   }
+};
+
+// Helper to merge Supabase dispute indexed data with on-chain dispute
+// This adds safe_bond, winner_pool, juror_pool for reward breakdown display
+const mergeSupabaseDisputeData = (
+  dispute: DisputeData,
+  supabaseDispute: SupabaseDispute | null
+): DisputeData => {
+  if (!supabaseDispute) return dispute;
+
+  return {
+    ...dispute,
+    account: {
+      ...dispute.account,
+      // Add indexed reward pool data from Supabase
+      safeBond: supabaseDispute.safe_bond || 0,
+      winnerPool: supabaseDispute.winner_pool || 0,
+      jurorPool: supabaseDispute.juror_pool || 0,
+    },
+  };
 };
 
 // Role badges component - displays separate J, D, C badges
@@ -95,15 +248,18 @@ const Countdown = ({ endTime }: { endTime: number }) => {
 const VoteForm = memo(function VoteForm({
   existingVote,
   onVote,
+  onAddToVote,
   isLoading,
   isRestore = false,
 }: {
   existingVote: any;
   onVote: (stake: string, choice: "forChallenger" | "forDefender" | "forRestoration" | "againstRestoration", rationale: string) => void;
+  onAddToVote?: (stake: string) => void;
   isLoading: boolean;
   isRestore?: boolean;
 }) {
   const [voteStake, setVoteStake] = useState("0.01");
+  const [addStake, setAddStake] = useState("0.01");
   const [voteChoice, setVoteChoice] = useState<"forChallenger" | "forDefender" | "forRestoration" | "againstRestoration">(
     isRestore ? "forRestoration" : "forDefender"
   );
@@ -112,6 +268,12 @@ const VoteForm = memo(function VoteForm({
   const handleSubmit = () => {
     onVote(voteStake, voteChoice, voteRationale);
     if (!existingVote) setVoteRationale("");
+  };
+
+  const handleAddToVote = () => {
+    if (onAddToVote) {
+      onAddToVote(addStake);
+    }
   };
 
   // Get existing vote display based on whether it's a restore vote
@@ -161,39 +323,58 @@ const VoteForm = memo(function VoteForm({
     }
   };
 
-  return (
-    <>
-      {existingVote && (
-        <div className="flex items-center justify-between text-sm">
+  // If already voted, show existing vote and add stake option
+  if (existingVote) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between text-sm p-3 bg-slate-light/10 rounded">
           <span className="text-steel">Your Vote:</span>
           <span className={`font-medium ${getExistingVoteClass()}`}>
             {getExistingVoteLabel()} - {(safeToNumber(existingVote.account.stakeAllocation) / LAMPORTS_PER_SOL).toFixed(6)} SOL
           </span>
         </div>
-      )}
-      {existingVote ? (
-        <p className="text-xs text-steel">Add more stake to your vote:</p>
-      ) : (
-        <>
-          <div className="flex gap-2">
-            {choices.map((choice) => (
-              <button
-                key={choice}
-                onClick={() => setVoteChoice(choice)}
-                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${getChoiceClass(choice, voteChoice === choice)}`}
-              >
-                {getChoiceLabel(choice)}
-              </button>
-            ))}
+        {onAddToVote && (
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              value={addStake}
+              onChange={(e) => setAddStake(e.target.value)}
+              className="input flex-1 text-sm py-2"
+              placeholder="Additional stake"
+            />
+            <span className="text-steel text-sm">SOL</span>
+            <button
+              onClick={handleAddToVote}
+              disabled={isLoading}
+              className="btn btn-primary py-2 px-4"
+            >
+              {isLoading ? "..." : "Add Stake"}
+            </button>
           </div>
-          <textarea
-            value={voteRationale}
-            onChange={(e) => setVoteRationale(e.target.value)}
-            placeholder="Rationale for your vote (optional)"
-            className="input w-full text-sm py-2 h-16 resize-none"
-          />
-        </>
-      )}
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex gap-2">
+        {choices.map((choice) => (
+          <button
+            key={choice}
+            onClick={() => setVoteChoice(choice)}
+            className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-all ${getChoiceClass(choice, voteChoice === choice)}`}
+          >
+            {getChoiceLabel(choice)}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={voteRationale}
+        onChange={(e) => setVoteRationale(e.target.value)}
+        placeholder="Rationale for your vote (optional)"
+        className="input w-full text-sm py-2 h-16 resize-none"
+      />
       <div className="flex gap-2 items-center">
         <input
           type="text"
@@ -208,7 +389,7 @@ const VoteForm = memo(function VoteForm({
           disabled={isLoading}
           className="btn btn-primary py-2 px-4"
         >
-          {isLoading ? "..." : existingVote ? "Add" : "Vote"}
+          {isLoading ? "..." : "Vote"}
         </button>
       </div>
     </>
@@ -277,6 +458,10 @@ interface ClaimData {
   voteRecord?: VoteData | null;
   challengerRecord?: ChallengerRecordData | null;
   defenderRecord?: DefenderRecordData | null;
+  // Flags to indicate if records came from Supabase (closed on-chain, not claimable)
+  voteRecordFromSupabase?: boolean;
+  challengerRecordFromSupabase?: boolean;
+  defenderRecordFromSupabase?: boolean;
 }
 
 // Collapsible History Item (V2 data with V1 styling)
@@ -303,7 +488,26 @@ const HistoryItem = memo(function HistoryItem({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claimSuccess, setClaimSuccess] = useState(false);
+  const claimInitiatedRef = useRef(false);
+  const prevActionLoadingRef = useRef(actionLoading);
   const dOutcome = getOutcomeLabel(pastDispute.account.outcome);
+
+  // Watch actionLoading to detect claim completion
+  useEffect(() => {
+    // If actionLoading went from true to false and we initiated a claim
+    if (prevActionLoadingRef.current && !actionLoading && claimInitiatedRef.current) {
+      // Claim completed - show success and close modal
+      setClaimSuccess(true);
+      claimInitiatedRef.current = false;
+      // Close modal after brief delay to show success
+      setTimeout(() => {
+        setShowClaimModal(false);
+        setClaimSuccess(false);
+      }, 1500);
+    }
+    prevActionLoadingRef.current = actionLoading;
+  }, [actionLoading]);
 
   // V2: votesForChallenger/votesForDefender
   const votesForChallenger = safeToNumber(pastDispute.account.votesForChallenger);
@@ -326,6 +530,9 @@ const HistoryItem = memo(function HistoryItem({
   const JUROR_SHARE_BPS = 9500; // 95% of fees = 19% of total
   const TREASURY_SHARE_BPS = 500; // 5% of fees = 1% of total
 
+  // Check if dispute has indexed reward pool data (from Supabase)
+  const disputeHasRewardData = pastDispute.account.safeBond !== undefined && safeToNumber(pastDispute.account.safeBond) > 0;
+
   // V2: totalStake (challenger) + bondAtRisk (defender)
   const totalChallengerStake = safeToNumber(escrowRound?.totalStake ?? pastDispute.account.totalStake);
   const totalDefenderBond = safeToNumber(escrowRound?.bondAtRisk ?? pastDispute.account.bondAtRisk);
@@ -338,8 +545,17 @@ const HistoryItem = memo(function HistoryItem({
   }
 
   const totalFees = totalPool * PROTOCOL_FEE_BPS / 10000;
-  const winnerPot = escrowRound ? safeToNumber(escrowRound.winnerPool) : (totalPool - totalFees);
-  const jurorPot = escrowRound ? safeToNumber(escrowRound.jurorPool) : (totalFees * JUROR_SHARE_BPS / 10000);
+  // Use escrowRound if available, then dispute indexed data, then fallback calculation
+  const winnerPot = escrowRound
+    ? safeToNumber(escrowRound.winnerPool)
+    : disputeHasRewardData
+      ? safeToNumber(pastDispute.account.winnerPool)
+      : (totalPool - totalFees);
+  const jurorPot = escrowRound
+    ? safeToNumber(escrowRound.jurorPool)
+    : disputeHasRewardData
+      ? safeToNumber(pastDispute.account.jurorPool)
+      : (totalFees * JUROR_SHARE_BPS / 10000);
   const treasuryPot = totalFees - jurorPot;
 
   const winnerReward = (winnerPot / LAMPORTS_PER_SOL).toFixed(4);
@@ -348,10 +564,11 @@ const HistoryItem = memo(function HistoryItem({
   const isFreeCase = totalPool === 0;
 
   // Claim availability checks - no claims for free cases (no rewards)
+  // Records from Supabase (closed on-chain) are never claimable
   const isResolved = pastDispute.account.status.resolved;
-  const hasJurorClaim = !isFreeCase && claimData?.voteRecord && !claimData.voteRecord.account.rewardClaimed;
-  const hasChallengerClaim = !isFreeCase && claimData?.challengerRecord && !claimData.challengerRecord.account.rewardClaimed;
-  const hasDefenderClaim = !isFreeCase && claimData?.defenderRecord && !claimData.defenderRecord.account.rewardClaimed;
+  const hasJurorClaim = !isFreeCase && claimData?.voteRecord && !claimData.voteRecord.account.rewardClaimed && !claimData.voteRecordFromSupabase;
+  const hasChallengerClaim = !isFreeCase && claimData?.challengerRecord && !claimData.challengerRecord.account.rewardClaimed && !claimData.challengerRecordFromSupabase;
+  const hasDefenderClaim = !isFreeCase && claimData?.defenderRecord && !claimData.defenderRecord.account.rewardClaimed && !claimData.defenderRecordFromSupabase;
   const hasAnyClaim = hasJurorClaim || hasChallengerClaim || hasDefenderClaim;
 
   // Check if user has any claim records at all (regardless of claimed status)
@@ -377,8 +594,31 @@ const HistoryItem = memo(function HistoryItem({
     ? (restorationWins && userVotedForRestoration) || (restorationLoses && !userVotedForRestoration)
     : (challengerWins && userVotedForChallenger) || (defenderWins && !userVotedForChallenger);
 
+  // Create fallback escrow round from dispute data if real escrowRound is not available
+  // This uses safe_bond, winner_pool, juror_pool stored in the disputes table
+  const fallbackEscrowRound: RoundResult | null = !escrowRound && pastDispute.account.safeBond !== undefined ? {
+    round: pastDispute.account.round,
+    creator: pastDispute.account.subjectId, // Placeholder, not used in reward calculation
+    resolvedAt: new BN(pastDispute.account.resolvedAt || 0),
+    outcome: pastDispute.account.outcome,
+    totalStake: new BN(safeToNumber(pastDispute.account.totalStake)),
+    bondAtRisk: new BN(safeToNumber(pastDispute.account.bondAtRisk)),
+    safeBond: new BN(safeToNumber(pastDispute.account.safeBond)),
+    totalVoteWeight: new BN(safeToNumber(pastDispute.account.votesForChallenger) + safeToNumber(pastDispute.account.votesForDefender)),
+    winnerPool: new BN(safeToNumber(pastDispute.account.winnerPool)),
+    jurorPool: new BN(safeToNumber(pastDispute.account.jurorPool)),
+    defenderCount: pastDispute.account.defenderCount || 0,
+    challengerCount: pastDispute.account.challengerCount || 0,
+    jurorCount: pastDispute.account.voteCount || 0,
+    defenderClaims: 0,
+    challengerClaims: 0,
+    jurorClaims: 0,
+  } : null;
+
+  const effectiveEscrowRound = escrowRound || fallbackEscrowRound;
+
   // Calculate actual rewards using SDK if escrowRound available
-  const userRewards = escrowRound ? calculateUserRewards(escrowRound, {
+  const userRewards = effectiveEscrowRound ? calculateUserRewards(effectiveEscrowRound, {
     jurorRecord: claimData?.voteRecord?.account,
     challengerRecord: claimData?.challengerRecord?.account,
     defenderRecord: claimData?.defenderRecord?.account,
@@ -399,14 +639,15 @@ const HistoryItem = memo(function HistoryItem({
     + (claimData?.defenderRecord ? defenderRewardAmount : 0);
   const totalUserRewardFormatted = (totalUserReward / LAMPORTS_PER_SOL).toFixed(4);
 
-  // Close record checks
-  const canCloseJuror = claimData?.voteRecord && claimData.voteRecord.account.rewardClaimed && claimData.voteRecord.account.stakeUnlocked;
-  const canCloseChallenger = claimData?.challengerRecord && claimData.challengerRecord.account.rewardClaimed;
-  const canCloseDefender = claimData?.defenderRecord && claimData.defenderRecord.account.rewardClaimed;
+  // Close record checks - records from Supabase are already closed
+  const canCloseJuror = claimData?.voteRecord && claimData.voteRecord.account.rewardClaimed && claimData.voteRecord.account.stakeUnlocked && !claimData.voteRecordFromSupabase;
+  const canCloseChallenger = claimData?.challengerRecord && claimData.challengerRecord.account.rewardClaimed && !claimData.challengerRecordFromSupabase;
+  const canCloseDefender = claimData?.defenderRecord && claimData.defenderRecord.account.rewardClaimed && !claimData.defenderRecordFromSupabase;
   const hasClosableRecords = canCloseJuror || canCloseChallenger || canCloseDefender;
 
   const handleClaimAll = () => {
     if (onClaimAll) {
+      claimInitiatedRef.current = true;
       onClaimAll(pastDispute.account.subjectId.toBase58(), pastDispute.account.round, {
         juror: !!hasJurorClaim,
         challenger: !!hasChallengerClaim,
@@ -501,7 +742,7 @@ const HistoryItem = memo(function HistoryItem({
           </div>
         </div>
         <div className="flex items-center justify-between text-[10px]">
-          <span className="text-steel">{pastDispute.publicKey.toBase58().slice(0, 20)}...</span>
+          <span className="text-steel font-mono text-[9px]">{pastDispute.publicKey.toBase58()}</span>
           <div className="flex items-center gap-2">
             <span className={`font-medium ${dOutcome.class}`}>{isPending ? 'Voting' : dOutcome.label}</span>
             {!isPending && (
@@ -530,61 +771,139 @@ const HistoryItem = memo(function HistoryItem({
                 <span className={`text-sm font-medium ${dOutcome.class}`}>{dOutcome.label}</span>
               </div>
 
-              {/* Total Reward */}
-              <div className={`p-4 bg-obsidian border ${hasAnyClaim ? 'border-gold/30' : 'border-slate-light/30'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-steel">Your Share</span>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-lg font-bold ${hasAnyClaim ? 'text-gold' : 'text-steel'}`}>
-                      +{totalUserRewardFormatted} SOL
-                    </span>
-                    {allClaimed && (
-                      <span className="text-emerald">
-                        <CheckIcon />
-                      </span>
-                    )}
+              {/* Rewards by Role */}
+              <div className="space-y-2">
+                {/* Juror Reward */}
+                {claimData?.voteRecord && (
+                  <div className={`p-3 bg-obsidian border ${hasJurorClaim ? 'border-gold/30' : 'border-slate-light/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-gold">J</span>
+                        <span className="text-xs text-steel">Juror</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-medium ${hasJurorClaim ? 'text-gold' : 'text-steel'}`}>
+                          +{(jurorRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                        </span>
+                        {!hasJurorClaim && (claimData.voteRecord.account.rewardClaimed || claimData.voteRecordFromSupabase) && (
+                          <span className="text-emerald text-xs">✓</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-steel/60 mt-1">
+                      {totalVoteWeight > 0 ? (jurorVotingPower / totalVoteWeight * 100).toFixed(1) : 0}% of vote weight
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Breakdown - only show rewards, not losses */}
-                <div className="mt-3 pt-3 border-t border-slate-light/30 space-y-1">
-                  {claimData?.voteRecord && jurorRewardAmount > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-steel">
-                        Juror <span className="text-steel/60">({totalVoteWeight > 0 ? (jurorVotingPower / totalVoteWeight * 100).toFixed(1) : 0}% of votes)</span>
-                      </span>
-                      <span className={hasJurorClaim ? 'text-gold' : 'text-steel'}>
-                        +{(jurorRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasJurorClaim && claimData?.voteRecord?.account.rewardClaimed && ' ✓'}
-                      </span>
+                {/* Challenger Reward */}
+                {claimData?.challengerRecord && (
+                  <div className={`p-3 bg-obsidian border ${hasChallengerClaim ? 'border-crimson/30' : 'border-slate-light/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-crimson">C</span>
+                        <span className="text-xs text-steel">Challenger</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {challengerWins ? (
+                          <span className={`text-sm font-medium ${hasChallengerClaim ? 'text-emerald' : 'text-steel'}`}>
+                            +{(challengerRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                          </span>
+                        ) : (
+                          <span className="text-sm font-medium text-crimson/60">
+                            -{(challengerStake / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                          </span>
+                        )}
+                        {!hasChallengerClaim && (claimData.challengerRecord.account.rewardClaimed || claimData.challengerRecordFromSupabase) && (
+                          <span className="text-emerald text-xs">✓</span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  {claimData?.challengerRecord && challengerWins && challengerRewardAmount > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-steel">
-                        Winner <span className="text-steel/60">({totalChallengerStake > 0 ? (challengerStake / totalChallengerStake * 100).toFixed(1) : 0}% of winner pot)</span>
-                      </span>
-                      <span className={hasChallengerClaim ? 'text-emerald' : 'text-steel'}>
-                        +{(challengerRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasChallengerClaim && claimData?.challengerRecord?.account.rewardClaimed && ' ✓'}
-                      </span>
+                    <div className="text-[10px] text-steel/60 mt-1">
+                      {challengerWins
+                        ? `${totalChallengerStake > 0 ? (challengerStake / totalChallengerStake * 100).toFixed(1) : 0}% of winner pot`
+                        : 'Stake forfeited'
+                      }
                     </div>
-                  )}
-                  {claimData?.defenderRecord && defenderWins && defenderRewardAmount > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-steel">
-                        Winner <span className="text-steel/60">({totalDefenderBond > 0 ? (defenderBond / totalDefenderBond * 100).toFixed(1) : 0}% of winner pot)</span>
-                      </span>
-                      <span className={hasDefenderClaim ? 'text-emerald' : 'text-steel'}>
-                        +{(defenderRewardAmount / LAMPORTS_PER_SOL).toFixed(6)}
-                        {!hasDefenderClaim && claimData?.defenderRecord?.account.rewardClaimed && ' ✓'}
-                      </span>
+                  </div>
+                )}
+
+                {/* Defender Reward */}
+                {claimData?.defenderRecord && (
+                  <div className={`p-3 bg-obsidian border ${hasDefenderClaim ? 'border-sky-500/30' : 'border-slate-light/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-sky-400">D</span>
+                        <span className="text-xs text-steel">Defender</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-medium ${hasDefenderClaim ? 'text-emerald' : 'text-steel'}`}>
+                          +{(defenderRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                        </span>
+                        {!hasDefenderClaim && (claimData.defenderRecord.account.rewardClaimed || claimData.defenderRecordFromSupabase) && (
+                          <span className="text-emerald text-xs">✓</span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
+                    {/* Defender breakdown: safe bond + winner share */}
+                    <div className="text-[10px] text-steel/60 mt-1 space-y-0.5">
+                      {userRewards?.defender ? (
+                        <>
+                          <div className="flex justify-between">
+                            <span>Safe bond</span>
+                            <span className="text-emerald/80">+{(userRewards.defender.safeBondShare / LAMPORTS_PER_SOL).toFixed(6)}</span>
+                          </div>
+                          {defenderWins && userRewards.defender.winnerPoolShare > 0 && (
+                            <div className="flex justify-between">
+                              <span>Winner share ({(userRewards.defender.poolPercentage).toFixed(1)}%)</span>
+                              <span className="text-emerald/80">+{(userRewards.defender.winnerPoolShare / LAMPORTS_PER_SOL).toFixed(6)}</span>
+                            </div>
+                          )}
+                          {!defenderWins && (
+                            <div className="flex justify-between">
+                              <span>Bond at risk (lost)</span>
+                              <span className="text-crimson/60">-{((defenderBond - userRewards.defender.safeBondShare) / LAMPORTS_PER_SOL).toFixed(6)}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span>
+                          {defenderWins
+                            ? `${totalDefenderBond > 0 ? (defenderBond / totalDefenderBond * 100).toFixed(1) : 0}% of winner pot`
+                            : 'Safe bond returned, bond at risk forfeited'
+                          }
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Total */}
+                {(claimData?.voteRecord || claimData?.challengerRecord || claimData?.defenderRecord) && (
+                  <div className={`p-3 bg-slate-light/10 border-t border-slate-light/30`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-steel">Total Reward</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-lg font-bold ${hasAnyClaim ? 'text-gold' : 'text-steel'}`}>
+                          +{totalUserRewardFormatted} SOL
+                        </span>
+                        {allClaimed && (
+                          <span className="text-emerald">
+                            <CheckIcon />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {hasAnyClaim ? (
+              {claimSuccess ? (
+                <div className="flex items-center justify-center gap-2 py-2 text-emerald">
+                  <CheckIcon />
+                  <span>Claimed Successfully!</span>
+                </div>
+              ) : hasAnyClaim ? (
                 <button
                   onClick={handleClaimAll}
                   disabled={actionLoading}
@@ -795,6 +1114,7 @@ export const SubjectModal = memo(function SubjectModal({
   const {
     createDispute,
     submitRestore,
+    addToVote,
     fetchDefenderPool,
     fetchChallengerPool,
     getChallengerPoolPDA,
@@ -840,6 +1160,13 @@ export const SubjectModal = memo(function SubjectModal({
 
   // User's defender record for this subject
   const [userDefenderRecord, setUserDefenderRecord] = useState<DefenderRecordData | null>(null);
+
+  // Track which records came from Supabase (closed on-chain, not claimable)
+  const [recordsFromSupabase, setRecordsFromSupabase] = useState<{
+    vote: Record<string, boolean>;
+    challenger: Record<string, boolean>;
+    defender: boolean;
+  }>({ vote: {}, challenger: {}, defender: false });
 
   // Challenger reputation for active dispute creator
   const [activeDisputeCreatorRep, setActiveDisputeCreatorRep] = useState<number | null>(null);
@@ -903,16 +1230,47 @@ export const SubjectModal = memo(function SubjectModal({
         // No dispute found - expected for non-disputed subjects
       }
 
+      // Merge Supabase indexed data (safe_bond, winner_pool, juror_pool) into dispute
+      // This enables reward breakdown display for historical records
+      if (dispute) {
+        try {
+          const supabaseDispute = await getDisputeBySubject(
+            subjectId.toBase58(),
+            dispute.account.round
+          );
+          dispute = mergeSupabaseDisputeData(dispute, supabaseDispute);
+        } catch {
+          // Supabase data not available - fallback will handle this
+        }
+      }
+
       const disputeList = dispute ? [dispute] : [];
       setAllDisputes(disputeList);
 
       // Fetch escrow data for claim calculations (safe_bond, pools, etc.)
+      // Try on-chain first, fall back to Supabase for historical data
+      let escrowFound = false;
       try {
         const escrow = await fetchEscrowBySubjectId(subjectId);
-        setEscrowData(escrow);
+        if (escrow) {
+          setEscrowData(escrow);
+          escrowFound = true;
+        }
       } catch {
-        // No escrow yet
-        setEscrowData(null);
+        // No on-chain escrow
+      }
+      // Fallback to Supabase if no on-chain escrow found
+      if (!escrowFound) {
+        try {
+          const supabaseEscrow = await getEscrowBySubject(subjectId.toBase58());
+          if (supabaseEscrow) {
+            setEscrowData(supabaseToEscrow(supabaseEscrow));
+          } else {
+            setEscrowData(null);
+          }
+        } catch {
+          setEscrowData(null);
+        }
       }
 
       if (disputeList.length === 0) {
@@ -952,7 +1310,15 @@ export const SubjectModal = memo(function SubjectModal({
         const disputeRound = dispute.account.round;
         const disputeKey = dispute.publicKey.toBase58();
 
+        // Track which records came from Supabase (closed on-chain)
+        const supabaseFlags = {
+          vote: {} as Record<string, boolean>,
+          challenger: {} as Record<string, boolean>,
+          defender: false,
+        };
+
         // V2: Fetch user's juror record for this dispute (subjectId, user, round)
+        // Try on-chain first, fall back to Supabase for closed records
         const voteRecordsMap: Record<string, VoteData | null> = {};
         try {
           const [jurorRecordPda] = getJurorRecordPDA(subjectId, publicKey, disputeRound);
@@ -964,11 +1330,28 @@ export const SubjectModal = memo(function SubjectModal({
             };
           }
         } catch {
-          // No juror record
+          // No on-chain record - try Supabase for historical (closed) records
+        }
+        // Fallback to Supabase if no on-chain record found
+        if (!voteRecordsMap[disputeKey]) {
+          try {
+            const supabaseRecords = await getJurorRecords({
+              subjectId: subjectId.toBase58(),
+              juror: publicKey.toBase58(),
+              round: disputeRound,
+            });
+            if (supabaseRecords.length > 0) {
+              voteRecordsMap[disputeKey] = supabaseToJurorRecord(supabaseRecords[0]);
+              supabaseFlags.vote[disputeKey] = true;
+            }
+          } catch {
+            // No Supabase record either
+          }
         }
         setUserVoteRecords(voteRecordsMap);
 
         // V2: Fetch user's challenger record (subjectId, user, round)
+        // Try on-chain first, fall back to Supabase for closed records
         const challRecordsMap: Record<string, ChallengerRecordData | null> = {};
         try {
           const [challRecordPda] = getChallengerRecordPDA(subjectId, publicKey, disputeRound);
@@ -977,20 +1360,57 @@ export const SubjectModal = memo(function SubjectModal({
             challRecordsMap[disputeKey] = { publicKey: challRecordPda, account: record };
           }
         } catch {
-          // No challenger record
+          // No on-chain record
+        }
+        // Fallback to Supabase if no on-chain record found
+        if (!challRecordsMap[disputeKey]) {
+          try {
+            const supabaseRecords = await getChallengerRecords({
+              subjectId: subjectId.toBase58(),
+              challenger: publicKey.toBase58(),
+              round: disputeRound,
+            });
+            if (supabaseRecords.length > 0) {
+              challRecordsMap[disputeKey] = supabaseToChallengerRecord(supabaseRecords[0]);
+              supabaseFlags.challenger[disputeKey] = true;
+            }
+          } catch {
+            // No Supabase record either
+          }
         }
         setUserChallengerRecords(challRecordsMap);
 
         // V2: Fetch user's defender record (subjectId, user, round)
+        // Try on-chain first, fall back to Supabase for closed records
+        let defenderRecordFound = false;
         try {
           const [defRecordPda] = getDefenderRecordPDA(subjectId, publicKey, disputeRound);
           const record = await fetchDefenderRecord(defRecordPda);
           if (record) {
             setUserDefenderRecord({ publicKey: defRecordPda, account: record });
+            defenderRecordFound = true;
           }
         } catch {
-          // No defender record
+          // No on-chain record
         }
+        // Fallback to Supabase if no on-chain record found
+        if (!defenderRecordFound) {
+          try {
+            const supabaseRecords = await getDefenderRecords({
+              subjectId: subjectId.toBase58(),
+              defender: publicKey.toBase58(),
+              round: disputeRound,
+            });
+            if (supabaseRecords.length > 0) {
+              setUserDefenderRecord(supabaseToDefenderRecord(supabaseRecords[0]));
+              supabaseFlags.defender = true;
+            }
+          } catch {
+            // No Supabase record either
+          }
+        }
+
+        setRecordsFromSupabase(supabaseFlags);
 
         // V2: Fetch dispute creator's reputation from their ChallengerPool
         if (dispute.account.status.pending) {
@@ -1071,7 +1491,7 @@ export const SubjectModal = memo(function SubjectModal({
     title: "",
     reason: "",
     requestedOutcome: "",
-    bondAmount: "0.01",
+    stakeAmount: "0.01",
   });
 
   // Restore calculations
@@ -1116,7 +1536,9 @@ export const SubjectModal = memo(function SubjectModal({
   // Reset forms when modal state changes
   useEffect(() => {
     if (showCreateDispute) {
-      setDisputeForm({ type: "other", title: "", reason: "", requestedOutcome: "", bondAmount: minBondSol.toFixed(6) });
+      // Round up to 6 decimals to avoid floating-point precision issues
+      const roundedMinStake = Math.ceil(minBondSol * 1_000_000) / 1_000_000;
+      setDisputeForm({ type: "other", title: "", reason: "", requestedOutcome: "", stakeAmount: roundedMinStake.toFixed(6) });
       setInternalError(null);
       setInternalSuccess(null);
     }
@@ -1141,9 +1563,11 @@ export const SubjectModal = memo(function SubjectModal({
       return;
     }
 
-    const bondLamports = parseFloat(disputeForm.bondAmount) * LAMPORTS_PER_SOL;
-    if (isNaN(bondLamports) || bondLamports < minBond) {
-      setInternalError(`Minimum bond is ${minBondSol.toFixed(6)} SOL`);
+    const stakeLamports = Math.floor(parseFloat(disputeForm.stakeAmount) * LAMPORTS_PER_SOL);
+    // Use floor for comparison to handle floating-point precision (e.g., 0.010102 * 1e9 might be 10101999.999...)
+    if (isNaN(stakeLamports) || stakeLamports < minBond) {
+      const roundedMin = Math.ceil(minBondSol * 1_000_000) / 1_000_000;
+      setInternalError(`Minimum stake is ${roundedMin.toFixed(6)} SOL`);
       return;
     }
 
@@ -1171,7 +1595,7 @@ export const SubjectModal = memo(function SubjectModal({
         subjectId: subject.account.subjectId,
         disputeType: disputeTypeEnum,
         detailsCid: uploadResult.cid,
-        stake: new BN(bondLamports),
+        stake: new BN(stakeLamports),
         round: subject.account.round,
       });
 
@@ -1260,6 +1684,47 @@ export const SubjectModal = memo(function SubjectModal({
       setInternalLoading(false);
     }
   }, [restoreForm, subject, uploadDispute, submitRestore, onRefresh, minRestoreStake, minRestoreStakeSol]);
+
+  // Handle adding stake to existing vote
+  const handleAddToVote = useCallback(async (stakeAmount: string) => {
+    if (!activeDispute) return;
+
+    const stakeLamports = parseFloat(stakeAmount) * LAMPORTS_PER_SOL;
+    if (isNaN(stakeLamports) || stakeLamports <= 0) {
+      setInternalError("Invalid stake amount");
+      return;
+    }
+
+    setInternalLoading(true);
+    setInternalError(null);
+    setInternalSuccess(null);
+
+    try {
+      await addToVote(
+        subject.account.subjectId,
+        activeDispute.account.round,
+        new BN(stakeLamports)
+      );
+
+      setInternalSuccess("Additional stake added successfully");
+
+      // Refresh data to show updated vote
+      await loadSubjectData();
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (err: any) {
+      console.error("Failed to add to vote:", err);
+      if (isUserCancellation(err)) {
+        return;
+      }
+      const message = getUserFriendlyErrorMessage(err);
+      const help = getErrorHelp(err);
+      setInternalError(help ? `${message} ${help}` : message);
+    } finally {
+      setInternalLoading(false);
+    }
+  }, [subject, activeDispute, addToVote, loadSubjectData, onRefresh]);
 
   // Save scroll position before re-render
   useLayoutEffect(() => {
@@ -1571,12 +2036,12 @@ export const SubjectModal = memo(function SubjectModal({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-steel uppercase tracking-wider">Bond Amount (min: {minBondSol.toFixed(6)} SOL)</label>
+                  <label className="text-[10px] text-steel uppercase tracking-wider">Stake Amount (min: {(Math.ceil(minBondSol * 1_000_000) / 1_000_000).toFixed(6)} SOL)</label>
                   <div className="flex gap-2 items-center mt-1">
                     <input
                       type="text"
-                      value={disputeForm.bondAmount}
-                      onChange={(e) => setDisputeForm({ ...disputeForm, bondAmount: e.target.value })}
+                      value={disputeForm.stakeAmount}
+                      onChange={(e) => setDisputeForm({ ...disputeForm, stakeAmount: e.target.value })}
                       className="input flex-1 text-sm py-2"
                     />
                     <span className="text-steel text-sm">SOL</span>
@@ -1889,6 +2354,34 @@ export const SubjectModal = memo(function SubjectModal({
                     </div>
                   </>
                 )}
+
+                {/* Reward Distribution */}
+                {(() => {
+                  const totalPool = (safeToNumber(activeDispute!.account.totalStake) + safeToNumber(activeDispute!.account.bondAtRisk)) / LAMPORTS_PER_SOL;
+                  const winnersShare = totalPool * 0.8;
+                  const jurorsShare = totalPool * 0.19;
+                  const protocolShare = totalPool * 0.01;
+                  return (
+                    <div className="pt-3 border-t border-slate-light/30">
+                      <p className="text-[10px] text-steel uppercase tracking-wider mb-2">Reward Distribution ({totalPool.toFixed(4)} SOL)</p>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="text-center">
+                          <p className="text-gold font-semibold">{winnersShare.toFixed(4)}</p>
+                          <p className="text-steel text-[10px]">Winners (80%)</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-emerald font-semibold">{jurorsShare.toFixed(4)}</p>
+                          <p className="text-steel text-[10px]">Jurors (19%)</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-steel font-semibold">{protocolShare.toFixed(4)}</p>
+                          <p className="text-steel text-[10px]">Protocol (1%)</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Resolve action */}
                 {showActions && canResolve && onResolve && activeDispute && (
                   <div className="pt-2 border-t border-slate-light/50">
@@ -1914,7 +2407,8 @@ export const SubjectModal = memo(function SubjectModal({
                   <VoteForm
                     existingVote={existingVote}
                     onVote={(stake, choice, rationale) => onVote(subject.account.subjectId.toBase58(), activeDispute!.account.round, stake, choice, rationale)}
-                    isLoading={actionLoading}
+                    onAddToVote={handleAddToVote}
+                    isLoading={actionLoading || internalLoading}
                     isRestore={activeDispute?.account.isRestore}
                   />
                 )}
@@ -2004,14 +2498,21 @@ export const SubjectModal = memo(function SubjectModal({
                     : (allDisputeVotes?.[dKey] || []);
                   // Build claim data - use current records for current dispute, past records for historical
                   // Roles are derived from claim data inside HistoryItem
+                  // Include Supabase flags to indicate records that are closed on-chain (not claimable)
                   const dClaimData = isCurrentDispute ? {
                     voteRecord: existingVote,
                     challengerRecord,
                     defenderRecord: userDefenderRecord,
+                    voteRecordFromSupabase: false,
+                    challengerRecordFromSupabase: false,
+                    defenderRecordFromSupabase: false,
                   } : {
                     voteRecord: userVoteRecords?.[dKey] || null,
                     challengerRecord: userChallengerRecords?.[dKey] || null,
                     defenderRecord: userDefenderRecord, // Defender record is per-subject, applies to all disputes
+                    voteRecordFromSupabase: recordsFromSupabase.vote[dKey] || false,
+                    challengerRecordFromSupabase: recordsFromSupabase.challenger[dKey] || false,
+                    defenderRecordFromSupabase: recordsFromSupabase.defender,
                   };
                   // Find the escrow round for this dispute
                   const dEscrowRound = escrowData?.rounds?.find(r => r.round === historyDispute.account.round) || null;
