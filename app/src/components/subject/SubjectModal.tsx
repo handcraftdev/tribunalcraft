@@ -29,10 +29,13 @@ import {
   getEscrowBySubject,
   getDisputeBySubject,
   getAllDisputesBySubject,
+  getDisputeHistoryFromEvents,
+  getUserRolesFromEvents,
   type JurorRecord as SupabaseJurorRecord,
   type ChallengerRecord as SupabaseChallengerRecord,
   type DefenderRecord as SupabaseDefenderRecord,
   type Dispute as SupabaseDispute,
+  type DisputeFromEvents,
 } from "@/lib/supabase/queries";
 
 // Helper to convert Supabase juror record to component format
@@ -159,19 +162,25 @@ const supabaseToEscrow = (record: { id: string; subject_id: string; total_collec
 
 // Helper to convert Supabase dispute to DisputeData format
 const supabaseToDispute = (record: SupabaseDispute): DisputeData => {
-  const parseStatus = (status: string): any => {
-    switch (status) {
-      case "pending": return { pending: {} };
-      case "resolved": return { resolved: {} };
-      default: return { none: {} };
-    }
-  };
-
   const parseOutcome = (outcome: string | null): any => {
     switch (outcome) {
       case "challengerWins": return { challengerWins: {} };
       case "defenderWins": return { defenderWins: {} };
       case "noParticipation": return { noParticipation: {} };
+      default: return { none: {} };
+    }
+  };
+
+  // Determine effective status: if status is "none" but outcome is set,
+  // the dispute was resolved (happens after DefenderWins when subject continues)
+  const parseStatus = (status: string, outcome: string | null): any => {
+    // If outcome is set (not null/none), treat as resolved even if status is "none"
+    if (status === "none" && outcome && outcome !== "none") {
+      return { resolved: {} };
+    }
+    switch (status) {
+      case "pending": return { pending: {} };
+      case "resolved": return { resolved: {} };
       default: return { none: {} };
     }
   };
@@ -187,12 +196,17 @@ const supabaseToDispute = (record: SupabaseDispute): DisputeData => {
     }
   };
 
+  // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+  const pdaPart = record.id.includes(':')
+    ? record.id.split(':')[0]
+    : record.id;
+
   return {
-    publicKey: new PublicKey(record.id),
+    publicKey: new PublicKey(pdaPart),
     account: {
       subjectId: new PublicKey(record.subject_id),
       round: record.round,
-      status: parseStatus(record.status),
+      status: parseStatus(record.status, record.outcome),
       disputeType: parseDisputeType(record.dispute_type),
       totalStake: new BN(record.total_stake || 0),
       challengerCount: record.challenger_count || 0,
@@ -215,6 +229,60 @@ const supabaseToDispute = (record: SupabaseDispute): DisputeData => {
       safeBond: new BN(record.safe_bond || 0),
       winnerPool: new BN(record.winner_pool || 0),
       jurorPool: new BN(record.juror_pool || 0),
+    },
+  };
+};
+
+// Helper to convert event-based dispute data to DisputeData format
+// Used for historical disputes reconstructed from program_events table
+const eventToDispute = (
+  event: DisputeFromEvents,
+  disputePda: PublicKey
+): DisputeData => {
+  const parseOutcome = (outcome: string | undefined): any => {
+    // Handle both PascalCase (from events) and camelCase
+    const normalizedOutcome = outcome?.toLowerCase();
+    switch (normalizedOutcome) {
+      case "challengerwins": return { challengerWins: {} };
+      case "defenderwins": return { defenderWins: {} };
+      case "noparticipation": return { noParticipation: {} };
+      default: return { none: {} };
+    }
+  };
+
+  // If resolved_at exists, the dispute is resolved
+  const status = event.resolved_at
+    ? { resolved: {} }
+    : { pending: {} };
+
+  return {
+    publicKey: disputePda,
+    account: {
+      subjectId: new PublicKey(event.subject_id),
+      round: event.round,
+      status,
+      disputeType: { other: {} }, // Events don't store dispute type
+      totalStake: new BN(event.total_stake || event.stake || 0),
+      challengerCount: 0, // Not tracked in events
+      bondAtRisk: new BN(event.bond_at_risk || 0),
+      defenderCount: 0, // Not tracked in events
+      votesForChallenger: new BN(event.votes_for_challenger || 0),
+      votesForDefender: new BN(event.votes_for_defender || 0),
+      voteCount: event.vote_count || 0,
+      votingStartsAt: new BN(event.created_at || 0),
+      votingEndsAt: new BN(event.voting_ends_at || 0),
+      outcome: parseOutcome(event.outcome),
+      resolvedAt: new BN(event.resolved_at || 0),
+      isRestore: event.is_restore,
+      restoreStake: event.is_restore ? new BN(event.stake || 0) : new BN(0),
+      restorer: event.is_restore ? new PublicKey(event.creator) : PublicKey.default,
+      detailsCid: "",
+      bump: 0,
+      createdAt: new BN(event.created_at || 0),
+      // Reward pools from resolved event data
+      safeBond: new BN(0),
+      winnerPool: new BN(event.winner_pool || 0),
+      jurorPool: new BN(event.juror_pool || 0),
     },
   };
 };
@@ -251,8 +319,8 @@ const mergeSupabaseDisputeData = (
   };
 };
 
-// Role badges component - displays separate J, D, C badges
-const RoleBadges = ({ roles }: { roles?: UserRoles | null }) => {
+// Role badges component - displays separate J, D, C/R badges
+const RoleBadges = ({ roles, isRestore }: { roles?: UserRoles | null; isRestore?: boolean }) => {
   if (!roles) return null;
 
   const { juror, defender, challenger } = roles;
@@ -271,8 +339,8 @@ const RoleBadges = ({ roles }: { roles?: UserRoles | null }) => {
         </span>
       )}
       {challenger && (
-        <span className="text-[9px] font-bold w-4 h-4 flex items-center justify-center text-crimson rounded-sm">
-          C
+        <span className={`text-[9px] font-bold w-4 h-4 flex items-center justify-center ${isRestore ? 'text-purple-400' : 'text-crimson'} rounded-sm`}>
+          {isRestore ? 'R' : 'C'}
         </span>
       )}
     </div>
@@ -534,6 +602,7 @@ const HistoryItem = memo(function HistoryItem({
   votes,
   defaultExpanded = false,
   claimData,
+  eventRoles,
   onClaimAll,
   onCloseRecords,
   actionLoading = false,
@@ -544,6 +613,7 @@ const HistoryItem = memo(function HistoryItem({
   votes: VoteData[];
   defaultExpanded?: boolean;
   claimData?: ClaimData | null;
+  eventRoles?: { juror: boolean; challenger: boolean; defender: boolean } | null;
   onClaimAll?: (subjectIdKey: string, round: number, claims: { juror: boolean; challenger: boolean; defender: boolean }) => void;
   onCloseRecords?: (subjectIdKey: string, round: number, records: { juror: boolean; challenger: boolean; defender: boolean }) => void;
   actionLoading?: boolean;
@@ -554,7 +624,7 @@ const HistoryItem = memo(function HistoryItem({
   const [claimSuccess, setClaimSuccess] = useState(false);
   const claimInitiatedRef = useRef(false);
   const prevActionLoadingRef = useRef(actionLoading);
-  const dOutcome = getOutcomeLabel(pastDispute.account.outcome);
+  const dOutcome = getOutcomeLabel(pastDispute.account.outcome, pastDispute.account.isRestore);
 
   // Watch actionLoading to detect claim completion
   useEffect(() => {
@@ -581,11 +651,11 @@ const HistoryItem = memo(function HistoryItem({
   const isRestore = pastDispute.account.isRestore;
   const isPending = pastDispute.account.status.pending;
 
-  // Derive user roles from claim data
+  // Derive user roles from claim data, with event-based fallback for closed records
   const userRoles = {
-    juror: !!claimData?.voteRecord,
-    defender: !!claimData?.defenderRecord,
-    challenger: !!claimData?.challengerRecord,
+    juror: !!claimData?.voteRecord || eventRoles?.juror || false,
+    defender: !!claimData?.defenderRecord || eventRoles?.defender || false,
+    challenger: !!claimData?.challengerRecord || eventRoles?.challenger || false,
   };
 
   // Calculate rewards (winner 80%, juror 19%, treasury 1%)
@@ -641,6 +711,7 @@ const HistoryItem = memo(function HistoryItem({
   // Determine outcome
   const challengerWins = "challengerWins" in pastDispute.account.outcome;
   const defenderWins = "defenderWins" in pastDispute.account.outcome;
+  const noParticipation = "noParticipation" in pastDispute.account.outcome;
   const restorationWins = isRestore && challengerWins;
   const restorationLoses = isRestore && defenderWins;
 
@@ -696,10 +767,14 @@ const HistoryItem = memo(function HistoryItem({
   const challengerRewardAmount = userRewards?.challenger?.total ?? challengerRewardShare;
   const defenderRewardAmount = userRewards?.defender?.total ?? defenderRewardShare;
 
+  // Check if defender reward amount is known (has escrow data OR defender won/noParticipation)
+  const defenderAmountKnown = !claimData?.defenderRecord || userRewards?.defender || defenderWins || noParticipation;
+
   // Total reward amount for user (sum of all applicable rewards)
+  // Only include defender amount if we know the exact number
   const totalUserReward = (claimData?.voteRecord ? jurorRewardAmount : 0)
     + (claimData?.challengerRecord ? challengerRewardAmount : 0)
-    + (claimData?.defenderRecord ? defenderRewardAmount : 0);
+    + (defenderAmountKnown && claimData?.defenderRecord ? defenderRewardAmount : 0);
   const totalUserRewardFormatted = (totalUserReward / LAMPORTS_PER_SOL).toFixed(4);
 
   // Close record checks - records from Supabase are already closed
@@ -757,7 +832,7 @@ const HistoryItem = memo(function HistoryItem({
                 <span className="text-[10px] text-steel" title="Treasury">{treasuryReward}</span>
               </>
             )}
-            <RoleBadges roles={userRoles} />
+            <RoleBadges roles={userRoles} isRestore={isRestore} />
             {userRoles.juror && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                 isRestore
@@ -859,21 +934,23 @@ const HistoryItem = memo(function HistoryItem({
                   </div>
                 )}
 
-                {/* Challenger Reward */}
+                {/* Challenger/Restorer Reward */}
                 {claimData?.challengerRecord && (
-                  <div className={`p-3 bg-obsidian border ${hasChallengerClaim ? 'border-crimson/30' : 'border-slate-light/30'}`}>
+                  <div className={`p-3 bg-obsidian border ${hasChallengerClaim ? (isRestore ? 'border-purple-500/30' : 'border-crimson/30') : 'border-slate-light/30'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-crimson">C</span>
-                        <span className="text-xs text-steel">Challenger</span>
+                        <span className={`text-[10px] font-bold ${isRestore ? 'text-purple-400' : 'text-crimson'}`}>
+                          {isRestore ? 'R' : 'C'}
+                        </span>
+                        <span className="text-xs text-steel">{isRestore ? 'Restorer' : 'Challenger'}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        {challengerWins ? (
+                        {(challengerWins || noParticipation) ? (
                           <span className={`text-sm font-medium ${hasChallengerClaim ? 'text-emerald' : 'text-steel'}`}>
                             +{(challengerRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
                           </span>
                         ) : (
-                          <span className="text-sm font-medium text-crimson/60">
+                          <span className={`text-sm font-medium ${isRestore ? 'text-purple-400/60' : 'text-crimson/60'}`}>
                             -{(challengerStake / LAMPORTS_PER_SOL).toFixed(6)} SOL
                           </span>
                         )}
@@ -885,6 +962,8 @@ const HistoryItem = memo(function HistoryItem({
                     <div className="text-[10px] text-steel/60 mt-1">
                       {challengerWins
                         ? `${totalChallengerStake > 0 ? (challengerStake / totalChallengerStake * 100).toFixed(1) : 0}% of winner pot`
+                        : noParticipation
+                        ? 'Stake refunded (99%)'
                         : 'Stake forfeited'
                       }
                     </div>
@@ -900,9 +979,16 @@ const HistoryItem = memo(function HistoryItem({
                         <span className="text-xs text-steel">Defender</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-sm font-medium ${hasDefenderClaim ? 'text-emerald' : 'text-steel'}`}>
-                          +{(defenderRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
-                        </span>
+                        {/* Show amount if we have userRewards or if defender won/noParticipation */}
+                        {(userRewards?.defender || defenderWins || noParticipation) ? (
+                          <span className={`text-sm font-medium ${hasDefenderClaim ? 'text-emerald' : 'text-steel'}`}>
+                            +{(defenderRewardAmount / LAMPORTS_PER_SOL).toFixed(6)} SOL
+                          </span>
+                        ) : (
+                          <span className="text-sm font-medium text-steel/60">
+                            Safe bond returned
+                          </span>
+                        )}
                         {!hasDefenderClaim && (claimData.defenderRecord.account.rewardClaimed || claimData.defenderRecordFromSupabase) && (
                           <span className="text-emerald text-xs">✓</span>
                         )}
@@ -916,13 +1002,13 @@ const HistoryItem = memo(function HistoryItem({
                             <span>Safe bond</span>
                             <span className="text-emerald/80">+{(userRewards.defender.safeBondShare / LAMPORTS_PER_SOL).toFixed(6)}</span>
                           </div>
-                          {defenderWins && userRewards.defender.winnerPoolShare > 0 && (
+                          {(defenderWins || noParticipation) && userRewards.defender.winnerPoolShare > 0 && (
                             <div className="flex justify-between">
-                              <span>Winner share ({(userRewards.defender.poolPercentage).toFixed(1)}%)</span>
+                              <span>{noParticipation ? 'Bond refund (99%)' : `Winner share (${(userRewards.defender.poolPercentage).toFixed(1)}%)`}</span>
                               <span className="text-emerald/80">+{(userRewards.defender.winnerPoolShare / LAMPORTS_PER_SOL).toFixed(6)}</span>
                             </div>
                           )}
-                          {!defenderWins && (
+                          {!defenderWins && !noParticipation && (
                             <div className="flex justify-between">
                               <span>Bond at risk (lost)</span>
                               <span className="text-crimson/60">-{((defenderBond - userRewards.defender.safeBondShare) / LAMPORTS_PER_SOL).toFixed(6)}</span>
@@ -933,7 +1019,9 @@ const HistoryItem = memo(function HistoryItem({
                         <span>
                           {defenderWins
                             ? `${totalDefenderBond > 0 ? (defenderBond / totalDefenderBond * 100).toFixed(1) : 0}% of winner pot`
-                            : 'Safe bond returned, bond at risk forfeited'
+                            : noParticipation
+                            ? 'Safe bond + at-risk refunded (99%)'
+                            : 'Bond at risk forfeited'
                           }
                         </span>
                       )}
@@ -945,7 +1033,12 @@ const HistoryItem = memo(function HistoryItem({
                 {(claimData?.voteRecord || claimData?.challengerRecord || claimData?.defenderRecord) && (
                   <div className={`p-3 bg-slate-light/10 border-t border-slate-light/30`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-steel">Total Reward</span>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-steel">Total Reward</span>
+                        {!defenderAmountKnown && claimData?.defenderRecord && (
+                          <span className="text-[9px] text-steel/50">+ safe bond (see above)</span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className={`text-lg font-bold ${hasAnyClaim ? 'text-gold' : 'text-steel'}`}>
                           +{totalUserRewardFormatted} SOL
@@ -1185,17 +1278,15 @@ export const SubjectModal = memo(function SubjectModal({
     fetchDispute,
     getDisputePDA,
     fetchChallengerRecordsBySubject,
-    fetchJurorRecord,
-    fetchChallengerRecord,
-    fetchDefenderRecord,
     getJurorRecordPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
     getDefenderPoolPDA,
     fetchJurorPool,
     getJurorPoolPDA,
-    fetchEscrowBySubjectId,
     getEscrowPDA,
+    // Batch fetch - single RPC call for modal data
+    fetchModalData,
   } = useTribunalcraft();
   const { uploadDispute, isUploading } = useUpload();
   const { fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
@@ -1221,15 +1312,19 @@ export const SubjectModal = memo(function SubjectModal({
   // User's challenger records keyed by dispute publicKey
   const [userChallengerRecords, setUserChallengerRecords] = useState<Record<string, ChallengerRecordData | null>>({});
 
-  // User's defender record for this subject
-  const [userDefenderRecord, setUserDefenderRecord] = useState<DefenderRecordData | null>(null);
+  // User's defender records keyed by disputePda:round
+  const [userDefenderRecords, setUserDefenderRecords] = useState<Record<string, DefenderRecordData | null>>({});
 
   // Track which records came from Supabase (closed on-chain, not claimable)
   const [recordsFromSupabase, setRecordsFromSupabase] = useState<{
     vote: Record<string, boolean>;
     challenger: Record<string, boolean>;
-    defender: boolean;
-  }>({ vote: {}, challenger: {}, defender: false });
+    defender: Record<string, boolean>;
+  }>({ vote: {}, challenger: {}, defender: {} });
+
+  // Event-based user roles (fallback when records are closed)
+  // Keyed by round number
+  const [userRolesFromEvents, setUserRolesFromEvents] = useState<Map<number, { juror: boolean; challenger: boolean; defender: boolean }>>(new Map());
 
   // Challenger reputation for active dispute creator
   const [activeDisputeCreatorRep, setActiveDisputeCreatorRep] = useState<number | null>(null);
@@ -1247,11 +1342,17 @@ export const SubjectModal = memo(function SubjectModal({
     d.account.status.resolved
   );
 
+  // Derived: key for active dispute records (disputePda:round)
+  const activeDisputeKey = activeDispute ? `${activeDispute.publicKey.toBase58()}:${activeDispute.account.round}` : null;
+
   // Derived: current user's vote on active dispute
-  const existingVote = activeDispute ? userVoteRecords[activeDispute.publicKey.toBase58()] : null;
+  const existingVote = activeDisputeKey ? userVoteRecords[activeDisputeKey] : null;
 
   // Derived: current user's challenger record on active dispute
-  const challengerRecord = activeDispute ? userChallengerRecords[activeDispute.publicKey.toBase58()] : null;
+  const challengerRecord = activeDisputeKey ? userChallengerRecords[activeDisputeKey] : null;
+
+  // Derived: current user's defender record on active dispute
+  const userDefenderRecord = activeDisputeKey ? userDefenderRecords[activeDisputeKey] : null;
 
   // Derived: votes for active dispute
   const disputeVotes = activeDispute ? (allDisputeVotes[activeDispute.publicKey.toBase58()] || []) : [];
@@ -1261,7 +1362,7 @@ export const SubjectModal = memo(function SubjectModal({
 
   // Derived: user roles for active dispute (V2: check DefenderRecord)
   const isDefender = !!userDefenderRecord;
-  const isChallenger = activeDispute ? !!userChallengerRecords[activeDispute.publicKey.toBase58()] : false;
+  const isChallenger = !!challengerRecord;
   const isJuror = !!existingVote;
   const userRoles: UserRoles = { juror: isJuror, defender: !!isDefender, challenger: isChallenger };
 
@@ -1280,76 +1381,100 @@ export const SubjectModal = memo(function SubjectModal({
     setLoading(true);
     try {
       const subjectId = subject.account.subjectId;
+      const currentRound = subject.account.round;
+      const [disputePda] = getDisputePDA(subjectId);
 
-      // V2: Fetch the current dispute for this subject (one per subject at a time)
+      // ═══════════════════════════════════════════════════════════════════════
+      // BATCH FETCH - Single RPC call for on-chain data (dispute, escrow, user records)
+      // ═══════════════════════════════════════════════════════════════════════
+      const modalDataPromise = fetchModalData(subjectId, currentRound, publicKey);
+
+      // Parallel: Supabase queries (historical data) + juror records (all voters)
+      const supabaseDisputesPromise: Promise<SupabaseDispute[]> = getAllDisputesBySubject(subjectId.toBase58()).catch(() => []);
+      const supabaseEscrowPromise = getEscrowBySubject(subjectId.toBase58()).catch(() => null);
+      const jurorRecordsPromise = fetchJurorRecordsBySubject(subjectId).catch(() => []);
+      // Event-based historical disputes (captures ALL disputes including overwritten ones)
+      const eventDisputesPromise: Promise<DisputeFromEvents[]> = getDisputeHistoryFromEvents(subjectId.toBase58()).catch(() => []);
+
+      // Parallel: User's Supabase records (fallback for closed on-chain records)
+      // Fetch ALL rounds to support claim modal for past disputes including restore
+      const userSupabasePromise = publicKey ? Promise.all([
+        getJurorRecords({ subjectId: subjectId.toBase58(), juror: publicKey.toBase58() }).catch(() => []),
+        getChallengerRecords({ subjectId: subjectId.toBase58(), challenger: publicKey.toBase58() }).catch(() => []),
+        getDefenderRecords({ subjectId: subjectId.toBase58(), defender: publicKey.toBase58() }).catch(() => []),
+      ]) : Promise.resolve([[], [], []] as [any[], any[], any[]]);
+
+      // Event-based user roles (fallback when records are closed)
+      const userEventRolesPromise = publicKey
+        ? getUserRolesFromEvents(subjectId.toBase58(), publicKey.toBase58()).catch(() => new Map())
+        : Promise.resolve(new Map<number, { juror: boolean; challenger: boolean; defender: boolean }>());
+
+      // Wait for all parallel fetches
+      const [modalData, supabaseDisputesRaw, supabaseEscrow, jurorRecords, userSupabaseRecords, eventDisputes, eventRoles] = await Promise.all([
+        modalDataPromise,
+        supabaseDisputesPromise,
+        supabaseEscrowPromise,
+        jurorRecordsPromise,
+        userSupabasePromise,
+        eventDisputesPromise,
+        userEventRolesPromise,
+      ]);
+      const supabaseDisputes = supabaseDisputesRaw as SupabaseDispute[];
+
+      // Store event-based roles
+      setUserRolesFromEvents(eventRoles);
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PROCESS DISPUTE DATA
+      // ═══════════════════════════════════════════════════════════════════════
       let dispute: DisputeData | null = null;
-      try {
-        const [disputePda] = getDisputePDA(subjectId);
-        const disputeAccount = await fetchDispute(disputePda);
-        if (disputeAccount) {
-          dispute = { publicKey: disputePda, account: disputeAccount };
+      if (modalData.dispute) {
+        dispute = { publicKey: disputePda, account: modalData.dispute };
+        // Merge Supabase indexed data for reward breakdown display
+        const matchingSupabase = supabaseDisputes.find(sd => sd.round === currentRound);
+        if (matchingSupabase) {
+          dispute = mergeSupabaseDisputeData(dispute, matchingSupabase);
         }
-      } catch {
-        // No dispute found - expected for non-disputed subjects
       }
 
-      // Merge Supabase indexed data (safe_bond, winner_pool, juror_pool) into dispute
-      // This enables reward breakdown display for historical records
+      // Build dispute list (on-chain + Supabase + event-based historical)
+      // Priority: on-chain (current) > Supabase (indexed) > events (historical)
+      const disputeList: DisputeData[] = [];
       if (dispute) {
-        try {
-          const supabaseDispute = await getDisputeBySubject(
-            subjectId.toBase58(),
-            dispute.account.round
-          );
-          dispute = mergeSupabaseDisputeData(dispute, supabaseDispute);
-        } catch {
-          // Supabase data not available - fallback will handle this
-        }
-      }
-
-      // Fetch ALL disputes from Supabase (including historical rounds)
-      const disputeList: DisputeData[] = dispute ? [dispute] : [];
-      try {
-        const allSupabaseDisputes = await getAllDisputesBySubject(subjectId.toBase58());
-        for (const sd of allSupabaseDisputes) {
-          // Skip if this round is already in the list (current dispute)
-          const alreadyExists = disputeList.some(d => d.account.round === sd.round);
-          if (!alreadyExists) {
-            // Convert Supabase dispute to DisputeData format
-            disputeList.push(supabaseToDispute(sd));
+        const hasActiveStatus = dispute.account.status.pending || dispute.account.status.resolved;
+        const wasResolvedAndReset = dispute.account.status.none &&
+          (dispute.account.outcome.challengerWins || dispute.account.outcome.defenderWins || dispute.account.outcome.noParticipation);
+        if (hasActiveStatus || wasResolvedAndReset) {
+          if (wasResolvedAndReset) {
+            dispute.account.status = { resolved: {} };
           }
+          disputeList.push(dispute);
         }
-      } catch {
-        // Supabase fetch failed - continue with on-chain data only
       }
-      // Sort by round descending (newest first)
+      // Add Supabase disputes (for indexed data like vote counts)
+      for (const sd of supabaseDisputes) {
+        if (!disputeList.some(d => d.account.round === sd.round)) {
+          disputeList.push(supabaseToDispute(sd));
+        }
+      }
+      // Add event-based disputes (for historical disputes not in Supabase - e.g., overwritten)
+      for (const ed of eventDisputes) {
+        if (!disputeList.some(d => d.account.round === ed.round)) {
+          disputeList.push(eventToDispute(ed, disputePda));
+        }
+      }
       disputeList.sort((a, b) => b.account.round - a.account.round);
       setAllDisputes(disputeList);
 
-      // Fetch escrow data for claim calculations (safe_bond, pools, etc.)
-      // Try on-chain first, fall back to Supabase for historical data
-      let escrowFound = false;
-      try {
-        const escrow = await fetchEscrowBySubjectId(subjectId);
-        if (escrow) {
-          setEscrowData(escrow);
-          escrowFound = true;
-        }
-      } catch {
-        // No on-chain escrow
-      }
-      // Fallback to Supabase if no on-chain escrow found
-      if (!escrowFound) {
-        try {
-          const supabaseEscrow = await getEscrowBySubject(subjectId.toBase58());
-          if (supabaseEscrow) {
-            setEscrowData(supabaseToEscrow(supabaseEscrow));
-          } else {
-            setEscrowData(null);
-          }
-        } catch {
-          setEscrowData(null);
-        }
+      // ═══════════════════════════════════════════════════════════════════════
+      // PROCESS ESCROW DATA
+      // ═══════════════════════════════════════════════════════════════════════
+      if (modalData.escrow) {
+        setEscrowData(modalData.escrow);
+      } else if (supabaseEscrow) {
+        setEscrowData(supabaseToEscrow(supabaseEscrow));
+      } else {
+        setEscrowData(null);
       }
 
       if (disputeList.length === 0) {
@@ -1357,37 +1482,24 @@ export const SubjectModal = memo(function SubjectModal({
         return;
       }
 
-      // V2: Fetch juror records for this subject (all rounds)
+      // ═══════════════════════════════════════════════════════════════════════
+      // PROCESS JUROR RECORDS (all votes for vote distribution display)
+      // ═══════════════════════════════════════════════════════════════════════
       const votesMap: Record<string, VoteData[]> = {};
-      try {
-        const jurorRecords = await fetchJurorRecordsBySubject(subjectId);
-        // Group juror records by round, then map to dispute keys
-        const recordsByRound: Record<number, VoteData[]> = {};
-        for (const jr of jurorRecords || []) {
-          const round = jr.account.round;
-          if (!recordsByRound[round]) {
-            recordsByRound[round] = [];
-          }
-          recordsByRound[round].push({
-            publicKey: jr.publicKey,
-            account: jr.account,
-          });
-        }
-        // Map each dispute's publicKey to the juror records for its round
-        for (const d of disputeList) {
-          const dKey = d.publicKey.toBase58();
-          const dRound = d.account.round;
-          votesMap[dKey] = recordsByRound[dRound] || [];
-        }
-      } catch {
-        // Initialize empty votes for all disputes on error
-        for (const d of disputeList) {
-          votesMap[d.publicKey.toBase58()] = [];
-        }
+      const recordsByRound: Record<number, VoteData[]> = {};
+      for (const jr of jurorRecords || []) {
+        const round = jr.account.round;
+        if (!recordsByRound[round]) recordsByRound[round] = [];
+        recordsByRound[round].push({ publicKey: jr.publicKey, account: jr.account });
+      }
+      for (const d of disputeList) {
+        votesMap[d.publicKey.toBase58()] = recordsByRound[d.account.round] || [];
       }
       setAllDisputeVotes(votesMap);
 
-      // V2: Fetch content from dispute's detailsCid directly
+      // ═══════════════════════════════════════════════════════════════════════
+      // FETCH DISPUTE CONTENT (IPFS) - can't batch, do after main data
+      // ═══════════════════════════════════════════════════════════════════════
       const contentsMap: Record<string, DisputeContent | null> = {};
       if (dispute && dispute.account.detailsCid) {
         try {
@@ -1399,115 +1511,70 @@ export const SubjectModal = memo(function SubjectModal({
       }
       setAllDisputeContents(contentsMap);
 
-      // Fetch user-specific data if wallet connected
-      if (publicKey && dispute) {
-        const disputeRound = dispute.account.round;
-        const disputeKey = dispute.publicKey.toBase58();
-
-        // Track which records came from Supabase (closed on-chain)
+      // ═══════════════════════════════════════════════════════════════════════
+      // PROCESS USER RECORDS (from batch fetch, with Supabase fallback)
+      // Key by disputePda:round to support claims for all rounds including restore
+      // ═══════════════════════════════════════════════════════════════════════
+      if (publicKey) {
+        const disputeKey = `${disputePda.toBase58()}:${currentRound}`;
         const supabaseFlags = {
           vote: {} as Record<string, boolean>,
           challenger: {} as Record<string, boolean>,
-          defender: false,
+          defender: {} as Record<string, boolean>,
         };
 
-        // V2: Fetch user's juror record for this dispute (subjectId, user, round)
-        // Try on-chain first, fall back to Supabase for closed records
+        // Juror records - on-chain for current round, Supabase for all rounds
         const voteRecordsMap: Record<string, VoteData | null> = {};
-        try {
-          const [jurorRecordPda] = getJurorRecordPDA(subjectId, publicKey, disputeRound);
-          const record = await fetchJurorRecord(jurorRecordPda);
-          if (record) {
-            voteRecordsMap[disputeKey] = {
-              publicKey: jurorRecordPda,
-              account: record,
-            };
-          }
-        } catch {
-          // No on-chain record - try Supabase for historical (closed) records
+        if (modalData.jurorRecord) {
+          const [jurorRecordPda] = getJurorRecordPDA(subjectId, publicKey, currentRound);
+          voteRecordsMap[disputeKey] = { publicKey: jurorRecordPda, account: modalData.jurorRecord };
         }
-        // Fallback to Supabase if no on-chain record found
-        if (!voteRecordsMap[disputeKey]) {
-          try {
-            const supabaseRecords = await getJurorRecords({
-              subjectId: subjectId.toBase58(),
-              juror: publicKey.toBase58(),
-              round: disputeRound,
-            });
-            if (supabaseRecords.length > 0) {
-              voteRecordsMap[disputeKey] = supabaseToJurorRecord(supabaseRecords[0]);
-              supabaseFlags.vote[disputeKey] = true;
-            }
-          } catch {
-            // No Supabase record either
+        // Add all Supabase juror records (for past rounds including restore)
+        for (const sjr of userSupabaseRecords[0] || []) {
+          const key = `${disputePda.toBase58()}:${sjr.round}`;
+          if (!voteRecordsMap[key]) {
+            voteRecordsMap[key] = supabaseToJurorRecord(sjr);
+            supabaseFlags.vote[key] = true;
           }
         }
         setUserVoteRecords(voteRecordsMap);
 
-        // V2: Fetch user's challenger record (subjectId, user, round)
-        // Try on-chain first, fall back to Supabase for closed records
+        // Challenger records - on-chain for current round, Supabase for all rounds
         const challRecordsMap: Record<string, ChallengerRecordData | null> = {};
-        try {
-          const [challRecordPda] = getChallengerRecordPDA(subjectId, publicKey, disputeRound);
-          const record = await fetchChallengerRecord(challRecordPda);
-          if (record) {
-            challRecordsMap[disputeKey] = { publicKey: challRecordPda, account: record };
-          }
-        } catch {
-          // No on-chain record
+        if (modalData.challengerRecord) {
+          const [challRecordPda] = getChallengerRecordPDA(subjectId, publicKey, currentRound);
+          challRecordsMap[disputeKey] = { publicKey: challRecordPda, account: modalData.challengerRecord };
         }
-        // Fallback to Supabase if no on-chain record found
-        if (!challRecordsMap[disputeKey]) {
-          try {
-            const supabaseRecords = await getChallengerRecords({
-              subjectId: subjectId.toBase58(),
-              challenger: publicKey.toBase58(),
-              round: disputeRound,
-            });
-            if (supabaseRecords.length > 0) {
-              challRecordsMap[disputeKey] = supabaseToChallengerRecord(supabaseRecords[0]);
-              supabaseFlags.challenger[disputeKey] = true;
-            }
-          } catch {
-            // No Supabase record either
+        // Add all Supabase challenger records (for past rounds including restore)
+        for (const scr of userSupabaseRecords[1] || []) {
+          const key = `${disputePda.toBase58()}:${scr.round}`;
+          if (!challRecordsMap[key]) {
+            challRecordsMap[key] = supabaseToChallengerRecord(scr);
+            supabaseFlags.challenger[key] = true;
           }
         }
         setUserChallengerRecords(challRecordsMap);
 
-        // V2: Fetch user's defender record (subjectId, user, round)
-        // Try on-chain first, fall back to Supabase for closed records
-        let defenderRecordFound = false;
-        try {
-          const [defRecordPda] = getDefenderRecordPDA(subjectId, publicKey, disputeRound);
-          const record = await fetchDefenderRecord(defRecordPda);
-          if (record) {
-            setUserDefenderRecord({ publicKey: defRecordPda, account: record });
-            defenderRecordFound = true;
-          }
-        } catch {
-          // No on-chain record
+        // Defender records - on-chain for current round, Supabase for all rounds
+        const defRecordsMap: Record<string, DefenderRecordData | null> = {};
+        if (modalData.defenderRecord) {
+          const [defRecordPda] = getDefenderRecordPDA(subjectId, publicKey, currentRound);
+          defRecordsMap[disputeKey] = { publicKey: defRecordPda, account: modalData.defenderRecord };
         }
-        // Fallback to Supabase if no on-chain record found
-        if (!defenderRecordFound) {
-          try {
-            const supabaseRecords = await getDefenderRecords({
-              subjectId: subjectId.toBase58(),
-              defender: publicKey.toBase58(),
-              round: disputeRound,
-            });
-            if (supabaseRecords.length > 0) {
-              setUserDefenderRecord(supabaseToDefenderRecord(supabaseRecords[0]));
-              supabaseFlags.defender = true;
-            }
-          } catch {
-            // No Supabase record either
+        // Add all Supabase defender records (for past rounds)
+        for (const sdr of userSupabaseRecords[2] || []) {
+          const key = `${disputePda.toBase58()}:${sdr.round}`;
+          if (!defRecordsMap[key]) {
+            defRecordsMap[key] = supabaseToDefenderRecord(sdr);
+            supabaseFlags.defender[key] = true;
           }
         }
+        setUserDefenderRecords(defRecordsMap);
 
         setRecordsFromSupabase(supabaseFlags);
 
-        // V2: Fetch dispute creator's reputation from their ChallengerPool
-        if (dispute.account.status.pending) {
+        // Fetch dispute creator's reputation (still needs separate call for now)
+        if (dispute && dispute.account.status.pending) {
           try {
             const challengers = await fetchChallengerRecordsBySubject(subjectId);
             if (challengers && challengers.length > 0) {
@@ -1525,7 +1592,6 @@ export const SubjectModal = memo(function SubjectModal({
             // Ignore
           }
         }
-
       }
     } catch (error) {
       console.error("Error loading subject data:", error);
@@ -1537,19 +1603,15 @@ export const SubjectModal = memo(function SubjectModal({
     subject.publicKey,
     publicKey,
     getDisputePDA,
-    fetchDispute,
+    fetchModalData,
     fetchJurorRecordsBySubject,
     fetchChallengerRecordsBySubject,
     fetchDisputeContent,
-    fetchJurorRecord,
-    fetchChallengerRecord,
-    fetchDefenderRecord,
-    fetchJurorPool,
     getJurorRecordPDA,
     getChallengerRecordPDA,
     getDefenderRecordPDA,
-    getJurorPoolPDA,
-    fetchEscrowBySubjectId,
+    getChallengerPoolPDA,
+    fetchChallengerPool,
   ]);
 
   // Load data when modal opens
@@ -1843,7 +1905,7 @@ export const SubjectModal = memo(function SubjectModal({
   const isResolvedDispute = activeDispute?.account.status.resolved;
   const subjectStatus = getStatusBadge(subject.account.status);
 
-  const outcome = activeDispute ? getOutcomeLabel(activeDispute.account.outcome) : null;
+  const outcome = activeDispute ? getOutcomeLabel(activeDispute.account.outcome, activeDispute.account.isRestore) : null;
   const votingEnded = activeDispute ? Date.now() > activeDispute.account.votingEndsAt.toNumber() * 1000 : false;
   const isPending = activeDispute?.account.status.pending;
   const canVote = isPending && !votingEnded && jurorPool;
@@ -2580,36 +2642,42 @@ export const SubjectModal = memo(function SubjectModal({
               </h4>
               <div className="space-y-2">
                 {sortedHistoryDisputes.map((historyDispute, i) => {
-                  const dKey = historyDispute.publicKey.toBase58();
-                  const isCurrentDispute = activeDispute && dKey === activeDispute.publicKey.toBase58();
+                  const dPda = historyDispute.publicKey.toBase58();
+                  const dRound = historyDispute.account.round;
+                  // Key format: disputePda:round to match how records are stored
+                  const dKey = `${dPda}:${dRound}`;
+                  const isCurrentDispute = activeDispute && dPda === activeDispute.publicKey.toBase58() && dRound === activeDispute.account.round;
                   // Use current disputeContent if this is the current dispute, otherwise from allDisputeContents
                   const dContent = isCurrentDispute
                     ? disputeContent
-                    : allDisputeContents[dKey];
+                    : allDisputeContents[dPda];
                   // Include votes for current dispute or past disputes
                   const dVotes = isCurrentDispute
                     ? disputeVotes
-                    : (allDisputeVotes?.[dKey] || []);
+                    : (allDisputeVotes?.[dPda] || []);
                   // Build claim data - use current records for current dispute, past records for historical
                   // Roles are derived from claim data inside HistoryItem
                   // Include Supabase flags to indicate records that are closed on-chain (not claimable)
+                  // All records are keyed by disputePda:round
                   const dClaimData = isCurrentDispute ? {
                     voteRecord: existingVote,
                     challengerRecord,
                     defenderRecord: userDefenderRecord,
-                    voteRecordFromSupabase: false,
-                    challengerRecordFromSupabase: false,
-                    defenderRecordFromSupabase: false,
+                    voteRecordFromSupabase: recordsFromSupabase.vote[dKey] || false,
+                    challengerRecordFromSupabase: recordsFromSupabase.challenger[dKey] || false,
+                    defenderRecordFromSupabase: recordsFromSupabase.defender[dKey] || false,
                   } : {
                     voteRecord: userVoteRecords?.[dKey] || null,
                     challengerRecord: userChallengerRecords?.[dKey] || null,
-                    defenderRecord: userDefenderRecord, // Defender record is per-subject, applies to all disputes
+                    defenderRecord: userDefenderRecords?.[dKey] || null,
                     voteRecordFromSupabase: recordsFromSupabase.vote[dKey] || false,
                     challengerRecordFromSupabase: recordsFromSupabase.challenger[dKey] || false,
-                    defenderRecordFromSupabase: recordsFromSupabase.defender,
+                    defenderRecordFromSupabase: recordsFromSupabase.defender[dKey] || false,
                   };
                   // Find the escrow round for this dispute
                   const dEscrowRound = escrowData?.rounds?.find(r => r.round === historyDispute.account.round) || null;
+                  // Get event-based roles for this round (fallback when records are closed)
+                  const dEventRoles = userRolesFromEvents.get(historyDispute.account.round) || null;
                   return (
                     <HistoryItem
                       key={i}
@@ -2618,6 +2686,7 @@ export const SubjectModal = memo(function SubjectModal({
                       votes={dVotes}
                       defaultExpanded={i === 0}
                       claimData={dClaimData}
+                      eventRoles={dEventRoles}
                       onClaimAll={handleClaimAllWithRefresh}
                       onCloseRecords={handleCloseRecordsWithRefresh}
                       actionLoading={actionLoading}

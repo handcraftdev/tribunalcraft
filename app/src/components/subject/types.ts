@@ -35,9 +35,14 @@ export const getStatusBadge = (status: any) => {
   return { label: "Unknown", class: "bg-steel-20 text-steel" };
 };
 
-export const getOutcomeLabel = (outcome: any) => {
+export const getOutcomeLabel = (outcome: any, isRestore?: boolean) => {
   if (outcome.none) return { label: "Voting", class: "text-gold" };
-  if (outcome.challengerWins) return { label: "Challenger Wins", class: "text-crimson" };
+  if (outcome.challengerWins) {
+    // For restore disputes, "challenger" is actually the restorer
+    return isRestore
+      ? { label: "Restorer Wins", class: "text-purple-400" }
+      : { label: "Challenger Wins", class: "text-crimson" };
+  }
   if (outcome.defenderWins) return { label: "Defender Wins", class: "text-sky-400" };
   if (outcome.noParticipation) return { label: "No Quorum", class: "text-steel" };
   return { label: "Unknown", class: "text-steel" };
