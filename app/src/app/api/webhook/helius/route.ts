@@ -1,36 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createServerClient } from "@/lib/supabase/client";
-import {
-  parseSubject,
-  parseDispute,
-  parseJurorRecord,
-  parseChallengerRecord,
-  parseDefenderRecord,
-  parseJurorPool,
-  parseChallengerPool,
-  parseDefenderPool,
-  parseEscrow,
-} from "@/lib/supabase/parse";
 import { PublicKey, Connection } from "@solana/web3.js";
-import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
-import { PROGRAM_ID } from "@tribunalcraft/sdk";
+import { BorshCoder, EventParser } from "@coral-xyz/anchor";
+import { PROGRAM_ID, IDL } from "@tribunalcraft/sdk";
+import type { ProgramEventInsert } from "@/lib/supabase/types";
 
-// Helius webhook payload types
+// =============================================================================
+// Types
+// =============================================================================
+
 interface HeliusWebhookPayload {
-  webhookType: string;
-  accountData?: AccountData[];
-  nativeTransfers?: unknown[];
-  tokenTransfers?: unknown[];
+  // Array format (multiple transactions)
+  0?: HeliusTransaction;
+  length?: number;
+  // Or single transaction format
   signature?: string;
   slot?: number;
-  timestamp?: number;
+  blockTime?: number;
+  logs?: string[];
+  meta?: {
+    logMessages?: string[];
+  };
+  // Enhanced transaction fields
+  accountData?: AccountData[];
   type?: string;
   source?: string;
-  // Enhanced transaction format
   description?: string;
   feePayer?: string;
-  instructions?: unknown[];
+}
+
+interface HeliusTransaction {
+  signature: string;
+  slot: number;
+  blockTime?: number;
+  meta?: {
+    logMessages?: string[];
+  };
+  logs?: string[];
+  accountData?: AccountData[];
 }
 
 interface AccountData {
@@ -45,376 +53,482 @@ interface AccountData {
   };
 }
 
-// Account discriminators for TribunalCraft program
-// These are the first 8 bytes of the account data that identify the account type
-const DISCRIMINATORS: Record<string, string> = {
-  subject: "subject",
-  dispute: "dispute",
-  jurorRecord: "juror_record",
-  challengerRecord: "challenger_record",
-  defenderRecord: "defender_record",
-  jurorPool: "juror_pool",
-  challengerPool: "challenger_pool",
-  defenderPool: "defender_pool",
-  escrow: "escrow",
-};
+// =============================================================================
+// Webhook Verification
+// =============================================================================
 
-// Verify webhook signature from Helius using HMAC-SHA256
 function verifyWebhookSignature(
   payload: string,
   signature: string | null,
   secret: string | undefined
 ): boolean {
-  // If no secret configured, reject in production
   if (!secret) {
-    console.error("HELIUS_WEBHOOK_SECRET not configured - webhook verification failed");
-    return false;
+    console.warn("HELIUS_WEBHOOK_SECRET not configured - skipping verification");
+    return true; // Allow in dev mode
   }
 
   if (!signature) {
-    console.error("No signature provided in webhook request");
+    console.error("No signature provided");
     return false;
   }
 
   try {
-    // Helius uses HMAC-SHA256 for webhook signatures
     const hmac = createHmac("sha256", secret);
     hmac.update(payload);
     const expectedSignature = hmac.digest("hex");
 
-    // Use timing-safe comparison to prevent timing attacks
     const signatureBuffer = Buffer.from(signature, "hex");
     const expectedBuffer = Buffer.from(expectedSignature, "hex");
 
     if (signatureBuffer.length !== expectedBuffer.length) {
-      console.error("Signature length mismatch");
       return false;
     }
 
     return timingSafeEqual(signatureBuffer, expectedBuffer);
   } catch (error) {
-    console.error("Error verifying webhook signature:", error);
+    console.error("Signature verification error:", error);
     return false;
   }
 }
 
-// Parse account data based on account type
-async function parseAndUpsertAccount(
-  supabase: ReturnType<typeof createServerClient>,
-  accountPubkey: string,
-  accountData: Buffer,
-  slot: number
-): Promise<{ success: boolean; accountType?: string }> {
+// =============================================================================
+// Event Parsing
+// =============================================================================
+
+function createEventParser(): EventParser {
+  const coder = new BorshCoder(IDL as any);
+  return new EventParser(PROGRAM_ID, coder);
+}
+
+interface ParsedEvent {
+  name: string;
+  data: Record<string, any>;
+}
+
+function parseEventsFromLogs(logs: string[]): ParsedEvent[] {
+  const events: ParsedEvent[] = [];
+  const parser = createEventParser();
+
   try {
-    // The first 8 bytes are the discriminator
-    const discriminator = accountData.slice(0, 8);
-
-    // We need to identify the account type based on the discriminator
-    // For now, we'll try to detect based on account size and structure
-    // In a more robust implementation, you'd decode the discriminator properly
-
-    const pubkey = new PublicKey(accountPubkey);
-
-    // Try to decode as different account types
-    // This is a simplified approach - in production you'd use proper IDL decoding
-
-    // For now, we'll need to fetch the account from RPC to properly decode it
-    // since Helius raw data needs Anchor's coder to decode
-    console.log(`Received account update for ${accountPubkey}, slot ${slot}`);
-
-    // Mark as needing sync - the account will be synced on next page load
-    // or we can trigger an async sync here
-    return { success: true, accountType: "unknown" };
+    for (const event of parser.parseLogs(logs)) {
+      events.push({
+        name: event.name,
+        data: event.data as Record<string, any>,
+      });
+    }
   } catch (error) {
-    console.error("Error parsing account:", error);
-    return { success: false };
+    console.error("Error parsing events:", error);
+  }
+
+  return events;
+}
+
+// =============================================================================
+// Event to DB Row Conversion
+// =============================================================================
+
+function toNumber(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  if (value.toNumber) return value.toNumber();
+  if (value.toString) return Number(value.toString());
+  return Number(value);
+}
+
+function toPubkeyString(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (value.toBase58) return value.toBase58();
+  if (value.toString) return value.toString();
+  return null;
+}
+
+function getEnumVariant(value: any): string {
+  if (!value || typeof value !== "object") return "unknown";
+  const keys = Object.keys(value);
+  return keys.length > 0 ? keys[0] : "unknown";
+}
+
+function eventToRow(
+  event: ParsedEvent,
+  signature: string,
+  eventIndex: number,
+  slot: number,
+  blockTime: number | null
+): ProgramEventInsert {
+  const base: ProgramEventInsert = {
+    id: `${signature}:${eventIndex}`,
+    signature,
+    slot,
+    block_time: blockTime,
+    event_type: event.name,
+    subject_id: null,
+    round: null,
+    actor: null,
+    amount: null,
+    data: {},
+  };
+
+  const d = event.data;
+
+  // NOTE: IDL uses snake_case field names (subject_id, bond_at_risk, etc.)
+  switch (event.name) {
+    case "SubjectCreatedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        actor: toPubkeyString(d.creator),
+        data: {
+          matchMode: d.match_mode,
+          votingPeriod: toNumber(d.voting_period),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "BondAddedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.defender),
+        amount: toNumber(d.amount),
+        data: {
+          source: getEnumVariant(d.source),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "DisputeCreatedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.creator),
+        amount: toNumber(d.stake),
+        data: {
+          bondAtRisk: toNumber(d.bond_at_risk),
+          votingEndsAt: toNumber(d.voting_ends_at),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "ChallengerJoinedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.challenger),
+        amount: toNumber(d.stake),
+        data: {
+          totalStake: toNumber(d.total_stake),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "VoteEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.juror),
+        amount: toNumber(d.voting_power),
+        data: {
+          choice: getEnumVariant(d.choice),
+          votingPower: toNumber(d.voting_power),
+          rationaleCid: d.rationale_cid || null,
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "RestoreVoteEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.juror),
+        amount: toNumber(d.voting_power),
+        data: {
+          choice: getEnumVariant(d.choice),
+          votingPower: toNumber(d.voting_power),
+          rationaleCid: d.rationale_cid || null,
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "AddToVoteEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.juror),
+        amount: toNumber(d.additional_stake),
+        data: {
+          additionalVotingPower: toNumber(d.additional_voting_power),
+          totalStake: toNumber(d.total_stake),
+          totalVotingPower: toNumber(d.total_voting_power),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "DisputeResolvedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        amount: toNumber(d.total_stake),
+        data: {
+          outcome: getEnumVariant(d.outcome),
+          totalStake: toNumber(d.total_stake),
+          bondAtRisk: toNumber(d.bond_at_risk),
+          winnerPool: toNumber(d.winner_pool),
+          jurorPool: toNumber(d.juror_pool),
+          resolvedAt: toNumber(d.resolved_at),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "RestoreSubmittedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.restorer),
+        amount: toNumber(d.stake),
+        data: {
+          detailsCid: d.details_cid || null,
+          votingPeriod: toNumber(d.voting_period),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "RewardClaimedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.claimer),
+        amount: toNumber(d.amount),
+        data: {
+          role: getEnumVariant(d.role),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "StakeUnlockedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.juror),
+        amount: toNumber(d.amount),
+        data: {
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "RecordClosedEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.owner),
+        amount: toNumber(d.rent_returned),
+        data: {
+          role: getEnumVariant(d.role),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "RoundSweptEvent":
+      return {
+        ...base,
+        subject_id: toPubkeyString(d.subject_id),
+        round: toNumber(d.round),
+        actor: toPubkeyString(d.sweeper),
+        amount: toNumber(d.unclaimed),
+        data: {
+          botReward: toNumber(d.bot_reward),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "PoolDepositEvent":
+      return {
+        ...base,
+        actor: toPubkeyString(d.owner),
+        amount: toNumber(d.amount),
+        data: {
+          poolType: getEnumVariant(d.pool_type),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    case "PoolWithdrawEvent":
+      return {
+        ...base,
+        actor: toPubkeyString(d.owner),
+        amount: toNumber(d.amount),
+        data: {
+          poolType: getEnumVariant(d.pool_type),
+          slashed: toNumber(d.slashed),
+          timestamp: toNumber(d.timestamp),
+        },
+      };
+
+    default:
+      // Store unknown events with raw data
+      return {
+        ...base,
+        data: d,
+      };
   }
 }
 
-// Handle enhanced transaction webhook (recommended approach)
-async function handleEnhancedTransaction(
+// =============================================================================
+// Process Transaction
+// =============================================================================
+
+async function processTransaction(
   supabase: ReturnType<typeof createServerClient>,
-  payload: HeliusWebhookPayload
-): Promise<{ processed: number; errors: number }> {
-  let processed = 0;
+  tx: {
+    signature: string;
+    slot: number;
+    blockTime?: number | null;
+    logs: string[];
+  }
+): Promise<{ events: number; errors: number }> {
+  let eventsStored = 0;
   let errors = 0;
 
-  const slot = payload.slot || 0;
+  // Parse events from logs
+  const events = parseEventsFromLogs(tx.logs);
 
-  // Process account changes from the transaction
-  if (payload.accountData && Array.isArray(payload.accountData)) {
-    for (const account of payload.accountData) {
-      // Only process accounts owned by our program
-      if (account.data?.program === PROGRAM_ID.toBase58()) {
-        try {
-          if (account.data.raw) {
-            const buffer = Buffer.from(account.data.raw, "base64");
-            const result = await parseAndUpsertAccount(
-              supabase,
-              account.account,
-              buffer,
-              slot
-            );
-            if (result.success) {
-              processed++;
-            } else {
-              errors++;
-            }
-          }
-        } catch (err) {
-          console.error(`Error processing account ${account.account}:`, err);
-          errors++;
-        }
-      }
-    }
+  if (events.length === 0) {
+    return { events: 0, errors: 0 };
   }
 
-  return { processed, errors };
+  console.log(`[Helius] Tx ${tx.signature.slice(0, 8)}... has ${events.length} events:`, events.map(e => e.name));
+
+  // Convert events to DB rows
+  const rows: ProgramEventInsert[] = events.map((event, index) =>
+    eventToRow(event, tx.signature, index, tx.slot, tx.blockTime ?? null)
+  );
+
+  // Batch upsert events
+  const { error } = await (supabase as any)
+    .from("program_events")
+    .upsert(rows, { onConflict: "id" });
+
+  if (error) {
+    console.error("[Helius] Error storing events:", error);
+    errors = rows.length;
+  } else {
+    eventsStored = rows.length;
+  }
+
+  return { events: eventsStored, errors };
 }
 
-// Sync accounts by fetching fresh data from RPC and upserting to Supabase
-async function syncAccountsFromRPC(
-  supabase: ReturnType<typeof createServerClient>,
-  accountPubkeys: string[],
-  slot: number
-): Promise<{ synced: number; errors: number }> {
-  // Use server-side RPC URL, fall back to public if not set
-  const rpcUrl = process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
-  if (!rpcUrl) {
-    console.error("RPC URL not configured");
-    return { synced: 0, errors: accountPubkeys.length };
-  }
-
-  const connection = new Connection(rpcUrl);
-  let synced = 0;
-  let errors = 0;
-
-  // Import the SDK client for fetching
-  const { TribunalCraftClient } = await import("@tribunalcraft/sdk");
-  const client = new TribunalCraftClient({ connection });
-
-  for (const pubkeyStr of accountPubkeys) {
-    try {
-      const pubkey = new PublicKey(pubkeyStr);
-
-      // Try to fetch and identify the account type
-      // We'll try each account type until one works
-
-      // Try Subject
-      try {
-        const subject = await client.fetchSubject(pubkey);
-        if (subject) {
-          const row = parseSubject(pubkey, subject, slot);
-          await (supabase as any).from("subjects").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a subject */ }
-
-      // Try Dispute
-      try {
-        const dispute = await client.fetchDispute(pubkey);
-        if (dispute) {
-          const row = parseDispute(pubkey, dispute, slot);
-
-          // If dispute is resolved, try to fetch escrow to get safe_bond, winner_pool, juror_pool
-          if (dispute.status && "resolved" in dispute.status) {
-            try {
-              const { pda } = await import("@tribunalcraft/sdk");
-              const [escrowPda] = pda.escrow(dispute.subjectId);
-              const escrow = await client.fetchEscrow(escrowPda);
-              if (escrow?.rounds) {
-                const roundResult = escrow.rounds.find(r => r.round === dispute.round);
-                if (roundResult) {
-                  row.safe_bond = roundResult.safeBond?.toNumber() ?? 0;
-                  row.winner_pool = roundResult.winnerPool?.toNumber() ?? 0;
-                  row.juror_pool = roundResult.jurorPool?.toNumber() ?? 0;
-                }
-              }
-            } catch {
-              // Escrow might not exist or be closed - that's ok
-            }
-          }
-
-          await (supabase as any).from("disputes").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a dispute */ }
-
-      // Try JurorRecord
-      try {
-        const record = await client.fetchJurorRecord(pubkey);
-        if (record) {
-          const row = parseJurorRecord(pubkey, record, slot);
-          await (supabase as any).from("juror_records").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a juror record */ }
-
-      // Try ChallengerRecord
-      try {
-        const record = await client.fetchChallengerRecord(pubkey);
-        if (record) {
-          const row = parseChallengerRecord(pubkey, record, slot);
-          await (supabase as any).from("challenger_records").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a challenger record */ }
-
-      // Try DefenderRecord
-      try {
-        const record = await client.fetchDefenderRecord(pubkey);
-        if (record) {
-          const row = parseDefenderRecord(pubkey, record, slot);
-          await (supabase as any).from("defender_records").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a defender record */ }
-
-      // Try JurorPool
-      try {
-        const pool = await client.fetchJurorPool(pubkey);
-        if (pool) {
-          const row = parseJurorPool(pubkey, pool, slot);
-          await (supabase as any).from("juror_pools").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a juror pool */ }
-
-      // Try ChallengerPool
-      try {
-        const pool = await client.fetchChallengerPool(pubkey);
-        if (pool) {
-          const row = parseChallengerPool(pubkey, pool, slot);
-          await (supabase as any).from("challenger_pools").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a challenger pool */ }
-
-      // Try DefenderPool
-      try {
-        const pool = await client.fetchDefenderPool(pubkey);
-        if (pool) {
-          const row = parseDefenderPool(pubkey, pool, slot);
-          await (supabase as any).from("defender_pools").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not a defender pool */ }
-
-      // Try Escrow
-      try {
-        const escrow = await client.fetchEscrow(pubkey);
-        if (escrow) {
-          const row = parseEscrow(pubkey, escrow, slot);
-          await (supabase as any).from("escrows").upsert(row, { onConflict: "id" });
-          synced++;
-          continue;
-        }
-      } catch { /* not an escrow */ }
-
-      // Account type not recognized
-      console.log(`Unknown account type for ${pubkeyStr}`);
-    } catch (err) {
-      console.error(`Error syncing account ${pubkeyStr}:`, err);
-      errors++;
-    }
-  }
-
-  return { synced, errors };
-}
+// =============================================================================
+// Main Handler
+// =============================================================================
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the raw body for signature verification
     const rawBody = await request.text();
     const signature = request.headers.get("x-helius-signature");
     const webhookSecret = process.env.HELIUS_WEBHOOK_SECRET;
 
-    // Verify webhook signature
+    // Verify signature
     if (!verifyWebhookSignature(rawBody, signature, webhookSecret)) {
-      return NextResponse.json(
-        { error: "Invalid webhook signature" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    // Parse the payload
-    let payload: HeliusWebhookPayload;
+    // Parse payload
+    let payload: any;
     try {
       payload = JSON.parse(rawBody);
     } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON payload" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // Create server-side Supabase client
+    // Create Supabase client
     let supabase;
     try {
       supabase = createServerClient();
     } catch (error) {
-      console.error("Supabase not configured:", error);
-      // Return success to not retry if Supabase isn't configured
-      return NextResponse.json({ message: "Supabase not configured, skipping" });
+      console.warn("Supabase not configured, skipping");
+      return NextResponse.json({ message: "Supabase not configured" });
     }
 
-    const slot = payload.slot || 0;
+    let totalEvents = 0;
+    let totalErrors = 0;
 
-    // Collect all account pubkeys that were affected
-    const affectedAccounts: string[] = [];
+    // Handle array format (multiple transactions)
+    if (Array.isArray(payload)) {
+      for (const tx of payload) {
+        if (!tx.signature) continue;
 
-    if (payload.accountData) {
-      for (const account of payload.accountData) {
-        // Check if this account is owned by our program
-        if (account.data?.program === PROGRAM_ID.toBase58()) {
-          affectedAccounts.push(account.account);
+        const logs = tx.meta?.logMessages || tx.logs || [];
+        if (logs.length === 0) continue;
+
+        // Check if this transaction involves our program
+        const programIdStr = PROGRAM_ID.toBase58();
+        const involvesTribunal = logs.some((log: string) => log.includes(programIdStr));
+        if (!involvesTribunal) continue;
+
+        const result = await processTransaction(supabase, {
+          signature: tx.signature,
+          slot: tx.slot || 0,
+          blockTime: tx.blockTime,
+          logs,
+        });
+
+        totalEvents += result.events;
+        totalErrors += result.errors;
+      }
+    }
+    // Handle single transaction format
+    else if (payload.signature) {
+      const logs = payload.meta?.logMessages || payload.logs || [];
+      if (logs.length > 0) {
+        const programIdStr = PROGRAM_ID.toBase58();
+        const involvesTribunal = logs.some((log: string) => log.includes(programIdStr));
+
+        if (involvesTribunal) {
+          const result = await processTransaction(supabase, {
+            signature: payload.signature,
+            slot: payload.slot || 0,
+            blockTime: payload.blockTime,
+            logs,
+          });
+
+          totalEvents += result.events;
+          totalErrors += result.errors;
         }
       }
     }
 
-    if (affectedAccounts.length > 0) {
-      // Sync accounts from RPC to Supabase
-      const result = await syncAccountsFromRPC(supabase, affectedAccounts, slot);
-
-      console.log(
-        `Webhook processed: ${result.synced} synced, ${result.errors} errors at slot ${slot}`
-      );
-
-      return NextResponse.json({
-        success: true,
-        accountsAffected: affectedAccounts.length,
-        synced: result.synced,
-        errors: result.errors,
-        slot,
-      });
+    if (totalEvents > 0 || totalErrors > 0) {
+      console.log(`[Helius] Processed: ${totalEvents} events, ${totalErrors} errors`);
     }
 
     return NextResponse.json({
       success: true,
-      accountsAffected: 0,
-      slot,
+      events: totalEvents,
+      errors: totalErrors,
     });
   } catch (error) {
-    console.error("Webhook error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("[Helius] Webhook error:", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
 
-// Health check endpoint
+// Health check
 export async function GET() {
   return NextResponse.json({
     status: "ok",
     programId: PROGRAM_ID.toBase58(),
+    description: "Helius webhook for TribunalCraft events",
   });
 }
