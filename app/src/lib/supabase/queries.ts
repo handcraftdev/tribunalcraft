@@ -11,6 +11,9 @@ import type {
   Escrow,
 } from "./types";
 
+// Re-export types for consumers
+export type { Dispute, JurorRecord, ChallengerRecord, DefenderRecord };
+
 // =============================================================================
 // Subject Queries
 // =============================================================================

@@ -94,6 +94,9 @@ export type Database = {
           created_at: number | null;
           title: string | null;
           reason: string | null;
+          safe_bond: number;
+          winner_pool: number;
+          juror_pool: number;
           slot: number | null;
           synced_at: string;
         };
@@ -121,6 +124,9 @@ export type Database = {
           created_at?: number | null;
           title?: string | null;
           reason?: string | null;
+          safe_bond?: number;
+          winner_pool?: number;
+          juror_pool?: number;
           slot?: number | null;
           synced_at?: string;
         };
@@ -148,6 +154,9 @@ export type Database = {
           created_at?: number | null;
           title?: string | null;
           reason?: string | null;
+          safe_bond?: number;
+          winner_pool?: number;
+          juror_pool?: number;
           slot?: number | null;
           synced_at?: string;
         };

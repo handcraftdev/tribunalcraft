@@ -170,6 +170,10 @@ export function parseDispute(
     restorer: pubkeyToString(account.restorer),
     details_cid: account.detailsCid || null,
     created_at: bnToNumber(account.createdAt),
+    // These are populated from escrow in sync API when dispute is resolved
+    safe_bond: 0,
+    winner_pool: 0,
+    juror_pool: 0,
     slot: slot ?? null,
   };
 }

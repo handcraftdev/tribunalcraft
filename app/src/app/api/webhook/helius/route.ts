@@ -216,6 +216,26 @@ async function syncAccountsFromRPC(
         const dispute = await client.fetchDispute(pubkey);
         if (dispute) {
           const row = parseDispute(pubkey, dispute, slot);
+
+          // If dispute is resolved, try to fetch escrow to get safe_bond, winner_pool, juror_pool
+          if (dispute.status && "resolved" in dispute.status) {
+            try {
+              const { pda } = await import("@tribunalcraft/sdk");
+              const [escrowPda] = pda.escrow(dispute.subjectId);
+              const escrow = await client.fetchEscrow(escrowPda);
+              if (escrow?.rounds) {
+                const roundResult = escrow.rounds.find(r => r.round === dispute.round);
+                if (roundResult) {
+                  row.safe_bond = roundResult.safeBond?.toNumber() ?? 0;
+                  row.winner_pool = roundResult.winnerPool?.toNumber() ?? 0;
+                  row.juror_pool = roundResult.jurorPool?.toNumber() ?? 0;
+                }
+              }
+            } catch {
+              // Escrow might not exist or be closed - that's ok
+            }
+          }
+
           await (supabase as any).from("disputes").upsert(row, { onConflict: "id" });
           synced++;
           continue;
