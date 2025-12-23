@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{JUROR_RECORD_SEED, JUROR_POOL_SEED, SUBJECT_SEED, DISPUTE_SEED};
 use crate::errors::TribunalCraftError;
-use crate::events::{VoteEvent, RestoreVoteEvent};
+use crate::events::{VoteEvent, RestoreVoteEvent, AddToVoteEvent};
 
 /// Vote on a dispute
 #[derive(Accounts)]
@@ -221,5 +221,111 @@ pub fn vote_on_restore(
     });
 
     msg!("Restoration vote cast: {:?} with {} voting power", choice, voting_power);
+    Ok(())
+}
+
+/// Add stake to an existing vote
+#[derive(Accounts)]
+#[instruction(round: u32)]
+pub struct AddToVote<'info> {
+    #[account(mut)]
+    pub juror: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
+        bump = juror_pool.bump
+    )]
+    pub juror_pool: Account<'info, JurorPool>,
+
+    #[account(
+        seeds = [SUBJECT_SEED, subject.subject_id.as_ref()],
+        bump = subject.bump,
+    )]
+    pub subject: Account<'info, Subject>,
+
+    #[account(
+        mut,
+        seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
+        bump = dispute.bump,
+        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
+    )]
+    pub dispute: Account<'info, Dispute>,
+
+    #[account(
+        mut,
+        seeds = [
+            JUROR_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            juror.key().as_ref(),
+            &round.to_le_bytes()
+        ],
+        bump = juror_record.bump,
+        constraint = juror_record.juror == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_record.round == round @ TribunalCraftError::InvalidRound,
+    )]
+    pub juror_record: Account<'info, JurorRecord>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn add_to_vote(
+    ctx: Context<AddToVote>,
+    _round: u32,
+    additional_stake: u64,
+) -> Result<()> {
+    let juror_pool = &mut ctx.accounts.juror_pool;
+    let dispute = &mut ctx.accounts.dispute;
+    let juror_record = &mut ctx.accounts.juror_record;
+    let clock = Clock::get()?;
+
+    require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
+    require!(additional_stake > 0, TribunalCraftError::VoteAllocationBelowMinimum);
+    require!(additional_stake <= juror_pool.balance, TribunalCraftError::InsufficientAvailableStake);
+
+    // Calculate additional voting power using current reputation
+    let additional_voting_power = juror_pool.calculate_voting_power(additional_stake);
+
+    // Lock additional stake from pool
+    juror_pool.balance = juror_pool.balance.saturating_sub(additional_stake);
+
+    // Update dispute vote weights based on existing choice
+    if juror_record.is_restore_vote {
+        match juror_record.restore_choice {
+            RestoreVoteChoice::ForRestoration => {
+                dispute.votes_for_challenger += additional_voting_power;
+            }
+            RestoreVoteChoice::AgainstRestoration => {
+                dispute.votes_for_defender += additional_voting_power;
+            }
+        }
+    } else {
+        match juror_record.choice {
+            VoteChoice::ForChallenger => {
+                dispute.votes_for_challenger += additional_voting_power;
+            }
+            VoteChoice::ForDefender => {
+                dispute.votes_for_defender += additional_voting_power;
+            }
+        }
+    }
+
+    // Update juror record
+    juror_record.stake_allocation += additional_stake;
+    juror_record.voting_power += additional_voting_power;
+
+    emit!(AddToVoteEvent {
+        subject_id: ctx.accounts.subject.subject_id,
+        round: juror_record.round,
+        juror: ctx.accounts.juror.key(),
+        additional_stake,
+        additional_voting_power,
+        total_stake: juror_record.stake_allocation,
+        total_voting_power: juror_record.voting_power,
+        timestamp: clock.unix_timestamp,
+    });
+
+    msg!("Added {} stake ({} voting power) to existing vote", additional_stake, additional_voting_power);
     Ok(())
 }

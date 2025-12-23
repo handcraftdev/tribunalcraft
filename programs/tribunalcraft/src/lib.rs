@@ -12,7 +12,7 @@ pub use events::*;
 pub use state::*;
 pub use instructions::*;
 
-declare_id!("FuC2yT14gbZk3ieXoR634QjfKGtJk5ckx59qDpnD4q5q");
+declare_id!("YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz");
 
 #[program]
 pub mod tribunalcraft {
@@ -210,6 +210,15 @@ pub mod tribunalcraft {
         rationale_cid: String,
     ) -> Result<()> {
         instructions::vote_on_restore(ctx, choice, stake_allocation, rationale_cid)
+    }
+
+    /// Add stake to an existing vote
+    pub fn add_to_vote(
+        ctx: Context<AddToVote>,
+        round: u32,
+        additional_stake: u64,
+    ) -> Result<()> {
+        instructions::add_to_vote(ctx, round, additional_stake)
     }
 
     // =========================================================================

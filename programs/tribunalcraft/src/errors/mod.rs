@@ -87,6 +87,9 @@ pub enum TribunalCraftError {
     #[msg("Invalid vote choice")]
     InvalidVoteChoice,
 
+    #[msg("Invalid round number")]
+    InvalidRound,
+
     // Juror errors
     #[msg("Juror not active")]
     JurorNotActive,

@@ -7,6 +7,7 @@ use crate::constants::{
     CLAIM_GRACE_PERIOD, TREASURY_SWEEP_PERIOD, BOT_REWARD_BPS,
     STAKE_UNLOCK_BUFFER,
     REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT,
+    stacked_sigmoid,
 };
 use crate::errors::TribunalCraftError;
 use crate::events::{RewardClaimedEvent, RecordClosedEvent, RoundSweptEvent, StakeUnlockedEvent, ClaimRole};
@@ -202,9 +203,11 @@ pub fn claim_challenger(ctx: Context<ClaimChallenger>, round: u32) -> Result<()>
     // Stake goes into contested pool, NOT returned separately
     let reward = match outcome {
         ResolutionOutcome::ChallengerWins => {
-            // Challenger wins - gain reputation
+            // Challenger wins - gain reputation scaled by sigmoid multiplier
+            let multiplier = stacked_sigmoid(challenger_pool.reputation);
+            let actual_gain = (REPUTATION_GAIN_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
             challenger_pool.reputation = challenger_pool.reputation
-                .saturating_add(REPUTATION_GAIN_RATE)
+                .saturating_add(actual_gain)
                 .min(REP_100_PERCENT);
             // Challenger gets share of winner pool only
             // NOTE: stake is NOT returned separately - it's part of the contested pool
@@ -221,9 +224,11 @@ pub fn claim_challenger(ctx: Context<ClaimChallenger>, round: u32) -> Result<()>
             }
         }
         ResolutionOutcome::DefenderWins => {
-            // Challenger loses - lose reputation
+            // Challenger loses - lose reputation scaled by sigmoid multiplier
+            let multiplier = stacked_sigmoid(challenger_pool.reputation);
+            let actual_loss = (REPUTATION_LOSS_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
             challenger_pool.reputation = challenger_pool.reputation
-                .saturating_sub(REPUTATION_LOSS_RATE);
+                .saturating_sub(actual_loss);
             // Lost - no reward (stake went to winner pool)
             0
         }
@@ -314,17 +319,21 @@ pub fn claim_juror(ctx: Context<ClaimJuror>, round: u32) -> Result<()> {
     let reward = match is_correct {
         Some(true) => {
             // Correct vote - get share of juror pool
-            // Update reputation: gain 1%
+            // Update reputation: gain scaled by sigmoid multiplier (0.2x to 2x based on current rep)
+            let multiplier = stacked_sigmoid(juror_pool.reputation);
+            let actual_gain = (REPUTATION_GAIN_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
             juror_pool.reputation = juror_pool.reputation
-                .saturating_add(REPUTATION_GAIN_RATE)
+                .saturating_add(actual_gain)
                 .min(REP_100_PERCENT);
             juror_record.calculate_reward_share(juror_pool_amount, total_vote_weight)
         }
         Some(false) => {
             // Wrong vote - no reward, lose stake (already transferred to subject)
-            // Update reputation: lose 2%
+            // Update reputation: lose scaled by sigmoid multiplier (0.2x to 2x based on current rep)
+            let multiplier = stacked_sigmoid(juror_pool.reputation);
+            let actual_loss = (REPUTATION_LOSS_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
             juror_pool.reputation = juror_pool.reputation
-                .saturating_sub(REPUTATION_LOSS_RATE);
+                .saturating_sub(actual_loss);
             0
         }
         None => {

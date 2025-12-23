@@ -2,10 +2,11 @@ use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{
     SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, PROTOCOL_CONFIG_SEED,
+    DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED,
     TOTAL_FEE_BPS, JUROR_SHARE_BPS, PLATFORM_SHARE_BPS,
 };
 use crate::errors::TribunalCraftError;
-use crate::events::DisputeResolvedEvent;
+use crate::events::{DisputeResolvedEvent, BondAddedEvent};
 
 /// Resolve a dispute after voting ends
 #[derive(Accounts)]
@@ -49,6 +50,19 @@ pub struct ResolveDispute<'info> {
         constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
     )]
     pub treasury: AccountInfo<'info>,
+
+    /// Optional: Creator's defender pool for auto-rebond on defender win
+    #[account(
+        mut,
+        seeds = [DEFENDER_POOL_SEED, subject.creator.as_ref()],
+        bump = creator_defender_pool.bump,
+    )]
+    pub creator_defender_pool: Option<Account<'info, DefenderPool>>,
+
+    /// Optional: Creator's defender record to initialize on auto-rebond
+    /// CHECK: Will be initialized if pool is provided and has balance
+    #[account(mut)]
+    pub creator_defender_record: Option<AccountInfo<'info>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -152,6 +166,19 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
                 // Note: In restorations, "challenger" is the restorer
                 subject.reset_for_next_round();
                 subject.status = SubjectStatus::Valid;
+
+                // Reset dispute status to allow new disputes on this subject
+                dispute.status = DisputeStatus::None;
+
+                // Auto-rebond from creator's pool if available
+                auto_rebond_from_pool(
+                    subject,
+                    &ctx.accounts.creator_defender_pool,
+                    &ctx.accounts.creator_defender_record,
+                    &ctx.accounts.resolver,
+                    &ctx.accounts.system_program,
+                    clock.unix_timestamp,
+                )?;
             }
             ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
                 // Restoration failed - subject stays invalid
@@ -179,6 +206,19 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
             ResolutionOutcome::DefenderWins | ResolutionOutcome::NoParticipation => {
                 // Subject continues to next round
                 subject.reset_for_next_round();
+
+                // Reset dispute status to allow new disputes on this subject
+                dispute.status = DisputeStatus::None;
+
+                // Auto-rebond from creator's pool if available
+                auto_rebond_from_pool(
+                    subject,
+                    &ctx.accounts.creator_defender_pool,
+                    &ctx.accounts.creator_defender_record,
+                    &ctx.accounts.resolver,
+                    &ctx.accounts.system_program,
+                    clock.unix_timestamp,
+                )?;
             }
             ResolutionOutcome::None => {
                 return Err(TribunalCraftError::InvalidConfig.into());
@@ -201,5 +241,112 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
     });
 
     msg!("Dispute resolved: {:?}, winner_pool={}, juror_pool={}", outcome, winner_pool, juror_pool);
+    Ok(())
+}
+
+/// Auto-rebond from creator's defender pool if available
+fn auto_rebond_from_pool<'info>(
+    subject: &mut Account<'info, Subject>,
+    creator_pool: &Option<Account<'info, DefenderPool>>,
+    creator_record: &Option<AccountInfo<'info>>,
+    payer: &Signer<'info>,
+    system_program: &Program<'info, System>,
+    timestamp: i64,
+) -> Result<()> {
+    // Both pool and record must be provided
+    let pool = match creator_pool {
+        Some(p) => p,
+        None => return Ok(()), // No pool provided, stay dormant
+    };
+
+    let record_info = match creator_record {
+        Some(r) => r,
+        None => return Ok(()), // No record account provided, stay dormant
+    };
+
+    // Pool must have balance to auto-rebond
+    if pool.balance == 0 {
+        return Ok(()); // No balance, stay dormant
+    }
+
+    // Verify the defender record PDA
+    let (expected_pda, bump) = Pubkey::find_program_address(
+        &[
+            DEFENDER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            pool.owner.as_ref(),
+            &subject.round.to_le_bytes(),
+        ],
+        &crate::ID,
+    );
+
+    if record_info.key() != expected_pda {
+        msg!("Invalid defender record PDA for auto-rebond");
+        return Ok(()); // Invalid PDA, stay dormant
+    }
+
+    // Check if record already exists (has data)
+    if !record_info.data_is_empty() {
+        msg!("Defender record already exists");
+        return Ok(()); // Already exists, stay dormant
+    }
+
+    // Initialize the defender record
+    let space = DefenderRecord::LEN;
+    let rent = Rent::get()?;
+    let lamports = rent.minimum_balance(space);
+
+    // Create the account
+    anchor_lang::system_program::create_account(
+        CpiContext::new(
+            system_program.to_account_info(),
+            anchor_lang::system_program::CreateAccount {
+                from: payer.to_account_info(),
+                to: record_info.clone(),
+            },
+        ).with_signer(&[&[
+            DEFENDER_RECORD_SEED,
+            subject.subject_id.as_ref(),
+            pool.owner.as_ref(),
+            &subject.round.to_le_bytes(),
+            &[bump],
+        ]]),
+        lamports,
+        space as u64,
+        &crate::ID,
+    )?;
+
+    // Initialize the defender record data
+    let mut data = record_info.try_borrow_mut_data()?;
+    let defender_record = DefenderRecord {
+        subject_id: subject.subject_id,
+        defender: pool.owner,
+        round: subject.round,
+        bond: 0, // Pool-backed, no direct bond
+        source: BondSource::Pool,
+        reward_claimed: false,
+        bump,
+        bonded_at: timestamp,
+    };
+
+    // Write discriminator + data
+    let discriminator = DefenderRecord::DISCRIMINATOR;
+    data[..8].copy_from_slice(&discriminator);
+    defender_record.try_serialize(&mut &mut data[8..])?;
+
+    // Update subject state
+    subject.defender_count = 1;
+    subject.status = SubjectStatus::Valid;
+
+    emit!(BondAddedEvent {
+        subject_id: subject.subject_id,
+        defender: pool.owner,
+        round: subject.round,
+        amount: 0,
+        source: BondSource::Pool,
+        timestamp,
+    });
+
+    msg!("Auto-rebonded from creator's pool (pool-backed)");
     Ok(())
 }

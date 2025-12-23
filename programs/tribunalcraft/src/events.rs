@@ -117,6 +117,18 @@ pub struct RestoreVoteEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct AddToVoteEvent {
+    pub subject_id: Pubkey,
+    pub round: u32,
+    pub juror: Pubkey,
+    pub additional_stake: u64,
+    pub additional_voting_power: u64,
+    pub total_stake: u64,
+    pub total_voting_power: u64,
+    pub timestamp: i64,
+}
+
 // =============================================================================
 // Resolution Events
 // =============================================================================
