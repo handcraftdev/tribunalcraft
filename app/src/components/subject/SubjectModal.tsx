@@ -2576,7 +2576,7 @@ export const SubjectModal = memo(function SubjectModal({
           {sortedHistoryDisputes.length > 0 && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-steel uppercase tracking-wider">
-                Dispute History ({sortedHistoryDisputes.length})
+                History ({sortedHistoryDisputes.length})
               </h4>
               <div className="space-y-2">
                 {sortedHistoryDisputes.map((historyDispute, i) => {
