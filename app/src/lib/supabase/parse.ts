@@ -125,7 +125,8 @@ export function parseSubject(
   slot?: number
 ): SubjectInsert {
   return {
-    id: pubkey.toBase58(),
+    // Use pda:round as id for historical indexing (subject round is the source of truth)
+    id: `${pubkey.toBase58()}:${account.round}`,
     subject_id: account.subjectId.toBase58(),
     creator: account.creator.toBase58(),
     details_cid: account.detailsCid || null,
@@ -148,11 +149,21 @@ export function parseDispute(
   account: OnChainDispute,
   slot?: number
 ): DisputeInsert {
+  // Determine the effective status:
+  // If status is "none" but outcome is set, the dispute was resolved and reset
+  // (this happens after DefenderWins/NoParticipation when subject continues)
+  let effectiveStatus = disputeStatusToString(account.status);
+  const outcomeStr = outcomeToString(account.outcome);
+  if (effectiveStatus === "none" && outcomeStr && outcomeStr !== "none") {
+    effectiveStatus = "resolved";
+  }
+
   return {
-    id: pubkey.toBase58(),
+    // Use pda:round as id since dispute PDA is reused for all rounds
+    id: `${pubkey.toBase58()}:${account.round}`,
     subject_id: account.subjectId.toBase58(),
     round: account.round,
-    status: disputeStatusToString(account.status),
+    status: effectiveStatus,
     dispute_type: disputeTypeToString(account.disputeType),
     total_stake: bnToNumber(account.totalStake) ?? 0,
     challenger_count: account.challengerCount,

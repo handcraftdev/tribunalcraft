@@ -178,6 +178,7 @@ export type Database = {
           rationale_cid: string | null;
           slot: number | null;
           synced_at: string;
+          closed_at: string | null;
         };
         Insert: {
           id: string;
@@ -195,6 +196,7 @@ export type Database = {
           rationale_cid?: string | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
         Update: {
           id?: string;
@@ -212,6 +214,7 @@ export type Database = {
           rationale_cid?: string | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
       };
       challenger_records: {
@@ -226,6 +229,7 @@ export type Database = {
           challenged_at: number | null;
           slot: number | null;
           synced_at: string;
+          closed_at: string | null;
         };
         Insert: {
           id: string;
@@ -238,6 +242,7 @@ export type Database = {
           challenged_at?: number | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
         Update: {
           id?: string;
@@ -250,6 +255,7 @@ export type Database = {
           challenged_at?: number | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
       };
       defender_records: {
@@ -264,6 +270,7 @@ export type Database = {
           bonded_at: number | null;
           slot: number | null;
           synced_at: string;
+          closed_at: string | null;
         };
         Insert: {
           id: string;
@@ -276,6 +283,7 @@ export type Database = {
           bonded_at?: number | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
         Update: {
           id?: string;
@@ -288,6 +296,7 @@ export type Database = {
           bonded_at?: number | null;
           slot?: number | null;
           synced_at?: string;
+          closed_at?: string | null;
         };
       };
       juror_pools: {
@@ -406,6 +415,47 @@ export type Database = {
           synced_at?: string;
         };
       };
+      program_events: {
+        Row: {
+          id: string;
+          signature: string;
+          slot: number;
+          block_time: number | null;
+          event_type: string;
+          subject_id: string | null;
+          round: number | null;
+          actor: string | null;
+          amount: number | null;
+          data: Record<string, unknown>;
+          synced_at: string;
+        };
+        Insert: {
+          id: string;
+          signature: string;
+          slot: number;
+          block_time?: number | null;
+          event_type: string;
+          subject_id?: string | null;
+          round?: number | null;
+          actor?: string | null;
+          amount?: number | null;
+          data?: Record<string, unknown>;
+          synced_at?: string;
+        };
+        Update: {
+          id?: string;
+          signature?: string;
+          slot?: number;
+          block_time?: number | null;
+          event_type?: string;
+          subject_id?: string | null;
+          round?: number | null;
+          actor?: string | null;
+          amount?: number | null;
+          data?: Record<string, unknown>;
+          synced_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -432,3 +482,5 @@ export type DefenderPool = Database["public"]["Tables"]["defender_pools"]["Row"]
 export type DefenderPoolInsert = Database["public"]["Tables"]["defender_pools"]["Insert"];
 export type Escrow = Database["public"]["Tables"]["escrows"]["Row"];
 export type EscrowInsert = Database["public"]["Tables"]["escrows"]["Insert"];
+export type ProgramEvent = Database["public"]["Tables"]["program_events"]["Row"];
+export type ProgramEventInsert = Database["public"]["Tables"]["program_events"]["Insert"];
