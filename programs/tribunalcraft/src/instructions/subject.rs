@@ -175,6 +175,18 @@ pub fn create_subject(
         timestamp: clock.unix_timestamp,
     });
 
+    // Emit BondAddedEvent for the initial bond (so indexers can track defender participation)
+    if initial_bond > 0 {
+        emit!(BondAddedEvent {
+            subject_id,
+            defender: ctx.accounts.creator.key(),
+            round: 0,
+            amount: initial_bond,
+            source: BondSource::Direct,
+            timestamp: clock.unix_timestamp,
+        });
+    }
+
     msg!("Subject created: {} (match_mode: {}, initial_bond: {}, valid: {})",
          subject_id, match_mode, initial_bond, has_backing);
     Ok(())
