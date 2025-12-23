@@ -34,8 +34,8 @@ export interface RateLimitConfig {
 // Default configurations for different endpoints
 export const RATE_LIMIT_CONFIGS = {
   rpc: {
-    limit: 100, // 100 requests
-    windowSec: 60, // per minute
+    limit: 500, // 500 requests per minute (increased for app's multi-fetch patterns)
+    windowSec: 60,
     identifier: "rpc",
     persist: true,
   },
