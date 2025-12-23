@@ -1282,14 +1282,29 @@ export const SubjectModal = memo(function SubjectModal({
       const votesMap: Record<string, VoteData[]> = {};
       try {
         const jurorRecords = await fetchJurorRecordsBySubject(subjectId);
-        // Group by round (dispute)
-        const disputeKey = dispute!.publicKey.toBase58();
-        votesMap[disputeKey] = (jurorRecords || []).map(jr => ({
-          publicKey: jr.publicKey,
-          account: jr.account,
-        }));
+        // Group juror records by round, then map to dispute keys
+        const recordsByRound: Record<number, VoteData[]> = {};
+        for (const jr of jurorRecords || []) {
+          const round = jr.account.round;
+          if (!recordsByRound[round]) {
+            recordsByRound[round] = [];
+          }
+          recordsByRound[round].push({
+            publicKey: jr.publicKey,
+            account: jr.account,
+          });
+        }
+        // Map each dispute's publicKey to the juror records for its round
+        for (const d of disputeList) {
+          const dKey = d.publicKey.toBase58();
+          const dRound = d.account.round;
+          votesMap[dKey] = recordsByRound[dRound] || [];
+        }
       } catch {
-        votesMap[dispute!.publicKey.toBase58()] = [];
+        // Initialize empty votes for all disputes on error
+        for (const d of disputeList) {
+          votesMap[d.publicKey.toBase58()] = [];
+        }
       }
       setAllDisputeVotes(votesMap);
 

@@ -198,41 +198,68 @@ pub fn claim_challenger(ctx: Context<ClaimChallenger>, round: u32) -> Result<()>
     let winner_pool = escrow.rounds[round_idx].winner_pool;
     let total_stake = escrow.rounds[round_idx].total_stake;
     let bond_at_risk = escrow.rounds[round_idx].bond_at_risk;
+    let is_restore = escrow.rounds[round_idx].is_restore;
 
     // Challengers claim based on outcome
-    // Stake goes into contested pool, NOT returned separately
-    let reward = match outcome {
-        ResolutionOutcome::ChallengerWins => {
-            // Challenger wins - gain reputation scaled by sigmoid multiplier
-            let multiplier = stacked_sigmoid(challenger_pool.reputation);
-            let actual_gain = (REPUTATION_GAIN_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
-            challenger_pool.reputation = challenger_pool.reputation
-                .saturating_add(actual_gain)
-                .min(REP_100_PERCENT);
-            // Challenger gets share of winner pool only
-            // NOTE: stake is NOT returned separately - it's part of the contested pool
-            challenger_record.calculate_reward_share(winner_pool, total_stake)
+    // For restorations: restorer always gets 80% back regardless of outcome
+    // For normal disputes: stake goes into contested pool
+    let reward = if is_restore {
+        // Restoration: restorer always gets their share of winner pool (80%)
+        // Update reputation based on outcome
+        match outcome {
+            ResolutionOutcome::ChallengerWins => {
+                // Restoration succeeded - gain reputation
+                let multiplier = stacked_sigmoid(challenger_pool.reputation);
+                let actual_gain = (REPUTATION_GAIN_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
+                challenger_pool.reputation = challenger_pool.reputation
+                    .saturating_add(actual_gain)
+                    .min(REP_100_PERCENT);
+            }
+            ResolutionOutcome::DefenderWins => {
+                // Restoration failed - lose reputation
+                let multiplier = stacked_sigmoid(challenger_pool.reputation);
+                let actual_loss = (REPUTATION_LOSS_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
+                challenger_pool.reputation = challenger_pool.reputation
+                    .saturating_sub(actual_loss);
+            }
+            _ => {}
         }
-        ResolutionOutcome::NoParticipation => {
-            // No participation - no reputation change
-            // Treasury took 1%, refund 99% proportionally from winner_pool
-            let total_pool = total_stake.saturating_add(bond_at_risk);
-            if total_pool > 0 {
-                (winner_pool as u128 * challenger_record.stake as u128 / total_pool as u128) as u64
-            } else {
+        // Always return 80% to restorer regardless of outcome
+        challenger_record.calculate_reward_share(winner_pool, total_stake)
+    } else {
+        // Normal dispute: outcome determines reward
+        match outcome {
+            ResolutionOutcome::ChallengerWins => {
+                // Challenger wins - gain reputation scaled by sigmoid multiplier
+                let multiplier = stacked_sigmoid(challenger_pool.reputation);
+                let actual_gain = (REPUTATION_GAIN_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
+                challenger_pool.reputation = challenger_pool.reputation
+                    .saturating_add(actual_gain)
+                    .min(REP_100_PERCENT);
+                // Challenger gets share of winner pool only
+                challenger_record.calculate_reward_share(winner_pool, total_stake)
+            }
+            ResolutionOutcome::NoParticipation => {
+                // No participation - no reputation change
+                // Treasury took 1%, refund 99% proportionally from winner_pool
+                let total_pool = total_stake.saturating_add(bond_at_risk);
+                if total_pool > 0 {
+                    (winner_pool as u128 * challenger_record.stake as u128 / total_pool as u128) as u64
+                } else {
+                    0
+                }
+            }
+            ResolutionOutcome::DefenderWins => {
+                // Challenger loses - lose reputation scaled by sigmoid multiplier
+                let multiplier = stacked_sigmoid(challenger_pool.reputation);
+                let actual_loss = (REPUTATION_LOSS_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
+                challenger_pool.reputation = challenger_pool.reputation
+                    .saturating_sub(actual_loss);
+                // Lost - no reward (stake went to winner pool)
                 0
             }
+            ResolutionOutcome::None => 0,
         }
-        ResolutionOutcome::DefenderWins => {
-            // Challenger loses - lose reputation scaled by sigmoid multiplier
-            let multiplier = stacked_sigmoid(challenger_pool.reputation);
-            let actual_loss = (REPUTATION_LOSS_RATE as u128 * multiplier as u128 / REP_100_PERCENT as u128) as u64;
-            challenger_pool.reputation = challenger_pool.reputation
-                .saturating_sub(actual_loss);
-            // Lost - no reward (stake went to winner pool)
-            0
-        }
-        ResolutionOutcome::None => 0,
     };
 
     if reward > 0 {

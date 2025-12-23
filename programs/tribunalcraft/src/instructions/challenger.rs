@@ -286,6 +286,7 @@ pub fn create_dispute(
         defender_claims: 0,
         challenger_claims: 0,
         juror_claims: 0,
+        is_restore: false, // Normal dispute, not restoration
     };
     escrow.add_round(new_round_result);
 
