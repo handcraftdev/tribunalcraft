@@ -82,8 +82,10 @@ const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
       dormant: { dormant: {} }, valid: { valid: {} }, disputed: { disputed: {} },
       invalid: { invalid: {} }, restoring: { restoring: {} },
     };
+    // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+    const pdaPart = s.id.includes(':') ? s.id.split(':')[0] : s.id;
     return {
-      publicKey: new PublicKey(s.id),
+      publicKey: new PublicKey(pdaPart),
       account: {
         subjectId: new PublicKey(s.subject_id), creator: new PublicKey(s.creator),
         detailsCid: s.details_cid || "", round: s.round,
@@ -105,8 +107,10 @@ const convertSupabaseDispute = (d: SupabaseDispute): DisputeData | null => {
     const statusMap: Record<string, any> = { none: { none: {} }, pending: { pending: {} }, resolved: { resolved: {} } };
     const outcomeMap: Record<string, any> = { none: { none: {} }, challengerWins: { challengerWins: {} }, defenderWins: { defenderWins: {} }, noParticipation: { noParticipation: {} } };
     const disputeTypeMap: Record<string, any> = { accuracy: { accuracy: {} }, bias: { bias: {} }, outdated: { outdated: {} }, incomplete: { incomplete: {} }, spam: { spam: {} }, other: { other: {} } };
+    // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+    const pdaPart = d.id.includes(':') ? d.id.split(':')[0] : d.id;
     return {
-      publicKey: new PublicKey(d.id),
+      publicKey: new PublicKey(pdaPart),
       account: {
         subjectId: new PublicKey(d.subject_id), round: d.round,
         status: statusMap[d.status] || { none: {} },

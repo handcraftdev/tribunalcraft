@@ -12,9 +12,8 @@ import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-// Supabase sync not implemented yet - using RPC directly
-// import { getSubjects, getDisputes } from "@/lib/supabase/queries";
-// import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { getSubjects, getDisputes } from "@/lib/supabase/queries";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
@@ -445,8 +444,10 @@ export default function RegistryPage() {
         invalid: { invalid: {} },
         restoring: { restoring: {} },
       };
+      // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+      const pdaPart = s.id.includes(':') ? s.id.split(':')[0] : s.id;
       return {
-        publicKey: new PublicKey(s.id),
+        publicKey: new PublicKey(pdaPart),
         account: {
           subjectId: new PublicKey(s.subject_id),
           creator: new PublicKey(s.creator),
@@ -493,8 +494,10 @@ export default function RegistryPage() {
         spam: { spam: {} },
         other: { other: {} },
       };
+      // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+      const pdaPart = d.id.includes(':') ? d.id.split(':')[0] : d.id;
       return {
-        publicKey: new PublicKey(d.id),
+        publicKey: new PublicKey(pdaPart),
         account: {
           subjectId: new PublicKey(d.subject_id),
           round: d.round,
@@ -531,13 +534,23 @@ export default function RegistryPage() {
       let subjectsData: SubjectData[] = [];
       let disputesData: DisputeData[] = [];
 
-      // Always use RPC for fresh on-chain data (Supabase sync not implemented yet)
-      if (client) {
-        const [rpcSubjects, rpcDisputes] = await Promise.all([
-          fetchAllSubjects(),
-          fetchAllDisputes(),
+      // Try Supabase first for fast loading
+      if (isSupabaseConfigured()) {
+        const [supaSubjects, supaDisputes] = await Promise.all([
+          getSubjects(),
+          getDisputes(),
         ]);
+        subjectsData = supaSubjects.map(convertSupabaseSubject).filter((s): s is SubjectData => s !== null);
+        disputesData = supaDisputes.map(convertSupabaseDispute).filter((d): d is DisputeData => d !== null);
+      }
+
+      // Fallback to RPC if Supabase not configured or returned empty
+      if (subjectsData.length === 0 && client) {
+        const rpcSubjects = await fetchAllSubjects();
         subjectsData = rpcSubjects || [];
+      }
+      if (disputesData.length === 0 && client) {
+        const rpcDisputes = await fetchAllDisputes();
         disputesData = rpcDisputes || [];
       }
 

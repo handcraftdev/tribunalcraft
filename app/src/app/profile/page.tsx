@@ -12,7 +12,7 @@ import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
 import { SubjectCard, SubjectModal, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { ShieldIcon, CheckIcon, LockIcon, PlusIcon, MinusIcon, ClockIcon, ChevronDownIcon } from "@/components/Icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { getSubjects, getDisputes } from "@/lib/supabase/queries";
+import { getSubjects, getDisputes, getJurorRecords, getChallengerRecords, getDefenderRecords } from "@/lib/supabase/queries";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Subject as SupabaseSubject, Dispute as SupabaseDispute } from "@/lib/supabase/types";
 
@@ -107,8 +107,10 @@ const convertSupabaseSubject = (s: SupabaseSubject): SubjectData | null => {
       dormant: { dormant: {} }, valid: { valid: {} }, disputed: { disputed: {} },
       invalid: { invalid: {} }, restoring: { restoring: {} },
     };
+    // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+    const pdaPart = s.id.includes(':') ? s.id.split(':')[0] : s.id;
     return {
-      publicKey: new PublicKey(s.id),
+      publicKey: new PublicKey(pdaPart),
       account: {
         subjectId: new PublicKey(s.subject_id), creator: new PublicKey(s.creator),
         detailsCid: s.details_cid || "", round: s.round,
@@ -130,8 +132,10 @@ const convertSupabaseDispute = (d: SupabaseDispute): DisputeData | null => {
     const statusMap: Record<string, any> = { none: { none: {} }, pending: { pending: {} }, resolved: { resolved: {} } };
     const outcomeMap: Record<string, any> = { none: { none: {} }, challengerWins: { challengerWins: {} }, defenderWins: { defenderWins: {} }, noParticipation: { noParticipation: {} } };
     const disputeTypeMap: Record<string, any> = { accuracy: { accuracy: {} }, bias: { bias: {} }, outdated: { outdated: {} }, incomplete: { incomplete: {} }, spam: { spam: {} }, other: { other: {} } };
+    // Extract PDA from id (format: "pda:round" or just "pda" for old records)
+    const pdaPart = d.id.includes(':') ? d.id.split(':')[0] : d.id;
     return {
-      publicKey: new PublicKey(d.id),
+      publicKey: new PublicKey(pdaPart),
       account: {
         subjectId: new PublicKey(d.subject_id), round: d.round,
         status: statusMap[d.status] || { none: {} },
@@ -386,8 +390,41 @@ export default function JurorPage() {
       let subjectsData: SubjectData[] = [];
       let disputesData: DisputeData[] = [];
 
-      // Try Supabase first
-      if (isSupabaseConfigured()) {
+      // Try Supabase first - use user-specific queries for efficiency
+      if (isSupabaseConfigured() && publicKey) {
+        const walletAddress = publicKey.toBase58();
+
+        // Fetch user's participation records to find relevant subject_ids
+        const [userJurorRecords, userChallengerRecords, userDefenderRecords] = await Promise.all([
+          getJurorRecords({ juror: walletAddress }),
+          getChallengerRecords({ challenger: walletAddress }),
+          getDefenderRecords({ defender: walletAddress }),
+        ]);
+
+        // Get unique subject_ids the user has participated in
+        const participatedSubjectIds = new Set<string>();
+        userJurorRecords.forEach(r => participatedSubjectIds.add(r.subject_id));
+        userChallengerRecords.forEach(r => participatedSubjectIds.add(r.subject_id));
+        userDefenderRecords.forEach(r => participatedSubjectIds.add(r.subject_id));
+
+        // Only load subjects/disputes if user has participated in some
+        if (participatedSubjectIds.size > 0) {
+          const [supaSubjects, supaDisputes] = await Promise.all([
+            getSubjects(),
+            getDisputes(),
+          ]);
+          // Filter to only subjects user participated in
+          subjectsData = supaSubjects
+            .filter(s => participatedSubjectIds.has(s.subject_id))
+            .map(convertSupabaseSubject)
+            .filter((s): s is SubjectData => s !== null);
+          disputesData = supaDisputes
+            .filter(d => participatedSubjectIds.has(d.subject_id))
+            .map(convertSupabaseDispute)
+            .filter((d): d is DisputeData => d !== null);
+        }
+      } else if (isSupabaseConfigured()) {
+        // No wallet connected - load all (for viewing)
         const [supaSubjects, supaDisputes] = await Promise.all([
           getSubjects(),
           getDisputes(),
