@@ -228,8 +228,9 @@ pub mod tribunalcraft {
     /// Resolve a dispute after voting period ends
     pub fn resolve_dispute(
         ctx: Context<ResolveDispute>,
+        next_round: u32,
     ) -> Result<()> {
-        instructions::resolve_dispute(ctx)
+        instructions::resolve_dispute(ctx, next_round)
     }
 
     // =========================================================================
