@@ -138,18 +138,17 @@ export async function getDisputeBySubject(
   if (round !== undefined) {
     query = query.eq("round", round);
   } else {
-    query = query.order("round", { ascending: false }).limit(1);
+    query = query.order("round", { ascending: false });
   }
 
-  const { data, error } = await query.single();
+  // Use limit(1) + array access instead of .single() to avoid 406 errors
+  const { data, error } = await query.limit(1);
 
   if (error) {
-    if (error.code !== "PGRST116") {
-      console.error("Error fetching dispute:", error);
-    }
+    console.error("Error fetching dispute:", error);
     return null;
   }
-  return data;
+  return data && data.length > 0 ? data[0] : null;
 }
 
 export async function getAllDisputesBySubject(
@@ -168,6 +167,245 @@ export async function getAllDisputesBySubject(
     return [];
   }
   return data || [];
+}
+
+// =============================================================================
+// Event-based Historical Dispute Queries
+// =============================================================================
+
+export interface DisputeFromEvents {
+  subject_id: string;
+  round: number;
+  creator: string;
+  stake: number;
+  bond_at_risk: number;
+  voting_ends_at: number;
+  created_at: number;
+  // From resolved event (if resolved)
+  outcome?: string;
+  total_stake?: number;
+  winner_pool?: number;
+  juror_pool?: number;
+  resolved_at?: number;
+  is_restore: boolean;
+  // Vote distribution from VoteEvent/RestoreVoteEvent
+  votes_for_challenger: number;
+  votes_for_defender: number;
+  vote_count: number;
+}
+
+// Type for program_events table row
+interface ProgramEventRow {
+  id: string;
+  signature: string;
+  slot: number;
+  block_time: number | null;
+  event_type: string;
+  subject_id: string | null;
+  round: number | null;
+  actor: string | null;
+  amount: number | null;
+  data: Record<string, any> | null;
+}
+
+/**
+ * Get ALL historical disputes for a subject from events.
+ * This includes disputes that were overwritten on-chain but captured in events.
+ */
+export async function getDisputeHistoryFromEvents(
+  subjectId: string
+): Promise<DisputeFromEvents[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+
+  // Fetch all relevant events in parallel
+  const [createResult, resolveResult, voteResult] = await Promise.all([
+    // DisputeCreatedEvent and RestoreSubmittedEvent
+    supabase
+      .from("program_events")
+      .select("*")
+      .eq("subject_id", subjectId)
+      .in("event_type", ["DisputeCreatedEvent", "RestoreSubmittedEvent"])
+      .order("block_time", { ascending: true }),
+    // DisputeResolvedEvent
+    supabase
+      .from("program_events")
+      .select("*")
+      .eq("subject_id", subjectId)
+      .eq("event_type", "DisputeResolvedEvent")
+      .order("block_time", { ascending: true }),
+    // VoteEvent and RestoreVoteEvent for vote distribution
+    supabase
+      .from("program_events")
+      .select("*")
+      .eq("subject_id", subjectId)
+      .in("event_type", ["VoteEvent", "RestoreVoteEvent"])
+      .order("block_time", { ascending: true }),
+  ]);
+
+  if (createResult.error) {
+    console.error("Error fetching dispute create events:", createResult.error);
+    return [];
+  }
+  const createEvents = createResult.data as ProgramEventRow[] | null;
+
+  if (resolveResult.error) {
+    console.error("Error fetching dispute resolve events:", resolveResult.error);
+    return [];
+  }
+  const resolveEvents = resolveResult.data as ProgramEventRow[] | null;
+
+  if (voteResult.error) {
+    console.error("Error fetching vote events:", voteResult.error);
+    return [];
+  }
+  const voteEvents = voteResult.data as ProgramEventRow[] | null;
+
+  // Build a map of resolved disputes by round
+  const resolvedMap = new Map<number, ProgramEventRow>();
+  for (const event of resolveEvents || []) {
+    if (event.round !== null) {
+      resolvedMap.set(event.round, event);
+    }
+  }
+
+  // Build vote distribution by round
+  // For regular disputes: ForChallenger vs ForDefender
+  // For restore disputes: ForRestoration (=challenger) vs AgainstRestoration (=defender)
+  const voteDistribution = new Map<number, { forChallenger: number; forDefender: number; count: number }>();
+  for (const event of voteEvents || []) {
+    if (event.round === null) continue;
+
+    const votingPower = event.data?.votingPower || 0;
+    const choice = event.data?.choice || "";
+    const isRestore = event.event_type === "RestoreVoteEvent";
+
+    if (!voteDistribution.has(event.round)) {
+      voteDistribution.set(event.round, { forChallenger: 0, forDefender: 0, count: 0 });
+    }
+    const dist = voteDistribution.get(event.round)!;
+    dist.count++;
+
+    // Map choices to challenger/defender
+    // Regular: ForChallenger, ForDefender
+    // Restore: ForRestoration (=challenger), AgainstRestoration (=defender)
+    if (isRestore) {
+      if (choice === "ForRestoration" || choice === "forRestoration") {
+        dist.forChallenger += votingPower;
+      } else {
+        dist.forDefender += votingPower;
+      }
+    } else {
+      if (choice === "ForChallenger" || choice === "forChallenger") {
+        dist.forChallenger += votingPower;
+      } else {
+        dist.forDefender += votingPower;
+      }
+    }
+  }
+
+  // Construct dispute history
+  const disputes: DisputeFromEvents[] = [];
+  for (const event of createEvents || []) {
+    if (event.round === null) continue;
+
+    const isRestore = event.event_type === "RestoreSubmittedEvent";
+    const resolved = resolvedMap.get(event.round);
+    const votes = voteDistribution.get(event.round) || { forChallenger: 0, forDefender: 0, count: 0 };
+
+    disputes.push({
+      subject_id: event.subject_id || subjectId,
+      round: event.round,
+      creator: event.actor || "",
+      stake: event.amount || 0,
+      bond_at_risk: event.data?.bondAtRisk || 0,
+      voting_ends_at: event.data?.votingEndsAt || 0,
+      created_at: event.block_time || 0,
+      is_restore: isRestore,
+      // Vote distribution
+      votes_for_challenger: votes.forChallenger,
+      votes_for_defender: votes.forDefender,
+      vote_count: votes.count,
+      // Resolved data if available
+      outcome: resolved?.data?.outcome || undefined,
+      total_stake: resolved?.data?.totalStake || undefined,
+      winner_pool: resolved?.data?.winnerPool || undefined,
+      juror_pool: resolved?.data?.jurorPool || undefined,
+      resolved_at: resolved?.data?.resolvedAt || undefined,
+    });
+  }
+
+  // Sort by round descending (newest first)
+  return disputes.sort((a, b) => b.round - a.round);
+}
+
+/**
+ * Get user's participation roles from events for a subject.
+ * Returns a map of round -> { juror, challenger, defender } booleans.
+ * This is used when on-chain records are closed but events still exist.
+ */
+export async function getUserRolesFromEvents(
+  subjectId: string,
+  userWallet: string
+): Promise<Map<number, { juror: boolean; challenger: boolean; defender: boolean }>> {
+  if (!isSupabaseConfigured() || !supabase) return new Map();
+
+  // Query all events where the user is the actor for this subject
+  // Also query SubjectCreatedEvent separately since it has round: null
+  const [eventsResult, createdResult] = await Promise.all([
+    supabase
+      .from("program_events")
+      .select("event_type, round, actor")
+      .eq("subject_id", subjectId)
+      .eq("actor", userWallet),
+    // Check if user created this subject (they're defender for round 0)
+    supabase
+      .from("program_events")
+      .select("event_type, actor")
+      .eq("subject_id", subjectId)
+      .eq("event_type", "SubjectCreatedEvent")
+      .eq("actor", userWallet)
+      .limit(1),
+  ]);
+
+  if (eventsResult.error) {
+    console.error("Error fetching user events:", eventsResult.error);
+    return new Map();
+  }
+  const events = eventsResult.data as { event_type: string; round: number | null; actor: string }[] | null;
+
+  const rolesMap = new Map<number, { juror: boolean; challenger: boolean; defender: boolean }>();
+
+  // If user created this subject, they're the defender for round 0
+  if (createdResult.data && createdResult.data.length > 0) {
+    rolesMap.set(0, { juror: false, challenger: false, defender: true });
+  }
+
+  for (const event of events || []) {
+    if (event.round === null) continue;
+
+    if (!rolesMap.has(event.round)) {
+      rolesMap.set(event.round, { juror: false, challenger: false, defender: false });
+    }
+    const roles = rolesMap.get(event.round)!;
+
+    switch (event.event_type) {
+      case "VoteEvent":
+      case "RestoreVoteEvent":
+      case "AddToVoteEvent":
+        roles.juror = true;
+        break;
+      case "DisputeCreatedEvent":
+      case "ChallengerJoinedEvent":
+      case "RestoreSubmittedEvent":
+        roles.challenger = true;
+        break;
+      case "BondAddedEvent":
+        roles.defender = true;
+        break;
+    }
+  }
+
+  return rolesMap;
 }
 
 // =============================================================================
