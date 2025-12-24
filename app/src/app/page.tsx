@@ -419,7 +419,7 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-2 gap-4 max-w-3xl mx-auto">
             {[
               { icon: LockIcon, title: "Stake Lock Period", desc: "Jurors lock stake for 7 days post-vote. No hit-and-run decisions—you stand by your judgment." },
-              { icon: CheckCircleIcon, title: "Asymmetric Reputation", desc: "Incorrect votes lose 2% reputation while correct votes gain 1%. Careful judgment rewarded." },
+              { icon: CheckCircleIcon, title: "Adaptive Reputation", desc: "Dynamic scaling ensures fair recovery for newcomers while holding top performers accountable. No permanent exile." },
               { icon: UsersIcon, title: "Quadratic Voting Power", desc: "Power scales with √stake, preventing whale takeover. Splitting accounts reduces influence." },
               { icon: FileIcon, title: "Immutable Records", desc: "All actions permanently recorded on Solana. Audit any dispute, verify any outcome." },
             ].map((card, i) => (
@@ -457,30 +457,31 @@ export default function LandingPage() {
           <div className="max-w-2xl mx-auto text-center">
             <h2 className="font-display text-3xl text-ivory font-medium mb-4">Reputation-Driven Trust</h2>
             <p className="text-steel text-sm mb-8">
-              Your reputation reflects your judgment history. Consistently accurate participants
-              build trust over time, while bad actors face compounding consequences.
+              Your reputation reflects your judgment history. Dynamic scaling ensures everyone
+              has a fair path to recovery while keeping experienced participants accountable.
             </p>
 
             <div className="grid grid-cols-3 gap-4 text-left">
               <div className="p-4 bg-slate/30 border border-slate-light/20">
-                <div className="text-gold font-display text-2xl mb-1">+1%</div>
+                <div className="text-gold font-display text-2xl mb-1">Dynamic</div>
+                <div className="text-ivory text-xs font-medium">Adaptive Scaling</div>
+                <div className="text-steel text-xs mt-0.5">Fair for all levels</div>
+              </div>
+              <div className="p-4 bg-slate/30 border border-slate-light/20">
+                <div className="text-emerald font-display text-2xl mb-1">+1%</div>
                 <div className="text-ivory text-xs font-medium">Correct Decision</div>
-                <div className="text-steel text-xs mt-0.5">Vote with the majority</div>
+                <div className="text-steel text-xs mt-0.5">Vote with outcome</div>
               </div>
               <div className="p-4 bg-slate/30 border border-slate-light/20">
                 <div className="text-crimson-light font-display text-2xl mb-1">-2%</div>
                 <div className="text-ivory text-xs font-medium">Wrong Decision</div>
                 <div className="text-steel text-xs mt-0.5">Vote against outcome</div>
               </div>
-              <div className="p-4 bg-slate/30 border border-slate-light/20">
-                <div className="text-steel-light font-display text-2xl mb-1">&lt;50%</div>
-                <div className="text-ivory text-xs font-medium">Stake Slashed</div>
-                <div className="text-steel text-xs mt-0.5">Withdraw penalty</div>
-              </div>
             </div>
 
             <p className="text-steel text-xs mt-6 max-w-md mx-auto">
-              Honest participation is the only sustainable strategy. Bad actors either improve or exit.
+              Newcomers can recover from mistakes. Veterans are held to higher standards.
+              Honest participation is the only sustainable strategy.
             </p>
           </div>
         </div>
