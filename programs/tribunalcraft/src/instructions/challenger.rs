@@ -6,7 +6,7 @@ use crate::constants::{
     PROTOCOL_CONFIG_SEED, INITIAL_REPUTATION, SLASH_THRESHOLD,
 };
 use crate::errors::TribunalCraftError;
-use crate::events::{DisputeCreatedEvent, ChallengerJoinedEvent, PoolDepositEvent, PoolWithdrawEvent, PoolType, BondAddedEvent};
+use crate::events::{DisputeCreatedEvent, ChallengerJoinedEvent, PoolDepositEvent, PoolWithdrawEvent, PoolType, BondAddedEvent, SubjectStatusChangedEvent};
 
 /// Create a dispute against a subject
 /// Reallocs Escrow to add RoundResult slot
@@ -41,7 +41,7 @@ pub struct CreateDispute<'info> {
     pub escrow: Account<'info, Escrow>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = challenger,
         space = ChallengerRecord::LEN,
         seeds = [
@@ -204,6 +204,24 @@ pub fn create_dispute(
         });
 
         msg!("Pool contribution {} will be transferred at end of instruction", pool_contribution);
+    }
+
+    // If no backing available after pool contribution, mark subject as Dormant and return early
+    // This protects challengers from staking against subjects with no bond at risk
+    if subject.available_bond == 0 {
+        let old_status = subject.status.clone() as u8;
+        subject.status = SubjectStatus::Dormant;
+        subject.updated_at = clock.unix_timestamp;
+
+        emit!(SubjectStatusChangedEvent {
+            subject_id: subject.subject_id,
+            old_status,
+            new_status: SubjectStatus::Dormant as u8,
+            timestamp: clock.unix_timestamp,
+        });
+
+        msg!("Subject has no backing - marked as Dormant, no dispute created");
+        return Ok(());
     }
 
     // In match mode, stake cannot exceed available_bond (after pool contribution)

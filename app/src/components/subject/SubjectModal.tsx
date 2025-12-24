@@ -17,6 +17,7 @@ import {
   type RoundResult,
   calculateUserRewards,
   lamportsToSol,
+  isDisputeNone,
 } from "@/hooks/useTribunalcraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
@@ -1755,8 +1756,16 @@ export const SubjectModal = memo(function SubjectModal({
         round: subject.account.round,
       });
 
-      setInternalSuccess("Dispute submitted successfully");
-      setShowCreateDispute(false);
+      // Check if dispute was actually created or if subject became dormant
+      // (subject marked dormant when no backing available)
+      const disputeAfter = await fetchDispute(subject.account.subjectId);
+      if (!disputeAfter || isDisputeNone(disputeAfter.status)) {
+        setInternalError("Subject has no backing and was marked as Dormant. No dispute created. Your stake was not taken.");
+        setShowCreateDispute(false);
+      } else {
+        setInternalSuccess("Dispute submitted successfully");
+        setShowCreateDispute(false);
+      }
 
       // Notify parent to refresh data
       if (onRefresh) {
