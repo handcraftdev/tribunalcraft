@@ -8,6 +8,12 @@ import {
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { WalletError, WalletReadyState } from "@solana/wallet-adapter-base";
+import {
+  SolanaMobileWalletAdapter,
+  createDefaultAddressSelector,
+  createDefaultAuthorizationResultCache,
+  createDefaultWalletNotFoundHandler,
+} from "@solana-mobile/wallet-adapter-mobile";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -45,8 +51,20 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
 
-  // Modern wallets auto-register via Standard Wallet interface
-  const wallets = useMemo(() => [], []);
+  // Mobile wallet adapter for deep linking to wallet apps on mobile
+  // Desktop wallets auto-register via Standard Wallet interface
+  const wallets = useMemo(() => [
+    new SolanaMobileWalletAdapter({
+      addressSelector: createDefaultAddressSelector(),
+      appIdentity: {
+        name: "TribunalCraft",
+        uri: typeof window !== "undefined" ? window.location.origin : undefined,
+      },
+      authorizationResultCache: createDefaultAuthorizationResultCache(),
+      cluster: "devnet",
+      onWalletNotFound: createDefaultWalletNotFoundHandler(),
+    }),
+  ], []);
 
   // Connection config with WSS for transaction confirmations
   const config = useMemo(() => ({
