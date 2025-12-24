@@ -8,18 +8,7 @@ import {
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { WalletError, WalletReadyState } from "@solana/wallet-adapter-base";
-import {
-  SolanaMobileWalletAdapter,
-  createDefaultAddressSelector,
-  createDefaultAuthorizationResultCache,
-  createDefaultWalletNotFoundHandler,
-} from "@solana-mobile/wallet-adapter-mobile";
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-  CoinbaseWalletAdapter,
-  WalletConnectWalletAdapter,
-} from "@solana/wallet-adapter-wallets";
+import { WalletConnectWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -58,27 +47,14 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
 
-  // Include wallet adapters for mobile deep link support
-  // Desktop wallets also auto-register via Wallet Standard
+  // WalletConnect first for mobile browser support (stays in browser)
+  // Other adapters for desktop extension wallets
   const wallets = useMemo(() => [
-    new PhantomWalletAdapter(),
-    new SolflareWalletAdapter(),
-    new CoinbaseWalletAdapter(),
     new WalletConnectWalletAdapter({
       network: WalletAdapterNetwork.Devnet,
       options: {
         projectId: "18d42e2b5245a5fd07eb5ba6f8402bb5",
       },
-    }),
-    new SolanaMobileWalletAdapter({
-      addressSelector: createDefaultAddressSelector(),
-      appIdentity: {
-        name: "TribunalCraft",
-        uri: typeof window !== "undefined" ? window.location.origin : undefined,
-      },
-      authorizationResultCache: createDefaultAuthorizationResultCache(),
-      cluster: "devnet",
-      onWalletNotFound: createDefaultWalletNotFoundHandler(),
     }),
   ], []);
 
