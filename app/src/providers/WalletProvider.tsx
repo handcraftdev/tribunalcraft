@@ -14,6 +14,11 @@ import {
   createDefaultAuthorizationResultCache,
   createDefaultWalletNotFoundHandler,
 } from "@solana-mobile/wallet-adapter-mobile";
+import {
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+  CoinbaseWalletAdapter,
+} from "@solana/wallet-adapter-wallets";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -51,9 +56,12 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
 
-  // Mobile wallet adapter for deep linking to wallet apps on mobile
-  // Desktop wallets auto-register via Standard Wallet interface
+  // Include wallet adapters for mobile deep link support
+  // Desktop wallets also auto-register via Wallet Standard
   const wallets = useMemo(() => [
+    new PhantomWalletAdapter(),
+    new SolflareWalletAdapter(),
+    new CoinbaseWalletAdapter(),
     new SolanaMobileWalletAdapter({
       addressSelector: createDefaultAddressSelector(),
       appIdentity: {
