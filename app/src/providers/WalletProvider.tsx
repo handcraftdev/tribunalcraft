@@ -18,7 +18,9 @@ import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
   CoinbaseWalletAdapter,
+  WalletConnectWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -62,6 +64,12 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     new PhantomWalletAdapter(),
     new SolflareWalletAdapter(),
     new CoinbaseWalletAdapter(),
+    new WalletConnectWalletAdapter({
+      network: WalletAdapterNetwork.Devnet,
+      options: {
+        projectId: "18d42e2b5245a5fd07eb5ba6f8402bb5",
+      },
+    }),
     new SolanaMobileWalletAdapter({
       addressSelector: createDefaultAddressSelector(),
       appIdentity: {
