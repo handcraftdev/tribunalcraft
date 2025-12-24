@@ -81,7 +81,7 @@ export const WalletProvider: FC<Props> = ({ children }) => {
 
   return (
     <ConnectionProvider endpoint={endpoint} config={config}>
-      <SolanaWalletProvider wallets={wallets} onError={onError}>
+      <SolanaWalletProvider wallets={wallets} autoConnect onError={onError}>
         <WalletModalProvider>
           <WalletDebugger>{children}</WalletDebugger>
         </WalletModalProvider>
