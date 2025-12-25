@@ -254,7 +254,7 @@ export default function SubjectPage() {
     <div className="min-h-screen bg-obsidian">
       <Navigation />
 
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-4 pt-28 pb-6">
         {/* Back button */}
         <button
           onClick={handleClose}
