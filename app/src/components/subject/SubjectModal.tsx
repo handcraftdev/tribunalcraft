@@ -39,6 +39,105 @@ import {
   type DisputeFromEvents,
 } from "@/lib/supabase/queries";
 
+// Helper to format a key for display (camelCase/snake_case to Title Case)
+const formatKey = (key: string): string => {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, c => c.toUpperCase());
+};
+
+// Helper to check if a value is a primitive
+const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined => {
+  return value === null || value === undefined || typeof value !== 'object';
+};
+
+// Recursive JSON content renderer for unknown structures
+const JsonContentRenderer = memo(function JsonContentRenderer({
+  data,
+  depth = 0,
+  getIpfsUrl,
+}: {
+  data: unknown;
+  depth?: number;
+  getIpfsUrl?: (cid: string) => string;
+}) {
+  if (data === null || data === undefined) {
+    return null;
+  }
+
+  // Handle primitives
+  if (isPrimitive(data)) {
+    const strValue = String(data);
+    // Check if it looks like a URL
+    if (typeof data === 'string' && (data.startsWith('http://') || data.startsWith('https://'))) {
+      return (
+        <a href={data} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">
+          {data}
+        </a>
+      );
+    }
+    // Check if it looks like an IPFS CID
+    if (typeof data === 'string' && data.match(/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{50,})$/)) {
+      const url = getIpfsUrl ? getIpfsUrl(data) : `https://ipfs.io/ipfs/${data}`;
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">
+          {data.slice(0, 20)}...
+        </a>
+      );
+    }
+    return <span className="text-parchment break-words">{strValue}</span>;
+  }
+
+  // Handle arrays
+  if (Array.isArray(data)) {
+    if (data.length === 0) return null;
+    return (
+      <div className={depth > 0 ? "ml-3 border-l border-slate-light/30 pl-3" : ""}>
+        {data.map((item, index) => (
+          <div key={index} className="mb-2">
+            {!isPrimitive(item) && <span className="text-steel text-xs">#{index + 1}</span>}
+            <JsonContentRenderer data={item} depth={depth + 1} getIpfsUrl={getIpfsUrl} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Handle objects
+  if (typeof data === 'object') {
+    const entries = Object.entries(data as Record<string, unknown>).filter(
+      ([_, value]) => value !== null && value !== undefined && value !== ''
+    );
+    if (entries.length === 0) return null;
+
+    return (
+      <div className={depth > 0 ? "ml-3 border-l border-slate-light/30 pl-3 space-y-2" : "space-y-2"}>
+        {entries.map(([key, value]) => {
+          // Skip internal/meta fields
+          if (key.startsWith('_') || key === 'version' || key === 'schema') return null;
+
+          const isNestedObject = !isPrimitive(value);
+          return (
+            <div key={key}>
+              <div className="text-steel text-xs font-medium">{formatKey(key)}</div>
+              {isNestedObject ? (
+                <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} />
+              ) : (
+                <div className="text-xs">
+                  <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return null;
+});
+
 // Helper to convert Supabase juror record to component format
 const supabaseToJurorRecord = (record: SupabaseJurorRecord): VoteData => {
   // Parse choice from string (e.g., "forChallenger" or "forDefender")
@@ -1084,19 +1183,16 @@ const HistoryItem = memo(function HistoryItem({
       {/* Expandable content - V1 style */}
       {expanded && (
         <>
-          {/* Reason, requested outcome, and resolution info */}
+          {/* Dispute content rendered dynamically */}
           <div className="p-3 bg-obsidian space-y-2">
-            {disputeContent?.reason && (
-              <div>
-                <p className="text-[10px] text-steel uppercase tracking-wider mb-0.5">Reason</p>
-                <p className="text-xs text-parchment">{disputeContent.reason}</p>
-              </div>
-            )}
-            {disputeContent?.requestedOutcome && (
-              <div>
-                <p className="text-[10px] text-steel uppercase tracking-wider mb-0.5">Requested Outcome</p>
-                <p className="text-xs text-parchment">{disputeContent.requestedOutcome}</p>
-              </div>
+            {disputeContent && (
+              <JsonContentRenderer
+                data={Object.fromEntries(
+                  Object.entries(disputeContent).filter(([key]) =>
+                    !['title', 'evidence'].includes(key)
+                  )
+                )}
+              />
             )}
             {disputeContent?.evidence && disputeContent.evidence.length > 0 && (
               <EvidenceViewer evidence={disputeContent.evidence} />
@@ -2008,16 +2104,17 @@ export const SubjectModal = memo(function SubjectModal({
                     )}
                   </div>
                 </div>
-                {subjectContent?.description && (
-                  <div>
-                    <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Description</p>
-                    <p className="text-steel text-xs">{subjectContent.description}</p>
-                  </div>
-                )}
-                {subjectContent?.terms?.text && (
-                  <div>
-                    <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Terms</p>
-                    <p className="text-steel text-xs">{subjectContent.terms.text}</p>
+                {/* Render all subject content fields dynamically */}
+                {subjectContent && (
+                  <div className="space-y-2">
+                    <JsonContentRenderer
+                      data={Object.fromEntries(
+                        Object.entries(subjectContent).filter(([key]) =>
+                          !['title', 'category'].includes(key)
+                        )
+                      )}
+                      getIpfsUrl={getIpfsUrl}
+                    />
                   </div>
                 )}
                 <div className="flex flex-col gap-1 text-xs pt-2 border-t border-slate-light/50">
@@ -2277,16 +2374,17 @@ export const SubjectModal = memo(function SubjectModal({
                       )}
                     </div>
                   </div>
-                  {subjectContent?.description && (
-                    <div>
-                      <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Description</p>
-                      <p className="text-steel text-xs">{subjectContent.description}</p>
-                    </div>
-                  )}
-                  {subjectContent?.terms?.text && (
-                    <div>
-                      <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Terms</p>
-                      <p className="text-steel text-xs">{subjectContent.terms.text}</p>
+                  {/* Render all subject content fields dynamically */}
+                  {subjectContent && (
+                    <div className="space-y-2">
+                      <JsonContentRenderer
+                        data={Object.fromEntries(
+                          Object.entries(subjectContent).filter(([key]) =>
+                            !['title', 'category'].includes(key)
+                          )
+                        )}
+                        getIpfsUrl={getIpfsUrl}
+                      />
                     </div>
                   )}
                   <div className="flex flex-col gap-1 text-xs pt-2 border-t border-slate-light/50">
@@ -2374,18 +2472,17 @@ export const SubjectModal = memo(function SubjectModal({
                           )}
                         </div>
                       </div>
-                      {disputeContent.reason && (
-                        <div>
-                          <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Reason</p>
-                          <p className="text-steel text-xs">{disputeContent.reason}</p>
-                        </div>
-                      )}
-                      {disputeContent.requestedOutcome && (
-                        <div>
-                          <p className="text-[10px] text-steel uppercase tracking-wider mb-1 underline">Requested Outcome</p>
-                          <p className="text-steel text-xs">{disputeContent.requestedOutcome}</p>
-                        </div>
-                      )}
+                      {/* Render all dispute content fields dynamically */}
+                      <div className="space-y-2">
+                        <JsonContentRenderer
+                          data={Object.fromEntries(
+                            Object.entries(disputeContent).filter(([key]) =>
+                              !['title', 'evidence'].includes(key)
+                            )
+                          )}
+                          getIpfsUrl={getIpfsUrl}
+                        />
+                      </div>
                       {disputeContent.evidence && disputeContent.evidence.length > 0 && (
                         <EvidenceViewer evidence={disputeContent.evidence} getIpfsUrl={getIpfsUrl} />
                       )}
