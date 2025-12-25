@@ -1260,6 +1260,7 @@ export const SubjectModal = memo(function SubjectModal({
   actionLoading,
   showActions = true,
   getIpfsUrl,
+  inline = false,
 }: SubjectModalProps) {
   const modalScrollRef = useRef<HTMLDivElement>(null);
   const scrollPositionRef = useRef(0);
@@ -1952,17 +1953,22 @@ export const SubjectModal = memo(function SubjectModal({
     return b.account.resolvedAt.toNumber() - a.account.resolvedAt.toNumber();
   });
 
-  return (
-    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
-      <div
-        ref={modalScrollRef}
-        className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto relative"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Close button */}
+  // Content wrapper - used for both modal and inline modes
+  const contentElement = (
+    <div
+      ref={modalScrollRef}
+      className={inline
+        ? "w-full overflow-y-auto relative"
+        : "tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto relative"
+      }
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Close button - only show in modal mode */}
+      {!inline && (
         <button onClick={onClose} className="absolute top-3 right-3 text-steel hover:text-parchment z-10">
           <XIcon />
         </button>
+      )}
 
         <div className="p-3 sm:p-4 space-y-4">
           {/* SUBJECT INFO (when no active dispute) */}
@@ -2709,6 +2715,16 @@ export const SubjectModal = memo(function SubjectModal({
 
         </div>
       </div>
+  );
+
+  // Wrap in overlay for modal mode, return directly for inline mode
+  if (inline) {
+    return contentElement;
+  }
+
+  return (
+    <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
+      {contentElement}
     </div>
   );
 });

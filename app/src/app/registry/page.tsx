@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, memo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
 import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION, MIN_DEFENDER_STAKE } from "@/hooks/useTribunalcraft";
@@ -351,6 +352,7 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
 });
 
 export default function RegistryPage() {
+  const router = useRouter();
   const { publicKey } = useWallet();
   const {
     client,
@@ -1456,7 +1458,7 @@ export default function RegistryPage() {
                         dispute={null}
                         subjectContent={subjectContents[s.publicKey.toBase58()]}
                         creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
-                        onClick={() => setSelectedItem({ subject: s, dispute: null })}
+                        onClick={() => router.push(`/registry/${s.account.subjectId.toBase58()}`)}
                       />
                     ))
                   )}
@@ -1487,7 +1489,7 @@ export default function RegistryPage() {
                           subjectContent={subjectContents[subject.publicKey.toBase58()]}
                           disputeContent={disputeContents[d.publicKey.toBase58()]}
                           voteCounts={disputeVoteCounts[d.publicKey.toBase58()]}
-                          onClick={() => setSelectedItem({ subject, dispute: d })}
+                          onClick={() => router.push(`/registry/${subject.account.subjectId.toBase58()}`)}
                         />
                       );
                     })
@@ -1522,7 +1524,7 @@ export default function RegistryPage() {
                           subjectContent={subjectContents[s.publicKey.toBase58()]}
                           disputeContent={restoreDispute ? disputeContents[restoreDispute.publicKey.toBase58()] : null}
                           voteCounts={restoreDispute ? disputeVoteCounts[restoreDispute.publicKey.toBase58()] : null}
-                          onClick={() => setSelectedItem({ subject: s, dispute: restoreDispute || null })}
+                          onClick={() => router.push(`/registry/${s.account.subjectId.toBase58()}`)}
                         />
                       );
                     })
@@ -1557,7 +1559,7 @@ export default function RegistryPage() {
                           isResolved={true}
                           subjectContent={subjectContents[s.publicKey.toBase58()]}
                           disputeContent={invalidatingDispute ? disputeContents[invalidatingDispute.publicKey.toBase58()] : null}
-                          onClick={() => setSelectedItem({ subject: s, dispute: invalidatingDispute || null })}
+                          onClick={() => router.push(`/registry/${s.account.subjectId.toBase58()}`)}
                         />
                       );
                     })
@@ -1592,7 +1594,7 @@ export default function RegistryPage() {
                           subjectContent={subjectContents[s.publicKey.toBase58()]}
                           disputeContent={lastDispute ? disputeContents[lastDispute.publicKey.toBase58()] : null}
                           creatorPoolBacking={creatorPoolBackings[s.publicKey.toBase58()]}
-                          onClick={() => setSelectedItem({ subject: s, dispute: lastDispute || null })}
+                          onClick={() => router.push(`/registry/${s.account.subjectId.toBase58()}`)}
                         />
                       );
                     })

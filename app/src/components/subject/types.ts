@@ -214,6 +214,7 @@ export interface SubjectModalProps {
   actionLoading: boolean;
   showActions?: boolean;
   getIpfsUrl?: (cid: string) => string;
+  inline?: boolean; // If true, renders as inline content instead of modal overlay
 }
 
 // Legacy type aliases for backward compatibility during migration
