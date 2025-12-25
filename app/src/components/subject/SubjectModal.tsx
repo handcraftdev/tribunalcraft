@@ -52,15 +52,30 @@ const isPrimitive = (value: unknown): value is string | number | boolean | null 
   return value === null || value === undefined || typeof value !== 'object';
 };
 
+// Helper to format Unix timestamps
+const formatTimestamp = (value: number): string | null => {
+  // Check if it looks like a Unix timestamp (seconds since 1970, reasonable range)
+  if (value > 1000000000 && value < 2000000000) {
+    return new Date(value * 1000).toLocaleString();
+  }
+  // Check if it's milliseconds
+  if (value > 1000000000000 && value < 2000000000000) {
+    return new Date(value).toLocaleString();
+  }
+  return null;
+};
+
 // Recursive JSON content renderer for unknown structures
 const JsonContentRenderer = memo(function JsonContentRenderer({
   data,
   depth = 0,
   getIpfsUrl,
+  fieldName,
 }: {
   data: unknown;
   depth?: number;
   getIpfsUrl?: (cid: string) => string;
+  fieldName?: string;
 }) {
   if (data === null || data === undefined) {
     return null;
@@ -69,6 +84,23 @@ const JsonContentRenderer = memo(function JsonContentRenderer({
   // Handle primitives
   if (isPrimitive(data)) {
     const strValue = String(data);
+
+    // Check if it's a number that could be a timestamp
+    if (typeof data === 'number') {
+      const formattedTime = formatTimestamp(data);
+      if (formattedTime) {
+        return <span className="text-parchment break-words">{formattedTime}</span>;
+      }
+    }
+
+    // Check field name for timestamp hints
+    if (typeof data === 'number' && fieldName && /time|date|at$/i.test(fieldName)) {
+      const formattedTime = formatTimestamp(data);
+      if (formattedTime) {
+        return <span className="text-parchment break-words">{formattedTime}</span>;
+      }
+    }
+
     // Check if it looks like a URL
     if (typeof data === 'string' && (data.startsWith('http://') || data.startsWith('https://'))) {
       return (
@@ -77,12 +109,12 @@ const JsonContentRenderer = memo(function JsonContentRenderer({
         </a>
       );
     }
-    // Check if it looks like an IPFS CID
+    // Check if it looks like an IPFS CID - show in full
     if (typeof data === 'string' && data.match(/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{50,})$/)) {
       const url = getIpfsUrl ? getIpfsUrl(data) : `https://ipfs.io/ipfs/${data}`;
       return (
         <a href={url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">
-          {data.slice(0, 20)}...
+          {data}
         </a>
       );
     }
@@ -122,10 +154,10 @@ const JsonContentRenderer = memo(function JsonContentRenderer({
             <div key={key}>
               <div className="text-steel text-xs font-medium">{formatKey(key)}</div>
               {isNestedObject ? (
-                <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} />
+                <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} fieldName={key} />
               ) : (
                 <div className="text-xs">
-                  <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} />
+                  <JsonContentRenderer data={value} depth={depth + 1} getIpfsUrl={getIpfsUrl} fieldName={key} />
                 </div>
               )}
             </div>
@@ -917,7 +949,7 @@ const HistoryItem = memo(function HistoryItem({
       >
         <div className="flex items-center justify-between mb-2">
           <p className={`text-sm font-medium ${isRestore ? 'text-purple-400' : 'text-crimson'}`}>
-            {disputeContent?.title || (isRestore ? "Restoration Request" : `Dispute R${pastDispute.account.round}`)}
+            {disputeContent?.title || (disputeContent as any)?.name || (isRestore ? "Restoration Request" : `Dispute R${pastDispute.account.round}`)}
           </p>
           <div className="flex items-center gap-1">
             <span className={`text-[10px] px-1.5 py-0.5 rounded ${isRestore ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-light/30 text-steel'}`}>
@@ -1189,7 +1221,7 @@ const HistoryItem = memo(function HistoryItem({
               <JsonContentRenderer
                 data={Object.fromEntries(
                   Object.entries(disputeContent).filter(([key]) =>
-                    !['title', 'evidence'].includes(key)
+                    !['title', 'name', 'evidence'].includes(key)
                   )
                 )}
               />
@@ -2079,7 +2111,7 @@ export const SubjectModal = memo(function SubjectModal({
               </div>
               <div className="p-3 bg-obsidian border border-sky-500/30 space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-sky-400 font-medium">{subjectContent?.title || "Untitled Subject"}</p>
+                  <p className="text-sm text-sky-400 font-medium">{subjectContent?.title || (subjectContent as any)?.name || "Untitled Subject"}</p>
                   <div className="flex items-center gap-1">
                     {subjectContent?.category && (
                       <span className="text-[10px] text-sky">
@@ -2110,7 +2142,7 @@ export const SubjectModal = memo(function SubjectModal({
                     <JsonContentRenderer
                       data={Object.fromEntries(
                         Object.entries(subjectContent).filter(([key]) =>
-                          !['title', 'category'].includes(key)
+                          !['title', 'name', 'category'].includes(key)
                         )
                       )}
                       getIpfsUrl={getIpfsUrl}
@@ -2349,7 +2381,7 @@ export const SubjectModal = memo(function SubjectModal({
                 </div>
                 <div className="p-3 bg-obsidian border border-sky-500/30 space-y-2 flex-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-sky-400 font-medium">{subjectContent?.title || "Untitled Subject"}</p>
+                    <p className="text-sm text-sky-400 font-medium">{subjectContent?.title || (subjectContent as any)?.name || "Untitled Subject"}</p>
                     <div className="flex items-center gap-1">
                       {subjectContent?.category && (
                         <span className="text-[10px] text-sky">
@@ -2380,7 +2412,7 @@ export const SubjectModal = memo(function SubjectModal({
                       <JsonContentRenderer
                         data={Object.fromEntries(
                           Object.entries(subjectContent).filter(([key]) =>
-                            !['title', 'category'].includes(key)
+                            !['title', 'name', 'category'].includes(key)
                           )
                         )}
                         getIpfsUrl={getIpfsUrl}
@@ -2451,7 +2483,7 @@ export const SubjectModal = memo(function SubjectModal({
                     <>
                       <div className="flex items-center justify-between">
                         <p className={`text-sm font-medium ${isRestore ? 'text-purple-400' : 'text-crimson'}`}>
-                          {disputeContent.title || (isRestore ? "Restoration Request" : "Untitled Dispute")}
+                          {disputeContent.title || (disputeContent as any).name || (isRestore ? "Restoration Request" : "Untitled Dispute")}
                         </p>
                         <div className="flex items-center gap-1">
                           {isRestore ? (
@@ -2477,7 +2509,7 @@ export const SubjectModal = memo(function SubjectModal({
                         <JsonContentRenderer
                           data={Object.fromEntries(
                             Object.entries(disputeContent).filter(([key]) =>
-                              !['title', 'evidence'].includes(key)
+                              !['title', 'name', 'evidence'].includes(key)
                             )
                           )}
                           getIpfsUrl={getIpfsUrl}
