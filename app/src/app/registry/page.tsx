@@ -4,12 +4,12 @@ import { useState, useEffect, memo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft, calculateMinBond, INITIAL_REPUTATION, MIN_DEFENDER_STAKE } from "@/hooks/useTribunalcraft";
+import { useScalecraft, calculateMinBond, INITIAL_REPUTATION, MIN_DEFENDER_STAKE } from "@/hooks/useScalecraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import type { DisputeType, JurorPool, ChallengerPool } from "@/hooks/useTribunalcraft";
-import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
+import type { DisputeType, JurorPool, ChallengerPool } from "@/hooks/useScalecraft";
+import type { SubjectContent, DisputeContent } from "@scalecraft/sdk";
 import { SubjectCard, SubjectModal, DISPUTE_TYPES, SUBJECT_CATEGORIES, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { FileIcon, GavelIcon, PlusIcon, XIcon, MoonIcon } from "@/components/Icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -69,7 +69,7 @@ const CreateDisputeModal = memo(function CreateDisputeModal({
 
   return (
     <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="scale-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
           <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">File Dispute</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
@@ -163,7 +163,7 @@ const RestoreModal = memo(function RestoreModal({
 
   return (
     <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="scale-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
           <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">Restore Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
@@ -258,7 +258,7 @@ const CreateSubjectModal = memo(function CreateSubjectModal({
 
   return (
     <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-50 pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={onClose}>
-      <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="scale-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-lg max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-3 sm:p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
           <h3 className="font-display text-base sm:text-lg font-semibold text-ivory">Create Subject</h3>
           <button onClick={onClose} className="text-steel hover:text-parchment"><XIcon /></button>
@@ -385,7 +385,7 @@ export default function RegistryPage() {
     fetchProtocolConfig,
     getChallengerPoolPDA,
     fetchChallengerPool,
-  } = useTribunalcraft();
+  } = useScalecraft();
 
   const { uploadSubject, uploadDispute, isUploading } = useUpload();
   const { fetchSubject: fetchSubjectContent, fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
@@ -1276,7 +1276,7 @@ export default function RegistryPage() {
           </p>
 
           {/* Search and Filter Bar */}
-          <div className="tribunal-card p-4">
+          <div className="scale-card p-4">
             <div className="flex flex-col md:flex-row gap-3 md:items-center">
               {/* Search Input - takes remaining space */}
               <div className="relative flex-1">
@@ -1408,7 +1408,7 @@ export default function RegistryPage() {
         )}
 
         {loading ? (
-          <div className="tribunal-card p-12 text-center animate-slide-up stagger-2">
+          <div className="scale-card p-12 text-center animate-slide-up stagger-2">
             <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
             <p className="text-steel">Loading registry data...</p>
           </div>
@@ -1422,7 +1422,7 @@ export default function RegistryPage() {
               (statusFilter === "invalid" && invalidSubjects.length === 0) ||
               (statusFilter === "dormant" && dormantSubjects.length === 0)
             ) && (
-              <div className="tribunal-card p-8 text-center">
+              <div className="scale-card p-8 text-center">
                 <p className="text-steel">No {statusFilter} subjects found matching your filters</p>
                 {(searchQuery || categoryFilter !== "all" || showMySubjects) && (
                   <button
@@ -1441,7 +1441,7 @@ export default function RegistryPage() {
 
             {/* Valid Section */}
             {(statusFilter === "all" || statusFilter === "valid") && (
-              <div className="tribunal-card p-5">
+              <div className="scale-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <FileIcon />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Valid</h2>
@@ -1468,7 +1468,7 @@ export default function RegistryPage() {
 
             {/* Disputed Section */}
             {(statusFilter === "all" || statusFilter === "disputed") && (
-              <div className="tribunal-card p-5">
+              <div className="scale-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <GavelIcon />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Disputed</h2>
@@ -1500,7 +1500,7 @@ export default function RegistryPage() {
 
             {/* Restoring Section */}
             {(statusFilter === "all" || statusFilter === "restoring") && (
-              <div className="tribunal-card p-5">
+              <div className="scale-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <GavelIcon />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Restoring</h2>
@@ -1535,7 +1535,7 @@ export default function RegistryPage() {
 
             {/* Invalid Section */}
             {(statusFilter === "all" || statusFilter === "invalid") && (
-              <div className="tribunal-card p-5">
+              <div className="scale-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <GavelIcon />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Invalid</h2>
@@ -1570,7 +1570,7 @@ export default function RegistryPage() {
 
             {/* Dormant Section */}
             {(statusFilter === "all" || statusFilter === "dormant") && (
-              <div className="tribunal-card p-5">
+              <div className="scale-card p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <MoonIcon />
                   <h2 className="text-sm font-semibold text-ivory uppercase tracking-wider">Dormant</h2>

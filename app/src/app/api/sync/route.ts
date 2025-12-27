@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { BorshCoder, EventParser } from "@coral-xyz/anchor";
 import { createServerClient } from "@/lib/supabase/client";
-import { TribunalCraftClient, pda, PROGRAM_ID, IDL } from "@tribunalcraft/sdk";
+import { ScaleCraftClient, pda, PROGRAM_ID, IDL } from "@scalecraft/sdk";
 import { rateLimit, RATE_LIMIT_CONFIGS } from "@/lib/rate-limit";
 import {
   parseSubject,
@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = new Connection(endpoint, "confirmed");
-    const client = new TribunalCraftClient({ connection });
+    const client = new ScaleCraftClient({ connection });
     const slot = await connection.getSlot();
 
     const results: { type: string; success: boolean; error?: string }[] = [];

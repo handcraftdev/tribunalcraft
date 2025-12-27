@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ============================================
-   TRIBUNALCRAFT - DIGITAL TRIBUNAL DESIGN SYSTEM
+   SCALECRAFT - DIGITAL SCALE DESIGN SYSTEM
    Neo-classical brutalism meets modern justice
    ============================================ */
 
@@ -145,15 +145,15 @@ h4 {
    CUSTOM COMPONENTS
    ============================================ */
 
-/* Tribunal Card */
-.tribunal-card {
+/* Scale Card */
+.scale-card {
   background: var(--slate);
   border: var(--border-thin) solid var(--slate-light);
   position: relative;
   overflow: hidden;
 }
 
-.tribunal-card::before {
+.scale-card::before {
   content: '';
   position: absolute;
   top: 0;
@@ -165,18 +165,18 @@ h4 {
   transition: opacity var(--transition-base);
 }
 
-.tribunal-card:hover::before {
+.scale-card:hover::before {
   opacity: 1;
 }
 
 /* Modal variant - allows scrolling */
-.tribunal-modal {
+.scale-modal {
   background: var(--slate);
   border: var(--border-thin) solid var(--slate-light);
   position: relative;
 }
 
-.tribunal-modal::before {
+.scale-modal::before {
   content: '';
   position: absolute;
   top: 0;
@@ -189,13 +189,13 @@ h4 {
 }
 
 /* Gold accent card */
-.tribunal-card-gold {
+.scale-card-gold {
   background: var(--slate);
   border: var(--border-thin) solid var(--gold-dark);
   box-shadow: var(--shadow-gold);
 }
 
-.tribunal-card-gold::before {
+.scale-card-gold::before {
   opacity: 1;
 }
 

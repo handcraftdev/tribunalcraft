@@ -8,7 +8,7 @@ import Link from "next/link";
 import { XIcon, ClockIcon, CheckIcon, ChevronDownIcon, LinkIcon } from "@/components/Icons";
 import { getStatusBadge, getOutcomeLabel, getDisputeTypeLabel, SUBJECT_CATEGORIES, DISPUTE_TYPES, SubjectModalProps, VoteData, DisputeData, UserRoles, ChallengerRecordData, DefenderRecordData } from "./types";
 import {
-  useTribunalcraft,
+  useScalecraft,
   calculateMinBond,
   INITIAL_REPUTATION,
   MIN_DEFENDER_STAKE,
@@ -18,11 +18,11 @@ import {
   calculateUserRewards,
   lamportsToSol,
   isDisputeNone,
-} from "@/hooks/useTribunalcraft";
+} from "@/hooks/useScalecraft";
 import { useUpload, useContentFetch } from "@/hooks/useUpload";
 import { getUserFriendlyErrorMessage, getErrorHelp, isUserCancellation } from "@/lib/error-utils";
 import { EvidenceViewer } from "./EvidenceViewer";
-import type { DisputeContent } from "@tribunalcraft/sdk";
+import type { DisputeContent } from "@scalecraft/sdk";
 import {
   getJurorRecords,
   getChallengerRecords,
@@ -1027,7 +1027,7 @@ const HistoryItem = memo(function HistoryItem({
       {/* Claim Modal - V1 style */}
       {showClaimModal && (
         <div className="fixed inset-0 bg-obsidian/90 flex items-start justify-center z-[60] pt-16 sm:pt-28 px-2 sm:px-4 pb-4" onClick={() => setShowClaimModal(false)}>
-          <div className="tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-md max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="scale-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-md max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-light flex items-center justify-between sticky top-0 bg-slate z-10">
               <h3 className="font-display text-sm font-semibold text-gold">Claim Rewards</h3>
               <button onClick={() => setShowClaimModal(false)} className="text-steel hover:text-parchment">
@@ -1417,7 +1417,7 @@ export const SubjectModal = memo(function SubjectModal({
     getEscrowPDA,
     // Batch fetch - single RPC call for modal data
     fetchModalData,
-  } = useTribunalcraft();
+  } = useScalecraft();
   const { uploadDispute, isUploading } = useUpload();
   const { fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
 
@@ -2087,7 +2087,7 @@ export const SubjectModal = memo(function SubjectModal({
       ref={modalScrollRef}
       className={inline
         ? "w-full overflow-y-auto relative"
-        : "tribunal-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto relative"
+        : "scale-modal w-full max-w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[calc(100vh-5rem)] sm:max-h-[calc(100vh-8rem)] overflow-y-auto relative"
       }
       onClick={e => e.stopPropagation()}
     >

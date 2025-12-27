@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
-  TribunalCraftClient,
+  ScaleCraftClient,
   pda,
   // Event parsing functions
   fetchClaimHistory,
@@ -35,7 +35,7 @@ import {
   // Event types
   type RewardClaimedEvent,
   type ClaimRole,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";
 import { BN } from "@coral-xyz/anchor";
 
 // Supabase sync functions (fire-and-forget after successful TX)
@@ -69,18 +69,18 @@ import {
 } from "@/lib/supabase/sync";
 
 /**
- * React hook wrapper for TribunalCraft SDK (V2)
+ * React hook wrapper for ScaleCraft SDK (V2)
  * Integrates with Solana wallet adapter for seamless wallet management
  */
-export const useTribunalcraft = () => {
+export const useScalecraft = () => {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const [client, setClient] = useState<TribunalCraftClient | null>(null);
+  const [client, setClient] = useState<ScaleCraftClient | null>(null);
 
   // Initialize client when connection changes
   // Enable simulation to catch errors before submitting transactions
   useEffect(() => {
-    const newClient = new TribunalCraftClient({
+    const newClient = new ScaleCraftClient({
       connection,
       simulateFirst: true, // Always simulate to provide better error messages
     });
@@ -1139,4 +1139,4 @@ export {
   fetchClaimHistoryForSubject,
   getClaimSummaryFromHistory,
   parseEventsFromTransaction,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";

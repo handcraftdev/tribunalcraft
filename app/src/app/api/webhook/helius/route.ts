@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { createServerClient } from "@/lib/supabase/client";
 import { PublicKey, Connection } from "@solana/web3.js";
 import { BorshCoder, EventParser } from "@coral-xyz/anchor";
-import { PROGRAM_ID, IDL } from "@tribunalcraft/sdk";
+import { PROGRAM_ID, IDL } from "@scalecraft/sdk";
 import type { ProgramEventInsert } from "@/lib/supabase/types";
 
 // =============================================================================
@@ -474,8 +474,8 @@ export async function POST(request: NextRequest) {
 
         // Check if this transaction involves our program
         const programIdStr = PROGRAM_ID.toBase58();
-        const involvesTribunal = logs.some((log: string) => log.includes(programIdStr));
-        if (!involvesTribunal) continue;
+        const involvesScaleCraft = logs.some((log: string) => log.includes(programIdStr));
+        if (!involvesScaleCraft) continue;
 
         const result = await processTransaction(supabase, {
           signature: tx.signature,
@@ -493,9 +493,9 @@ export async function POST(request: NextRequest) {
       const logs = payload.meta?.logMessages || payload.logs || [];
       if (logs.length > 0) {
         const programIdStr = PROGRAM_ID.toBase58();
-        const involvesTribunal = logs.some((log: string) => log.includes(programIdStr));
+        const involvesScaleCraft = logs.some((log: string) => log.includes(programIdStr));
 
-        if (involvesTribunal) {
+        if (involvesScaleCraft) {
           const result = await processTransaction(supabase, {
             signature: payload.signature,
             slot: payload.slot || 0,
@@ -529,6 +529,6 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     programId: PROGRAM_ID.toBase58(),
-    description: "Helius webhook for TribunalCraft events",
+    description: "Helius webhook for ScaleCraft events",
   });
 }

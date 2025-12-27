@@ -8,7 +8,7 @@ import {
   createSubjectContent,
   createDisputeContent,
   Evidence,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";
 
 export interface UploadState {
   isUploading: boolean;
@@ -23,14 +23,14 @@ export interface ContentUploadResult {
 
 /**
  * Generate upload auth signature
- * Message format: "TribunalCraft Upload: {timestamp}"
+ * Message format: "ScaleCraft Upload: {timestamp}"
  */
 async function generateUploadAuth(
   walletAddress: string,
   signMessage: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<{ wallet: string; signature: string; timestamp: number }> {
   const timestamp = Date.now();
-  const message = `TribunalCraft Upload: ${timestamp}`;
+  const message = `ScaleCraft Upload: ${timestamp}`;
   const messageBytes = new TextEncoder().encode(message);
 
   const signatureBytes = await signMessage(messageBytes);
@@ -40,7 +40,7 @@ async function generateUploadAuth(
 }
 
 /**
- * Hook for uploading TribunalCraft content to IPFS
+ * Hook for uploading ScaleCraft content to IPFS
  * Requires wallet connection for authentication
  */
 export function useUpload() {

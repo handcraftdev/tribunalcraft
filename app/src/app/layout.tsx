@@ -25,7 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TribunalCraft | Decentralized Arbitration",
+  title: "ScaleCraft | Decentralized Arbitration",
   description: "A sovereign court for the digital age. Decentralized arbitration protocol on Solana.",
 };
 

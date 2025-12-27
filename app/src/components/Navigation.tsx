@@ -48,7 +48,7 @@ export const Navigation = () => {
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
               <span className="font-display text-gold text-sm font-semibold">T</span>
             </div>
-            <span className="font-display text-lg text-ivory hidden sm:block">TribunalCraft</span>
+            <span className="font-display text-lg text-ivory hidden sm:block">ScaleCraft</span>
           </Link>
 
           {/* Navigation Links */}

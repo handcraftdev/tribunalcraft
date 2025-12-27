@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
+import type { SubjectContent, DisputeContent } from "@scalecraft/sdk";
 
 // Dispute types for display
 export const DISPUTE_TYPES = [

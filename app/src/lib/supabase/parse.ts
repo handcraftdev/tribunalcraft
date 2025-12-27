@@ -17,7 +17,7 @@ import type {
   VoteChoice,
   RestoreVoteChoice,
   BondSource,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";
 import type {
   SubjectInsert,
   DisputeInsert,

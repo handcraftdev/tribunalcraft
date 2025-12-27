@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useScalecraft } from "@/hooks/useScalecraft";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import Link from "next/link";
 import { getDashboardStats, type DashboardStats } from "@/lib/supabase/queries";
@@ -77,7 +77,7 @@ export default function Dashboard() {
     fetchAllJurorPools,
     fetchJurorPool,
     getJurorPoolPDA
-  } = useTribunalcraft();
+  } = useScalecraft();
 
   const [pool, setPool] = useState<any>(null);
   const [jurorAccount, setJurorAccount] = useState<any>(null);
@@ -199,7 +199,7 @@ export default function Dashboard() {
         </div>
 
         {loading || !stats ? (
-          <div className="tribunal-card p-12 text-center animate-slide-up">
+          <div className="scale-card p-12 text-center animate-slide-up">
             <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
             <p className="text-steel">Loading protocol data...</p>
           </div>
@@ -207,7 +207,7 @@ export default function Dashboard() {
           <>
             {/* Key Metrics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 animate-slide-up stagger-1">
-              <div className="tribunal-card p-5 group">
+              <div className="scale-card p-5 group">
                 <div className="w-10 h-10 border border-gold/30 flex items-center justify-center mb-4 text-gold group-hover:border-gold/50 transition-colors">
                   <CoinsIcon />
                 </div>
@@ -216,7 +216,7 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">SOL</p>
               </div>
 
-              <div className="tribunal-card p-5 group">
+              <div className="scale-card p-5 group">
                 <div className="w-10 h-10 border border-crimson/30 flex items-center justify-center mb-4 text-crimson group-hover:border-crimson/50 transition-colors">
                   <GavelIcon />
                 </div>
@@ -225,7 +225,7 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">{formatSOL(stats.activePools)} SOL at stake</p>
               </div>
 
-              <div className="tribunal-card p-5 group">
+              <div className="scale-card p-5 group">
                 <div className="w-10 h-10 border border-emerald/30 flex items-center justify-center mb-4 text-emerald group-hover:border-emerald/50 transition-colors">
                   <UsersIcon />
                 </div>
@@ -234,7 +234,7 @@ export default function Dashboard() {
                 <p className="text-xs text-steel mt-1">of {stats.totalJurors} registered</p>
               </div>
 
-              <div className="tribunal-card p-5 group">
+              <div className="scale-card p-5 group">
                 <div className="w-10 h-10 border border-sky-400/30 flex items-center justify-center mb-4 text-sky-400 group-hover:border-sky-400/50 transition-colors">
                   <ShieldIcon />
                 </div>
@@ -245,7 +245,7 @@ export default function Dashboard() {
             </div>
 
             {/* Protocol Health */}
-            <div className="tribunal-card p-6 mb-8 animate-slide-up stagger-2">
+            <div className="scale-card p-6 mb-8 animate-slide-up stagger-2">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold">
@@ -318,12 +318,12 @@ export default function Dashboard() {
 
             {/* Quick Actions */}
             {!publicKey ? (
-              <div className="tribunal-card-gold p-8 text-center animate-slide-up stagger-3">
+              <div className="scale-card-gold p-8 text-center animate-slide-up stagger-3">
                 <div className="w-12 h-12 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
                   <ShieldIcon />
                 </div>
                 <h2 className="font-display text-2xl text-ivory mb-3">
-                  Enter the Tribunal
+                  Enter ScaleCraft
                 </h2>
                 <p className="text-steel text-sm mb-6 max-w-md mx-auto leading-relaxed">
                   Connect your wallet to participate in decentralized arbitration as a staker, challenger, or juror.
@@ -334,7 +334,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-slide-up stagger-3">
-                <Link href="/profile" className="tribunal-card p-5 group cursor-pointer">
+                <Link href="/profile" className="scale-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold group-hover:border-gold/50 transition-colors">
                       <UsersIcon />
@@ -351,7 +351,7 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link href="/registry" className="tribunal-card p-5 group cursor-pointer">
+                <Link href="/registry" className="scale-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 border border-crimson/30 flex items-center justify-center text-crimson group-hover:border-crimson/50 transition-colors">
                       <GavelIcon />
@@ -368,7 +368,7 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link href="/analytics" className="tribunal-card p-5 group cursor-pointer">
+                <Link href="/analytics" className="scale-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 border border-emerald/30 flex items-center justify-center text-emerald group-hover:border-emerald/50 transition-colors">
                       <ChartIcon />
@@ -385,7 +385,7 @@ export default function Dashboard() {
                   </p>
                 </Link>
 
-                <Link href="/profile" className="tribunal-card p-5 group cursor-pointer">
+                <Link href="/profile" className="scale-card p-5 group cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 border border-sky-400/30 flex items-center justify-center text-sky-400 group-hover:border-sky-400/50 transition-colors">
                       <ShieldIcon />
@@ -415,7 +415,7 @@ export default function Dashboard() {
               <div className="w-6 h-6 border border-gold/30 flex items-center justify-center">
                 <span className="font-display text-gold text-xs font-semibold">T</span>
               </div>
-              <span>TribunalCraft Protocol v2.0</span>
+              <span>ScaleCraft Protocol v2.0</span>
             </div>
             <span className="text-steel/70">Powered by Solana</span>
           </div>

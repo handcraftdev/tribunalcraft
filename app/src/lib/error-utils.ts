@@ -1,21 +1,21 @@
 /**
- * Error handling utilities for the TribunalCraft frontend
+ * Error handling utilities for the ScaleCraft frontend
  * Uses the SDK's error parsing to provide user-friendly error messages
  */
 
 import {
   parseTransactionError,
-  TribunalError,
+  ScaleCraftError,
   type TransactionError,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";
 
 /**
  * Convert any error into a user-friendly message
  * Uses SDK's error parsing for program errors
  */
 export function getUserFriendlyErrorMessage(error: unknown): string {
-  // If it's already a TribunalError, use its message
-  if (error instanceof TribunalError) {
+  // If it's already a ScaleCraftError, use its message
+  if (error instanceof ScaleCraftError) {
     return error.message;
   }
 
@@ -30,7 +30,7 @@ export function getUserFriendlyErrorMessage(error: unknown): string {
  * Get detailed error info for debugging
  */
 export function getErrorDetails(error: unknown): TransactionError {
-  if (error instanceof TribunalError) {
+  if (error instanceof ScaleCraftError) {
     return {
       code: error.code,
       name: error.errorName,

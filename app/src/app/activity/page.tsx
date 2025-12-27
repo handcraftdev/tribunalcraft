@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useScalecraft } from "@/hooks/useScalecraft";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import Link from "next/link";
 
@@ -131,7 +131,7 @@ const formatTimestamp = (timestamp: number): string => {
 
 export default function ActivityPage() {
   const { publicKey } = useWallet();
-  const { fetchUserActivity } = useTribunalcraft();
+  const { fetchUserActivity } = useScalecraft();
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -190,7 +190,7 @@ export default function ActivityPage() {
                 Activity <span className="text-gold">History</span>
               </h1>
               <p className="text-steel text-sm">
-                Your transaction history on TribunalCraft
+                Your transaction history on ScaleCraft
               </p>
             </div>
             <Link href="/profile" className="text-sm text-steel hover:text-ivory transition-colors">

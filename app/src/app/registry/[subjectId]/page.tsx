@@ -6,10 +6,10 @@ import { PublicKey } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
 import { SubjectModal, SubjectData } from "@/components/subject";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useScalecraft } from "@/hooks/useScalecraft";
 import { useContentFetch } from "@/hooks/useUpload";
 import { ArrowLeftIcon } from "@/components/Icons";
-import { pda, type SubjectContent } from "@tribunalcraft/sdk";
+import { pda, type SubjectContent } from "@scalecraft/sdk";
 
 export default function SubjectPage() {
   const params = useParams();
@@ -33,7 +33,7 @@ export default function SubjectPage() {
     closeJurorRecord,
     closeChallengerRecord,
     closeDefenderRecord,
-  } = useTribunalcraft();
+  } = useScalecraft();
   const { fetchSubject: fetchSubjectContent, getUrl } = useContentFetch();
 
   const [loading, setLoading] = useState(true);

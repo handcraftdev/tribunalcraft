@@ -8,7 +8,14 @@ import {
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { WalletError, WalletReadyState } from "@solana/wallet-adapter-base";
-import { WalletConnectWalletAdapter } from "@solana/wallet-adapter-wallets";
+import {
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+  CoinbaseWalletAdapter,
+  TrustWalletAdapter,
+  LedgerWalletAdapter,
+  WalletConnectWalletAdapter,
+} from "@solana/wallet-adapter-wallets";
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -47,9 +54,14 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     setEndpoint(`${window.location.origin}/api/rpc`);
   }, []);
 
-  // WalletConnect first for mobile browser support (stays in browser)
-  // Other adapters for desktop extension wallets
+  // Popular Solana wallets
+  // Extension wallets auto-detect, WalletConnect for mobile QR code support
   const wallets = useMemo(() => [
+    new PhantomWalletAdapter(),
+    new SolflareWalletAdapter(),
+    new CoinbaseWalletAdapter(),
+    new TrustWalletAdapter(),
+    new LedgerWalletAdapter(),
     new WalletConnectWalletAdapter({
       network: WalletAdapterNetwork.Devnet,
       options: {

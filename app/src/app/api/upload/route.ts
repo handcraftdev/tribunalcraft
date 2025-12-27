@@ -4,7 +4,7 @@ import { authenticateUpload } from "@/lib/upload-auth";
 import {
   validateSubjectContent,
   validateDisputeContent,
-} from "@tribunalcraft/sdk";
+} from "@scalecraft/sdk";
 
 // Initialize Filebase client from environment variables
 const filebase =

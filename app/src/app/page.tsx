@@ -214,7 +214,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
               <span className="font-display text-gold text-sm font-semibold">T</span>
             </div>
-            <span className="font-display text-lg text-ivory hidden sm:block">TribunalCraft</span>
+            <span className="font-display text-lg text-ivory hidden sm:block">ScaleCraft</span>
           </Link>
 
           <div className="hidden lg:flex items-center gap-8">
@@ -276,7 +276,7 @@ export default function LandingPage() {
                   href="/registry"
                   className="inline-flex items-center gap-2 bg-gold hover:bg-gold-light text-obsidian font-medium px-5 py-2.5 text-sm transition-all"
                 >
-                  Enter Tribunal
+                  Enter ScaleCraft
                   <ArrowIcon />
                 </Link>
                 <a href="#how-it-works" className="inline-flex items-center text-parchment hover:text-gold px-4 py-2.5 text-sm transition-colors">
@@ -492,7 +492,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="font-display text-3xl md:text-4xl text-ivory font-medium">Three Roles</h2>
-            <p className="mt-3 text-steel text-sm">Each participant plays a crucial part in the tribunal</p>
+            <p className="mt-3 text-steel text-sm">Each participant plays a crucial part in ScaleCraft</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-4">
@@ -562,7 +562,7 @@ export default function LandingPage() {
               <h3 className="font-display text-lg text-ivory mb-1">Juror</h3>
               <p className="text-gold text-xs mb-3" style={{ opacity: 0.8 }}>Decide Outcomes</p>
               <p className="text-steel text-xs mb-4">
-                Stake to join the tribunal. Vote on disputes to earn 19% of every resolution.
+                Stake to join ScaleCraft. Vote on disputes to earn 19% of every resolution.
               </p>
               <ul className="space-y-1.5 text-xs text-parchment/80">
                 <li className="flex items-center gap-1.5"><span className="text-gold">•</span>Register with stake</li>
@@ -604,7 +604,7 @@ export default function LandingPage() {
       {/* DIFFERENTIATORS */}
       <section className="py-16">
         <div className="max-w-3xl mx-auto px-6 text-center">
-          <h2 className="font-display text-3xl text-ivory font-medium mb-10">Why TribunalCraft</h2>
+          <h2 className="font-display text-3xl text-ivory font-medium mb-10">Why ScaleCraft</h2>
 
           <div className="grid grid-cols-3 gap-8">
             <div>
@@ -636,7 +636,7 @@ export default function LandingPage() {
           </div>
 
           <h2 className="font-display text-4xl md:text-5xl text-ivory font-medium mb-4">
-            The Tribunal Awaits
+            ScaleCraft Awaits
           </h2>
 
           <p className="text-steel mb-8 max-w-md mx-auto">
@@ -653,7 +653,7 @@ export default function LandingPage() {
               <ArrowIcon />
             </Link>
             <a
-              href="https://github.com/tribunalcraft"
+              href="https://github.com/scalecraft"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center text-parchment hover:text-gold px-4 py-2.5 text-sm transition-colors"
@@ -673,7 +673,7 @@ export default function LandingPage() {
                 <div className="w-6 h-6 border border-gold/50 flex items-center justify-center">
                   <span className="font-display text-gold text-xs">T</span>
                 </div>
-                <span className="font-display text-ivory">TribunalCraft</span>
+                <span className="font-display text-ivory">ScaleCraft</span>
               </div>
               <p className="text-xs text-steel">Decentralized dispute resolution on Solana.</p>
             </div>
@@ -681,7 +681,7 @@ export default function LandingPage() {
             <div>
               <h4 className="text-ivory text-xs font-medium mb-3">Developers</h4>
               <ul className="space-y-1.5 text-xs text-steel">
-                <li><a href="https://github.com/tribunalcraft" target="_blank" rel="noopener noreferrer" className="hover:text-parchment transition-colors">GitHub</a></li>
+                <li><a href="https://github.com/scalecraft" target="_blank" rel="noopener noreferrer" className="hover:text-parchment transition-colors">GitHub</a></li>
                 <li><a href="#" className="hover:text-parchment transition-colors">SDK Docs</a></li>
               </ul>
             </div>
@@ -696,7 +696,7 @@ export default function LandingPage() {
           </div>
 
           <div className="pt-6 border-t border-slate-light/20 flex flex-col md:flex-row justify-between items-center gap-3">
-            <p className="text-xs text-steel">&copy; 2025 TribunalCraft</p>
+            <p className="text-xs text-steel">&copy; 2025 ScaleCraft</p>
             <p className="text-xs text-gold/70 font-display italic">Truth through consensus. Justice through code.</p>
           </div>
         </div>

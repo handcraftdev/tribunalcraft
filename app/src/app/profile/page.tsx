@@ -3,12 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useScalecraft } from "@/hooks/useScalecraft";
 import { useContentFetch } from "@/hooks/useUpload";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import Link from "next/link";
-import type { SubjectContent, DisputeContent } from "@tribunalcraft/sdk";
+import type { SubjectContent, DisputeContent } from "@scalecraft/sdk";
 import { SubjectCard, SubjectModal, SubjectData, DisputeData, VoteData } from "@/components/subject";
 import { ShieldIcon, CheckIcon, LockIcon, PlusIcon, MinusIcon, ClockIcon, ChevronDownIcon } from "@/components/Icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -318,7 +318,7 @@ export default function JurorPage() {
     fetchChallengerRecordsByChallenger,
     fetchDefenderRecordsByDefender,
     fetchJurorRecordsByJuror,
-  } = useTribunalcraft();
+  } = useScalecraft();
 
   const { fetchSubject: fetchSubjectContent, fetchDispute: fetchDisputeContent, getUrl } = useContentFetch();
 
@@ -1672,7 +1672,7 @@ export default function JurorPage() {
         )}
 
         {!publicKey ? (
-          <div className="tribunal-card-gold p-12 text-center animate-slide-up stagger-2">
+          <div className="scale-card-gold p-12 text-center animate-slide-up stagger-2">
             <div className="w-16 h-16 mx-auto mb-6 rounded-full border-2 border-gold flex items-center justify-center text-gold">
               <ShieldIcon />
             </div>
@@ -1684,14 +1684,14 @@ export default function JurorPage() {
             </p>
           </div>
         ) : loading ? (
-          <div className="tribunal-card p-12 text-center animate-slide-up stagger-2">
+          <div className="scale-card p-12 text-center animate-slide-up stagger-2">
             <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
             <p className="text-steel">Loading profile data...</p>
           </div>
         ) : (
           <>
             {/* Wallet Info Bar */}
-            <div className="tribunal-card flex items-center justify-between px-5 py-4 mb-8 animate-slide-up stagger-1">
+            <div className="scale-card flex items-center justify-between px-5 py-4 mb-8 animate-slide-up stagger-1">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 border border-gold/30 flex items-center justify-center text-gold">
                   <UserIcon />
@@ -1718,7 +1718,7 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   DEFENDER CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="tribunal-card overflow-hidden">
+              <div className="scale-card overflow-hidden">
                 {/* Card Header */}
                 <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
@@ -1895,7 +1895,7 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   JUROR CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="tribunal-card overflow-hidden">
+              <div className="scale-card overflow-hidden">
                 {/* Card Header */}
                 <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
@@ -2049,7 +2049,7 @@ export default function JurorPage() {
               {/* ═══════════════════════════════════════════════════════════════════════════════
                   CHALLENGER CARD
                   ═══════════════════════════════════════════════════════════════════════════════ */}
-              <div className="tribunal-card overflow-hidden">
+              <div className="scale-card overflow-hidden">
                 {/* Card Header */}
                 <div className="px-5 py-4 border-b border-slate-light/30">
                   <div className="flex items-center justify-between">
@@ -2314,7 +2314,7 @@ export default function JurorPage() {
 
             {/* Active Section */}
             {activeDisputes.length > 0 && (
-              <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-4">
+              <div className="scale-card p-5 mb-6 animate-slide-up stagger-4">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 border border-emerald/30 flex items-center justify-center text-emerald">
                     <ActivityIcon />
@@ -2343,7 +2343,7 @@ export default function JurorPage() {
 
             {/* Pending Action Section */}
             {pendingActionDisputes.length > 0 && (
-              <div className="tribunal-card-gold p-5 mb-6 animate-slide-up stagger-5">
+              <div className="scale-card-gold p-5 mb-6 animate-slide-up stagger-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 border border-gold/50 flex items-center justify-center text-gold">
                     <ShieldIcon />
@@ -2397,7 +2397,7 @@ export default function JurorPage() {
 
             {/* Historical Section - PDA-based only */}
             {historicalSubjects.length > 0 && (
-              <div className="tribunal-card p-5 mb-6 animate-slide-up stagger-6">
+              <div className="scale-card p-5 mb-6 animate-slide-up stagger-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 border border-emerald/30 flex items-center justify-center text-emerald">
                     <CheckIcon />
@@ -2425,7 +2425,7 @@ export default function JurorPage() {
 
             {/* Empty State CTA */}
             {activeDisputes.length === 0 && pendingActionDisputes.length === 0 && historicalSubjects.length === 0 && (jurorAccount || pool) && (
-              <div className="tribunal-card-gold p-8 text-center animate-slide-up stagger-4">
+              <div className="scale-card-gold p-8 text-center animate-slide-up stagger-4">
                 <div className="w-12 h-12 mx-auto mb-4 border border-gold/50 flex items-center justify-center text-gold">
                   <ScaleIcon />
                 </div>

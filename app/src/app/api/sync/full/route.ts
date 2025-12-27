@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { createServerClient } from "@/lib/supabase/client";
-import { TribunalCraftClient, pda, PROGRAM_ID } from "@tribunalcraft/sdk";
+import { ScaleCraftClient, pda, PROGRAM_ID } from "@scalecraft/sdk";
 import {
   parseSubject,
   parseDispute,
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = new Connection(endpoint, "confirmed");
-    const client = new TribunalCraftClient({ connection });
+    const client = new ScaleCraftClient({ connection });
     const slot = await connection.getSlot();
 
     const results = {

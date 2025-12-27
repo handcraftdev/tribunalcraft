@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Navigation } from "@/components/Navigation";
-import { useTribunalcraft } from "@/hooks/useTribunalcraft";
+import { useScalecraft } from "@/hooks/useScalecraft";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import type { SubjectData, DisputeData, JurorPoolData } from "@/components/subject/types";
@@ -147,7 +147,7 @@ const convertSupabaseJuror = (j: SupabaseJurorPool): JurorData | null => {
 };
 
 export default function AnalyticsPage() {
-  const { client, fetchAllSubjects, fetchAllDisputes, fetchAllJurorPools } = useTribunalcraft();
+  const { client, fetchAllSubjects, fetchAllDisputes, fetchAllJurorPools } = useScalecraft();
 
   const [subjects, setSubjects] = useState<SubjectData[]>([]);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
@@ -668,7 +668,7 @@ export default function AnalyticsPage() {
         </div>
 
         {loading ? (
-          <div className="tribunal-card p-12 text-center animate-slide-up">
+          <div className="scale-card p-12 text-center animate-slide-up">
             <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-4" />
             <p className="text-steel">Loading analytics...</p>
           </div>
@@ -679,7 +679,7 @@ export default function AnalyticsPage() {
               <div className="space-y-8">
                 {/* Key Metrics with Comparison */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-slide-up">
-                  <div className="tribunal-card p-5">
+                  <div className="scale-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Disputes Filed</p>
                     <p className="font-display text-2xl text-ivory">{stats.totalDisputes}</p>
                     {period !== "all" && (
@@ -689,7 +689,7 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="tribunal-card p-5">
+                  <div className="scale-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Total Volume</p>
                     <p className="font-display text-2xl text-gold">{formatSOL(stats.totalInflow)}</p>
                     <p className="text-xs text-steel mt-1">SOL</p>
@@ -700,12 +700,12 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="tribunal-card p-5">
+                  <div className="scale-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">TVL</p>
                     <p className="font-display text-2xl text-emerald">{formatSOL(stats.tvl)}</p>
                     <p className="text-xs text-steel mt-1">Total Value Locked</p>
                   </div>
-                  <div className="tribunal-card p-5">
+                  <div className="scale-card p-5">
                     <p className="text-xs text-steel uppercase tracking-wider mb-2">Resolution Rate</p>
                     <p className="font-display text-2xl text-ivory">{formatPercent(stats.resolvedCount, stats.totalDisputes)}%</p>
                     <p className="text-xs text-steel mt-1">{stats.resolvedCount} / {stats.totalDisputes}</p>
@@ -713,7 +713,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Protocol Health Indicators */}
-                <div className="tribunal-card p-5 animate-slide-up stagger-1">
+                <div className="scale-card p-5 animate-slide-up stagger-1">
                   <h2 className="font-display text-base text-ivory mb-6">Protocol Health</h2>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Utilization Rate */}
@@ -795,7 +795,7 @@ export default function AnalyticsPage() {
 
                 {/* Outcome Distribution */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="tribunal-card p-6 animate-slide-up stagger-3">
+                  <div className="scale-card p-6 animate-slide-up stagger-3">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Outcome Distribution</h3>
                     {stats.resolvedCount > 0 ? (
                       <>
@@ -849,7 +849,7 @@ export default function AnalyticsPage() {
                   </div>
 
                   {/* Dispute Types */}
-                  <div className="tribunal-card p-6 animate-slide-up stagger-4">
+                  <div className="scale-card p-6 animate-slide-up stagger-4">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Dispute Types</h3>
                     {Object.keys(stats.disputeTypes).length > 0 ? (
                       <div className="space-y-3">
@@ -886,7 +886,7 @@ export default function AnalyticsPage() {
             {activeTab === "economics" && (
               <div className="space-y-8">
                 {/* Money Flow */}
-                <div className="tribunal-card p-6 animate-slide-up">
+                <div className="scale-card p-6 animate-slide-up">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-full border border-gold/50 flex items-center justify-center text-gold">
                       <CoinsIcon />
@@ -965,7 +965,7 @@ export default function AnalyticsPage() {
 
                 {/* Economic Metrics */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-slide-up stagger-1">
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Fee Efficiency</h3>
                     <div className="space-y-4">
                       <div>
@@ -991,7 +991,7 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">TVL Breakdown</h3>
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
@@ -1011,7 +1011,7 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Average Pool Size</h3>
                     <div className="space-y-4">
                       <div>
@@ -1039,7 +1039,7 @@ export default function AnalyticsPage() {
               <div className="space-y-8">
                 {/* Participant Overview */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-slide-up">
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Jurors</h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
@@ -1061,7 +1061,7 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Defenders</h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
@@ -1085,7 +1085,7 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Challengers</h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
@@ -1109,7 +1109,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Subject Status */}
-                <div className="tribunal-card p-6 animate-slide-up stagger-1">
+                <div className="scale-card p-6 animate-slide-up stagger-1">
                   <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Subject Registry Status</h3>
                   {stats.totalSubjects > 0 ? (
                     <>
@@ -1181,7 +1181,7 @@ export default function AnalyticsPage() {
 
                 {/* Participation Metrics */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-slide-up stagger-2">
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Voting Participation</h3>
                     <div className="space-y-4">
                       <div>
@@ -1209,7 +1209,7 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  <div className="tribunal-card p-6">
+                  <div className="scale-card p-6">
                     <h3 className="text-sm font-semibold text-ivory uppercase tracking-wider mb-4">Restore Disputes</h3>
                     <div className="space-y-4">
                       <div>
@@ -1239,7 +1239,7 @@ export default function AnalyticsPage() {
             {activeTab === "trends" && (
               <div className="space-y-8">
                 {/* Time Series Charts */}
-                <div className="tribunal-card p-6 animate-slide-up">
+                <div className="scale-card p-6 animate-slide-up">
                   <h2 className="font-display text-xl font-semibold text-ivory mb-6">Activity Trends</h2>
 
                   {/* Dispute Volume Chart */}
@@ -1298,7 +1298,7 @@ export default function AnalyticsPage() {
                 {/* Growth Indicators */}
                 {period !== "all" && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-slide-up stagger-1">
-                    <div className="tribunal-card p-6">
+                    <div className="scale-card p-6">
                       <h3 className="text-sm font-semibold text-steel uppercase tracking-wider mb-2">Dispute Growth</h3>
                       <div className="flex items-center gap-3">
                         <div className={stats.disputeChange >= 0 ? "text-emerald" : "text-crimson"}>
@@ -1311,7 +1311,7 @@ export default function AnalyticsPage() {
                       <p className="text-xs text-steel mt-2">vs previous {periodLabels[period].toLowerCase()}</p>
                     </div>
 
-                    <div className="tribunal-card p-6">
+                    <div className="scale-card p-6">
                       <h3 className="text-sm font-semibold text-steel uppercase tracking-wider mb-2">Volume Growth</h3>
                       <div className="flex items-center gap-3">
                         <div className={stats.inflowChange >= 0 ? "text-emerald" : "text-crimson"}>
@@ -1324,7 +1324,7 @@ export default function AnalyticsPage() {
                       <p className="text-xs text-steel mt-2">vs previous {periodLabels[period].toLowerCase()}</p>
                     </div>
 
-                    <div className="tribunal-card p-6">
+                    <div className="scale-card p-6">
                       <h3 className="text-sm font-semibold text-steel uppercase tracking-wider mb-2">Resolution Efficiency</h3>
                       <div className="flex items-center gap-3">
                         <span className="text-3xl font-bold text-gold">
@@ -1342,7 +1342,7 @@ export default function AnalyticsPage() {
             {activeTab === "leaderboard" && (
               <div className="space-y-8">
                 {/* Top Jurors by Reputation */}
-                <div className="tribunal-card p-6 animate-slide-up">
+                <div className="scale-card p-6 animate-slide-up">
                   <h2 className="font-display text-xl font-semibold text-ivory mb-6 flex items-center gap-3">
                     <TrophyIcon />
                     Top Jurors by Reputation
@@ -1388,7 +1388,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Top Jurors by Stake */}
-                <div className="tribunal-card p-6 animate-slide-up stagger-1">
+                <div className="scale-card p-6 animate-slide-up stagger-1">
                   <h2 className="font-display text-xl font-semibold text-ivory mb-6">Top Jurors by Stake</h2>
                   {leaderboards.topJurorsByStake.length > 0 ? (
                     <div className="space-y-2">
@@ -1425,7 +1425,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Most Active Jurors */}
-                <div className="tribunal-card p-6 animate-slide-up stagger-2">
+                <div className="scale-card p-6 animate-slide-up stagger-2">
                   <h2 className="font-display text-xl font-semibold text-ivory mb-6">Most Active Jurors</h2>
                   {leaderboards.mostActiveJurors.length > 0 ? (
                     <div className="space-y-2">
@@ -1466,7 +1466,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Top Subjects */}
-                <div className="tribunal-card p-6 animate-slide-up stagger-3">
+                <div className="scale-card p-6 animate-slide-up stagger-3">
                   <h2 className="font-display text-xl font-semibold text-ivory mb-6">Top Subjects by Defender Count</h2>
                   {leaderboards.topSubjects.length > 0 ? (
                     <div className="space-y-2">

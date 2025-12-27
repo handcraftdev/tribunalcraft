@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { BorshCoder, EventParser } from "@coral-xyz/anchor";
 import { createServerClient } from "@/lib/supabase/client";
-import { PROGRAM_ID, IDL } from "@tribunalcraft/sdk";
+import { PROGRAM_ID, IDL } from "@scalecraft/sdk";
 import type { ProgramEventInsert } from "@/lib/supabase/types";
 
 // =============================================================================

@@ -13,7 +13,7 @@ const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 /**
  * Verify wallet signature for upload authentication
- * Message format: "TribunalCraft Upload: {timestamp}"
+ * Message format: "ScaleCraft Upload: {timestamp}"
  */
 export function verifyWalletSignature(
   walletAddress: string,
@@ -36,7 +36,7 @@ export function verifyWalletSignature(
     }
 
     // Reconstruct the message that was signed
-    const message = `TribunalCraft Upload: ${timestamp}`;
+    const message = `ScaleCraft Upload: ${timestamp}`;
     const messageBytes = new TextEncoder().encode(message);
 
     // Decode signature from base64
