@@ -1,8 +1,8 @@
-# TribunalCraft Code Review - Consolidated Findings
+# ScaleCraft Code Review - Consolidated Findings
 
 **Review Date:** 2025-12-22
 **Last Updated:** 2025-12-22
-**Scope:** /Users/onlyabrak/dev/tribunalcraft/app
+**Scope:** /Users/onlyabrak/dev/scalecraft/app
 **Review Areas:** Features Completeness, Data Integrity, Economic Consistency, Security & Risk, Process Congruency
 
 ---
@@ -38,10 +38,10 @@ The following issues have been resolved:
 | DI-4: Silent sync failures | Added LRU-based failure tracking with retry logic | `sync.ts` |
 | FC-6/PC-4: Generic errors | Created error-utils.ts with SDK error parsing | `error-utils.ts`, `SubjectModal.tsx` |
 | FC-8: Vote accuracy hardcoded | Added getJurorVoteStats query with real accuracy | `queries.ts`, `analytics/page.tsx` |
-| DI-5: Hardcoded round 0 | Added round params to hook functions, callers pass round | `useTribunalcraft.ts`, `registry/page.tsx`, `profile/page.tsx` |
+| DI-5: Hardcoded round 0 | Added round params to hook functions, callers pass round | `useScalecraft.ts`, `registry/page.tsx`, `profile/page.tsx` |
 | SR-9: Debug console.log | Removed debug logs, kept error logging | `SubjectModal.tsx`, `profile/page.tsx` |
 | SR-6: Missing CORS config | Added CORS headers for API routes | `next.config.ts` |
-| SR-8: No simulation | Enabled simulateFirst for better errors | `useTribunalcraft.ts` |
+| SR-8: No simulation | Enabled simulateFirst for better errors | `useScalecraft.ts` |
 | PC-2: Status badge priority | Reordered to show most actionable first | `types.ts` |
 | PC-3: Dormant revival UX | Clearer success messages with status + next steps | `registry/page.tsx`, `profile/page.tsx` |
 | SR-7: XSS prevention | Added content sanitization utilities | `sanitize.ts` |
@@ -56,7 +56,7 @@ The following issues have been resolved:
 
 ### Overall Assessment: 95% Complete
 
-The TribunalCraft application has excellent core feature coverage with all protocol interactions fully implemented. Search/filter and improved error handling now provide a better user experience.
+The ScaleCraft application has excellent core feature coverage with all protocol interactions fully implemented. Search/filter and improved error handling now provide a better user experience.
 
 ### Critical Issues
 
@@ -114,7 +114,7 @@ All critical and high priority data integrity issues have been addressed. Slot-b
 | ~~DI-2~~ | ~~Missing dormant status in enum converter~~ | `/src/lib/supabase/parse.ts` | **FIXED** - Added dormant handling |
 | ~~DI-3~~ | ~~Webhook slot race condition~~ | `/src/lib/supabase/sync.ts` | **FIXED** - Slot-aware upsert |
 | ~~DI-4~~ | ~~Fire-and-forget sync failures silently lost~~ | `/src/lib/supabase/sync.ts` | **FIXED** - LRU failure tracking |
-| ~~DI-5~~ | ~~Hardcoded round 0 in sync operations~~ | `/src/hooks/useTribunalcraft.ts` | **FIXED** - Round params added |
+| ~~DI-5~~ | ~~Hardcoded round 0 in sync operations~~ | `/src/hooks/useScalecraft.ts` | **FIXED** - Round params added |
 
 ### High Priority
 
@@ -201,7 +201,7 @@ Critical security vulnerabilities have been addressed. Rate limiting now protect
 |---|-------|----------|------|--------|
 | ~~SR-6~~ | ~~Missing CORS configuration~~ | Medium | `next.config.ts` | **FIXED** |
 | SR-7 | Potential XSS via IPFS content | Medium | `/src/hooks/useUpload.ts` | Open |
-| ~~SR-8~~ | ~~Transaction simulation disabled in production~~ | Medium | `/src/hooks/useTribunalcraft.ts` | **FIXED** |
+| ~~SR-8~~ | ~~Transaction simulation disabled in production~~ | Medium | `/src/hooks/useScalecraft.ts` | **FIXED** |
 | ~~SR-9~~ | ~~Excessive debug logging~~ | Medium | Multiple files | **FIXED** |
 
 ### Positive Findings
@@ -226,7 +226,7 @@ State machines and business logic are well-architected with consistent implement
 
 | # | Issue | File | Status |
 |---|-------|------|--------|
-| ~~PC-1~~ | ~~Restoration success not handled properly~~ | `/programs/tribunalcraft/src/instructions/resolve.rs` | **FIXED** |
+| ~~PC-1~~ | ~~Restoration success not handled properly~~ | `/programs/scalecraft/src/instructions/resolve.rs` | **FIXED** |
 
 ### High Priority
 
@@ -296,7 +296,7 @@ All critical blockers have been resolved:
 | `src/app/api/rpc/route.ts` | Rate limiting integration |
 | `packages/sdk/src/types.ts` | Added dormant to SubjectStatus |
 | `packages/sdk/src/index.ts` | Export isSubjectDormant |
-| `programs/tribunalcraft/src/instructions/resolve.rs` | Restoration resolution fix |
+| `programs/scalecraft/src/instructions/resolve.rs` | Restoration resolution fix |
 | `.env.example` | Added HELIUS_WEBHOOK_SECRET, SOLANA_WSS_URL |
 | `src/app/registry/page.tsx` | Search/filter UI with status, category, "Mine" filters |
 | `src/lib/supabase/sync.ts` | Slot-aware upsert, LRU failure tracking |
@@ -317,7 +317,7 @@ All critical blockers have been resolved:
 
 ## Conclusion
 
-TribunalCraft demonstrates strong architectural design with comprehensive feature implementation. The core dispute resolution logic is sound, and all user journeys are coherent.
+ScaleCraft demonstrates strong architectural design with comprehensive feature implementation. The core dispute resolution logic is sound, and all user journeys are coherent.
 
 **Production Readiness:** All 4 critical blockers have been resolved:
 1. ~~Remove exposed API key~~ **DONE**

@@ -1,6 +1,6 @@
-# TribunalCraft App
+# ScaleCraft App
 
-A decentralized dispute resolution frontend built with Next.js for the TribunalCraft protocol on Solana.
+A decentralized dispute resolution frontend built with Next.js for the ScaleCraft protocol on Solana.
 
 ## Features
 
@@ -76,7 +76,7 @@ This creates all required tables with Row Level Security (RLS) enabled.
 1. Go to [Helius Dashboard](https://dashboard.helius.dev)
 2. Create a new webhook with:
    - **Type**: Enhanced Transaction
-   - **Program ID**: Your TribunalCraft program ID
+   - **Program ID**: Your ScaleCraft program ID
    - **URL**: `https://your-domain.com/api/webhook/helius`
 3. Copy the webhook secret to `HELIUS_WEBHOOK_SECRET`
 
@@ -97,7 +97,7 @@ src/
 │   ├── subject/          # Subject-related components
 │   └── ui/               # Shared UI components
 ├── hooks/                 # Custom React hooks
-│   └── useTribunalcraft.ts  # Main protocol hook
+│   └── useScalecraft.ts  # Main protocol hook
 ├── lib/                   # Utilities
 │   ├── supabase/         # Supabase client & sync
 │   └── rate-limit.ts     # Rate limiting utility
@@ -144,8 +144,8 @@ See [CODE_REVIEW_FINDINGS.md](./CODE_REVIEW_FINDINGS.md) for detailed security a
 
 ## Related Packages
 
-- [`@tribunalcraft/sdk`](../packages/sdk) - TypeScript SDK for protocol interactions
-- [`tribunalcraft`](../programs/tribunalcraft) - On-chain Anchor program
+- [`@scalecraft/sdk`](../packages/sdk) - TypeScript SDK for protocol interactions
+- [`scalecraft`](../programs/scalecraft) - On-chain Anchor program
 
 ## License
 

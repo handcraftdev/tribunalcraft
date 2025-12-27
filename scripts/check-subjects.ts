@@ -1,11 +1,11 @@
 import { Connection, PublicKey } from '@solana/web3.js';
-import { TribunalCraftClient } from '../packages/sdk';
+import { ScaleCraftClient } from '../packages/sdk';
 
 const RPC = "https://devnet.helius-rpc.com/?api-key=88ac54a3-8850-4686-a521-70d116779182";
 
 async function main() {
   const connection = new Connection(RPC, 'confirmed');
-  const client = new TribunalCraftClient({ connection });
+  const client = new ScaleCraftClient({ connection });
 
   // List all subjects and try to fetch them
   console.log('Fetching all subjects...');

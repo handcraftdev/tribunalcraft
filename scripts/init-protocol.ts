@@ -5,7 +5,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 
 // Load IDL
-const idlPath = path.join(__dirname, '../target/idl/tribunalcraft.json');
+const idlPath = path.join(__dirname, '../target/idl/scalecraft.json');
 const idl = JSON.parse(fs.readFileSync(idlPath, 'utf-8'));
 
 interface NetworkConfig {
@@ -75,7 +75,7 @@ async function main() {
   }
 
   const config = NETWORKS[network];
-  console.log(`\n=== TribunalCraft Protocol Initialization ===`);
+  console.log(`\n=== ScaleCraft Protocol Initialization ===`);
   console.log(`Network: ${config.name}`);
   console.log(`RPC URL: ${config.rpcUrl}`);
 

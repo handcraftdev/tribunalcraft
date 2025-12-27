@@ -1,12 +1,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { Tribunalcraft } from "../target/types/tribunalcraft";
+import { Scalecraft } from "../target/types/scalecraft";
 
-describe("tribunalcraft", () => {
+describe("scalecraft", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
 
-  const program = anchor.workspace.Tribunalcraft as Program<Tribunalcraft>;
+  const program = anchor.workspace.Scalecraft as Program<Scalecraft>;
 
   it("Program is deployed", async () => {
     // Basic check that program exists

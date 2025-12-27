@@ -1,10 +1,10 @@
-# Contributing to TribunalCraft
+# Contributing to ScaleCraft
 
 ## Project Structure
 
 ```
-tribunalcraft/
-├── programs/tribunalcraft/   # Solana program (Rust)
+scalecraft/
+├── programs/scalecraft/   # Solana program (Rust)
 ├── packages/sdk/             # TypeScript SDK
 ├── app/                      # Next.js frontend
 └── scripts/                  # Deployment scripts

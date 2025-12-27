@@ -1,10 +1,10 @@
 # SPL Token Support Design
 
-This document outlines the design for adding SPL token support to TribunalCraft, allowing subjects to use any SPL token (USDC, BONK, etc.) instead of native SOL.
+This document outlines the design for adding SPL token support to ScaleCraft, allowing subjects to use any SPL token (USDC, BONK, etc.) instead of native SOL.
 
 ## Overview
 
-TribunalCraft will support **per-subject token selection**:
+ScaleCraft will support **per-subject token selection**:
 - Each subject specifies its token mint at creation
 - All bonds, stakes, and rewards for that subject use the same token
 - Juror voting power remains SOL-based (protocol-level)
@@ -40,7 +40,7 @@ Enforcement via validation:
 ```rust
 require!(
     token_account.mint == subject.mint,
-    TribunalCraftError::MintMismatch
+    ScaleCraftError::MintMismatch
 );
 ```
 
@@ -306,7 +306,7 @@ if mint != Pubkey::default() {
 // Verify token account matches subject's mint
 require!(
     token_account.mint == subject.mint,
-    TribunalCraftError::MintMismatch
+    ScaleCraftError::MintMismatch
 );
 ```
 
@@ -315,7 +315,7 @@ require!(
 // Pool's ATA must be for subject's mint
 require!(
     pool_token_account.mint == subject.mint,
-    TribunalCraftError::MintMismatch
+    ScaleCraftError::MintMismatch
 );
 ```
 
@@ -361,7 +361,7 @@ Existing SOL subjects continue to work unchanged. New subjects can choose any to
 
 ```rust
 #[error_code]
-pub enum TribunalCraftError {
+pub enum ScaleCraftError {
     // ... existing errors
 
     #[msg("Token mint does not match subject's mint")]

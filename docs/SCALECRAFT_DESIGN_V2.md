@@ -1,4 +1,4 @@
-# TribunalCraft Design V2
+# ScaleCraft Design V2
 
 ## Overview
 

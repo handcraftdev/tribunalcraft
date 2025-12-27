@@ -1,10 +1,10 @@
 # Third-Party App Integration Guide
 
-This document explains how third-party applications can integrate with TribunalCraft and filter disputes specific to their app.
+This document explains how third-party applications can integrate with ScaleCraft and filter disputes specific to their app.
 
 ## Overview
 
-TribunalCraft is a permissionless protocol. Any app can:
+ScaleCraft is a permissionless protocol. Any app can:
 - Create subjects for their content
 - Filter to show only their subjects/disputes
 - Run their own indexer or use the shared Supabase
@@ -17,7 +17,7 @@ The `subject_id` is a `Pubkey` that can be derived from any source. Apps should 
 
 ```typescript
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "@tribunalcraft/sdk";
+import { PROGRAM_ID } from "@scalecraft/sdk";
 
 // App-specific identifier (your program ID or a fixed pubkey)
 const APP_ID = new PublicKey("YourAppProgramId...");
@@ -86,7 +86,7 @@ await yourDb.insert({
 const mySubjects = await yourDb.query("SELECT subject_id FROM my_subjects");
 const subjectIds = mySubjects.map(s => s.subject_id);
 
-// Query TribunalCraft data for your subjects
+// Query ScaleCraft data for your subjects
 const disputes = await supabase
     .from("disputes")
     .select("*")
@@ -113,14 +113,14 @@ Then index and filter by `app_id` in your database.
 
 ### 1. Use Shared Supabase (Easiest)
 
-Query the TribunalCraft Supabase directly:
+Query the ScaleCraft Supabase directly:
 
 ```typescript
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-    process.env.TRIBUNALCRAFT_SUPABASE_URL,
-    process.env.TRIBUNALCRAFT_SUPABASE_ANON_KEY
+    process.env.SCALECRAFT_SUPABASE_URL,
+    process.env.SCALECRAFT_SUPABASE_ANON_KEY
 );
 
 // Query subjects
@@ -141,7 +141,7 @@ const { data: disputes } = await supabase
 Set up your own Helius webhook and Supabase instance:
 
 1. Create Supabase project
-2. Run schema migrations from TribunalCraft
+2. Run schema migrations from ScaleCraft
 3. Configure Helius webhook pointing to your API
 4. Filter events for your subjects only
 
@@ -168,9 +168,9 @@ export async function POST(req: Request) {
 Query on-chain accounts directly (no indexer):
 
 ```typescript
-import { TribunalCraftClient } from "@tribunalcraft/sdk";
+import { ScaleCraftClient } from "@scalecraft/sdk";
 
-const client = new TribunalCraftClient({ connection });
+const client = new ScaleCraftClient({ connection });
 
 // Fetch subject account
 const subject = await client.getSubject(subjectId);
@@ -190,14 +190,14 @@ const jurorRecords = await client.getJurorRecords(subjectId);
 Your App
     │
     ▼
-TribunalCraft Supabase (shared)
+ScaleCraft Supabase (shared)
     │
     ▼
 Filter by creator/subject_id
 ```
 
 Pros: No infrastructure to maintain
-Cons: Dependent on TribunalCraft availability
+Cons: Dependent on ScaleCraft availability
 
 ### Pattern B: Own Index (Recommended for Production)
 
@@ -206,7 +206,7 @@ Solana Program
     │
     ├──▶ Your Helius Webhook ──▶ Your Supabase
     │
-    └──▶ TribunalCraft Webhook ──▶ TribunalCraft Supabase
+    └──▶ ScaleCraft Webhook ──▶ ScaleCraft Supabase
 
 Your App
     │
@@ -224,7 +224,7 @@ Your App
     │
     ├──▶ Your DB (subject_id mapping)
     │
-    └──▶ TribunalCraft Supabase (dispute data)
+    └──▶ ScaleCraft Supabase (dispute data)
 ```
 
 Track which subjects are yours, query dispute data from shared index.
@@ -256,10 +256,10 @@ function shouldIndex(event: ProgramEvent): boolean {
 ## SDK Usage
 
 ```typescript
-import { TribunalCraftClient, PDA } from "@tribunalcraft/sdk";
+import { ScaleCraftClient, PDA } from "@scalecraft/sdk";
 
 // Initialize client
-const client = new TribunalCraftClient({
+const client = new ScaleCraftClient({
     connection,
     wallet,
 });
