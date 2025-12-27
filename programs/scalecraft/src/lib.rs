@@ -15,7 +15,7 @@ pub use instructions::*;
 declare_id!("YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz");
 
 #[program]
-pub mod tribunalcraft {
+pub mod scalecraft {
     use super::*;
 
     // =========================================================================

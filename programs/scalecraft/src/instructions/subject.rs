@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED};
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::*;
 
 /// Create a subject with all persistent PDAs (Subject + Dispute + Escrow)
@@ -83,8 +83,8 @@ pub fn create_subject(
     let defender_record = &mut ctx.accounts.defender_record;
     let clock = Clock::get()?;
 
-    require!(voting_period > 0, TribunalCraftError::InvalidConfig);
-    require!(details_cid.len() <= Subject::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+    require!(voting_period > 0, ScaleCraftError::InvalidConfig);
+    require!(details_cid.len() <= Subject::MAX_CID_LEN, ScaleCraftError::InvalidConfig);
 
     // Initialize DefenderPool if newly created
     if defender_pool.owner == Pubkey::default() {
@@ -203,7 +203,7 @@ pub struct AddBondDirect<'info> {
 
     #[account(
         mut,
-        constraint = subject.can_bond() @ TribunalCraftError::SubjectCannotBeStaked,
+        constraint = subject.can_bond() @ ScaleCraftError::SubjectCannotBeStaked,
     )]
     pub subject: Account<'info, Subject>,
 
@@ -258,7 +258,7 @@ pub fn add_bond_direct(ctx: Context<AddBondDirect>, amount: u64) -> Result<()> {
         defender_pool.updated_at = clock.unix_timestamp;
     }
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(amount > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Transfer bond to subject PDA
     let cpi_context = CpiContext::new(
@@ -340,7 +340,7 @@ pub struct AddBondFromPool<'info> {
 
     #[account(
         mut,
-        constraint = subject.can_bond() @ TribunalCraftError::SubjectCannotBeStaked,
+        constraint = subject.can_bond() @ ScaleCraftError::SubjectCannotBeStaked,
     )]
     pub subject: Account<'info, Subject>,
 
@@ -348,7 +348,7 @@ pub struct AddBondFromPool<'info> {
         mut,
         seeds = [DEFENDER_POOL_SEED, defender.key().as_ref()],
         bump = defender_pool.bump,
-        constraint = defender_pool.owner == defender.key() @ TribunalCraftError::InvalidConfig,
+        constraint = defender_pool.owner == defender.key() @ ScaleCraftError::InvalidConfig,
     )]
     pub defender_pool: Account<'info, DefenderPool>,
 
@@ -389,11 +389,11 @@ pub fn add_bond_from_pool(ctx: Context<AddBondFromPool>, amount: u64) -> Result<
         // Only allow for dormant subjects with pool balance
         require!(
             subject.status == SubjectStatus::Dormant,
-            TribunalCraftError::InvalidSubjectStatus
+            ScaleCraftError::InvalidSubjectStatus
         );
         require!(
             defender_pool.balance > 0,
-            TribunalCraftError::InsufficientPoolBalance
+            ScaleCraftError::InsufficientPoolBalance
         );
 
         // Revive subject - pool backs it (funds transfer on dispute)
@@ -420,7 +420,7 @@ pub fn add_bond_from_pool(ctx: Context<AddBondFromPool>, amount: u64) -> Result<
     // Regular flow: amount > 0, transfer from pool
     // Cap amount to max_bond setting
     let capped_amount = amount.min(defender_pool.max_bond);
-    require!(capped_amount > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(capped_amount > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Deduct from pool balance
     defender_pool.use_for_bond(capped_amount)?;

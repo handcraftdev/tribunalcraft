@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{JUROR_POOL_SEED, INITIAL_REPUTATION, SLASH_THRESHOLD};
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{PoolDepositEvent, PoolWithdrawEvent, PoolType};
 
 /// Register as a juror (create JurorPool)
@@ -66,7 +66,7 @@ pub struct AddJurorStake<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump
     )]
@@ -79,7 +79,7 @@ pub fn add_juror_stake(ctx: Context<AddJurorStake>, amount: u64) -> Result<()> {
     let juror_pool = &mut ctx.accounts.juror_pool;
     let clock = Clock::get()?;
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(amount > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Transfer SOL
     let cpi_context = CpiContext::new(
@@ -113,7 +113,7 @@ pub struct WithdrawJurorStake<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump
     )]
@@ -126,7 +126,7 @@ pub fn withdraw_juror_stake(ctx: Context<WithdrawJurorStake>, amount: u64) -> Re
     let juror_pool = &mut ctx.accounts.juror_pool;
     let clock = Clock::get()?;
 
-    require!(juror_pool.balance >= amount, TribunalCraftError::InsufficientAvailableStake);
+    require!(juror_pool.balance >= amount, ScaleCraftError::InsufficientAvailableStake);
 
     // Calculate return based on reputation
     let (return_amount, slash_amount) = juror_pool.calculate_withdrawal(amount, SLASH_THRESHOLD);
@@ -158,7 +158,7 @@ pub struct UnregisterJuror<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump,
         close = juror,

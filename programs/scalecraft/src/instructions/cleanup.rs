@@ -9,7 +9,7 @@ use crate::constants::{
     REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT,
     stacked_sigmoid,
 };
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{RewardClaimedEvent, RecordClosedEvent, RoundSweptEvent, StakeUnlockedEvent, ClaimRole};
 
 // =============================================================================
@@ -40,7 +40,7 @@ pub struct ClaimDefender<'info> {
         mut,
         seeds = [DEFENDER_RECORD_SEED, subject.subject_id.as_ref(), defender.key().as_ref(), &round.to_le_bytes()],
         bump = defender_record.bump,
-        constraint = !defender_record.reward_claimed @ TribunalCraftError::RewardAlreadyClaimed,
+        constraint = !defender_record.reward_claimed @ ScaleCraftError::RewardAlreadyClaimed,
     )]
     pub defender_record: Account<'info, DefenderRecord>,
 
@@ -62,7 +62,7 @@ pub fn claim_defender(ctx: Context<ClaimDefender>, round: u32) -> Result<()> {
 
     // Find round result and extract needed data
     let round_idx = escrow.rounds.iter().position(|r| r.round == round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     let outcome = escrow.rounds[round_idx].outcome;
     let winner_pool = escrow.rounds[round_idx].winner_pool;
@@ -170,7 +170,7 @@ pub struct ClaimChallenger<'info> {
         mut,
         seeds = [CHALLENGER_RECORD_SEED, subject.subject_id.as_ref(), challenger.key().as_ref(), &round.to_le_bytes()],
         bump = challenger_record.bump,
-        constraint = !challenger_record.reward_claimed @ TribunalCraftError::RewardAlreadyClaimed,
+        constraint = !challenger_record.reward_claimed @ ScaleCraftError::RewardAlreadyClaimed,
     )]
     pub challenger_record: Account<'info, ChallengerRecord>,
 
@@ -192,7 +192,7 @@ pub fn claim_challenger(ctx: Context<ClaimChallenger>, round: u32) -> Result<()>
 
     // Find round result and extract needed data
     let round_idx = escrow.rounds.iter().position(|r| r.round == round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     let outcome = escrow.rounds[round_idx].outcome;
     let winner_pool = escrow.rounds[round_idx].winner_pool;
@@ -312,7 +312,7 @@ pub struct ClaimJuror<'info> {
         mut,
         seeds = [JUROR_RECORD_SEED, subject.subject_id.as_ref(), juror.key().as_ref(), &round.to_le_bytes()],
         bump = juror_record.bump,
-        constraint = !juror_record.reward_claimed @ TribunalCraftError::RewardAlreadyClaimed,
+        constraint = !juror_record.reward_claimed @ ScaleCraftError::RewardAlreadyClaimed,
     )]
     pub juror_record: Account<'info, JurorRecord>,
 
@@ -334,7 +334,7 @@ pub fn claim_juror(ctx: Context<ClaimJuror>, round: u32) -> Result<()> {
 
     // Find round result and extract needed data
     let round_idx = escrow.rounds.iter().position(|r| r.round == round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     let outcome = escrow.rounds[round_idx].outcome;
     let juror_pool_amount = escrow.rounds[round_idx].juror_pool;
@@ -422,7 +422,7 @@ pub struct UnlockJurorStake<'info> {
         mut,
         seeds = [JUROR_RECORD_SEED, subject.subject_id.as_ref(), juror.key().as_ref(), &round.to_le_bytes()],
         bump = juror_record.bump,
-        constraint = !juror_record.stake_unlocked @ TribunalCraftError::StakeAlreadyUnlocked,
+        constraint = !juror_record.stake_unlocked @ ScaleCraftError::StakeAlreadyUnlocked,
     )]
     pub juror_record: Account<'info, JurorRecord>,
 
@@ -444,13 +444,13 @@ pub fn unlock_juror_stake(ctx: Context<UnlockJurorStake>, round: u32) -> Result<
 
     // Find round result to get resolved_at
     let round_result = escrow.find_round(round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     // Check that 7 days have passed since resolution
     let unlock_time = round_result.resolved_at + STAKE_UNLOCK_BUFFER;
     require!(
         clock.unix_timestamp >= unlock_time,
-        TribunalCraftError::StakeStillLocked
+        ScaleCraftError::StakeStillLocked
     );
 
     // Return stake to juror pool
@@ -515,7 +515,7 @@ pub fn close_defender_record(ctx: Context<CloseDefenderRecord>, round: u32) -> R
     let round_result = escrow.find_round(round);
     let can_close = defender_record.reward_claimed || round_result.is_none();
 
-    require!(can_close, TribunalCraftError::ClaimsNotComplete);
+    require!(can_close, ScaleCraftError::ClaimsNotComplete);
 
     emit!(RecordClosedEvent {
         subject_id: ctx.accounts.subject.subject_id,
@@ -568,7 +568,7 @@ pub fn close_challenger_record(ctx: Context<CloseChallengerRecord>, round: u32) 
     let round_result = escrow.find_round(round);
     let can_close = challenger_record.reward_claimed || round_result.is_none();
 
-    require!(can_close, TribunalCraftError::ClaimsNotComplete);
+    require!(can_close, ScaleCraftError::ClaimsNotComplete);
 
     emit!(RecordClosedEvent {
         subject_id: ctx.accounts.subject.subject_id,
@@ -621,7 +621,7 @@ pub fn close_juror_record(ctx: Context<CloseJurorRecord>, round: u32) -> Result<
     let round_result = escrow.find_round(round);
     let can_close = juror_record.reward_claimed || round_result.is_none();
 
-    require!(can_close, TribunalCraftError::ClaimsNotComplete);
+    require!(can_close, ScaleCraftError::ClaimsNotComplete);
 
     emit!(RecordClosedEvent {
         subject_id: ctx.accounts.subject.subject_id,
@@ -669,7 +669,7 @@ pub fn sweep_round_creator(ctx: Context<SweepRoundCreator>, round: u32) -> Resul
 
     // Find round result and extract needed data
     let round_idx = escrow.rounds.iter().position(|r| r.round == round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     let round_creator = escrow.rounds[round_idx].creator;
     let resolved_at = escrow.rounds[round_idx].resolved_at;
@@ -677,13 +677,13 @@ pub fn sweep_round_creator(ctx: Context<SweepRoundCreator>, round: u32) -> Resul
     // Only creator can sweep (30-90 days)
     require!(
         ctx.accounts.creator.key() == round_creator,
-        TribunalCraftError::Unauthorized
+        ScaleCraftError::Unauthorized
     );
 
     let elapsed = clock.unix_timestamp - resolved_at;
     require!(
         elapsed >= CLAIM_GRACE_PERIOD && elapsed < TREASURY_SWEEP_PERIOD,
-        TribunalCraftError::InvalidConfig
+        ScaleCraftError::InvalidConfig
     );
 
     // Calculate unclaimed
@@ -748,7 +748,7 @@ pub struct SweepRoundTreasury<'info> {
     /// CHECK: Validated against protocol_config.treasury
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+        constraint = treasury.key() == protocol_config.treasury @ ScaleCraftError::InvalidConfig
     )]
     pub treasury: AccountInfo<'info>,
 
@@ -761,7 +761,7 @@ pub fn sweep_round_treasury(ctx: Context<SweepRoundTreasury>, round: u32) -> Res
 
     // Find round result and extract needed data
     let round_idx = escrow.rounds.iter().position(|r| r.round == round)
-        .ok_or(TribunalCraftError::DisputeNotFound)?;
+        .ok_or(ScaleCraftError::DisputeNotFound)?;
 
     let resolved_at = escrow.rounds[round_idx].resolved_at;
 
@@ -769,7 +769,7 @@ pub fn sweep_round_treasury(ctx: Context<SweepRoundTreasury>, round: u32) -> Res
     let elapsed = clock.unix_timestamp - resolved_at;
     require!(
         elapsed >= TREASURY_SWEEP_PERIOD,
-        TribunalCraftError::InvalidConfig
+        ScaleCraftError::InvalidConfig
     );
 
     // Calculate unclaimed

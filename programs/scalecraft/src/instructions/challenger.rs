@@ -5,7 +5,7 @@ use crate::constants::{
     CHALLENGER_POOL_SEED, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED,
     PROTOCOL_CONFIG_SEED, INITIAL_REPUTATION, SLASH_THRESHOLD,
 };
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{DisputeCreatedEvent, ChallengerJoinedEvent, PoolDepositEvent, PoolWithdrawEvent, PoolType, BondAddedEvent, SubjectStatusChangedEvent};
 
 /// Create a dispute against a subject
@@ -21,7 +21,7 @@ pub struct CreateDispute<'info> {
         mut,
         seeds = [SUBJECT_SEED, subject.subject_id.as_ref()],
         bump = subject.bump,
-        constraint = subject.can_dispute() @ TribunalCraftError::SubjectCannotBeDisputed,
+        constraint = subject.can_dispute() @ ScaleCraftError::SubjectCannotBeDisputed,
     )]
     pub subject: Account<'info, Subject>,
 
@@ -29,7 +29,7 @@ pub struct CreateDispute<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::None @ TribunalCraftError::DisputeAlreadyExists,
+        constraint = dispute.status == DisputeStatus::None @ ScaleCraftError::DisputeAlreadyExists,
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -133,7 +133,7 @@ pub fn create_dispute(
         challenger_pool.created_at = clock.unix_timestamp;
     }
 
-    require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(stake > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Auto-pull from creator's defender pool if available_bond == 0
     // This handles both fresh subjects and pool-backed defenders (where bond wasn't transferred yet)
@@ -228,7 +228,7 @@ pub fn create_dispute(
     if subject.match_mode {
         require!(
             stake <= subject.available_bond,
-            TribunalCraftError::InsufficientAvailableStake
+            ScaleCraftError::InsufficientAvailableStake
         );
     }
 
@@ -405,7 +405,7 @@ pub struct JoinChallengers<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
+        constraint = dispute.status == DisputeStatus::Pending @ ScaleCraftError::DisputeAlreadyResolved,
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -456,15 +456,15 @@ pub fn join_challengers(
         challenger_pool.created_at = clock.unix_timestamp;
     }
 
-    require!(stake > 0, TribunalCraftError::StakeBelowMinimum);
-    require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
+    require!(stake > 0, ScaleCraftError::StakeBelowMinimum);
+    require!(!dispute.is_voting_ended(clock.unix_timestamp), ScaleCraftError::VotingEnded);
 
     // In match mode, total stake cannot exceed available_bond
     if subject.match_mode {
         let new_total = dispute.total_stake.saturating_add(stake);
         require!(
             new_total <= subject.available_bond,
-            TribunalCraftError::InsufficientAvailableStake
+            ScaleCraftError::InsufficientAvailableStake
         );
     }
 
@@ -585,7 +585,7 @@ pub struct AddChallengerStake<'info> {
 
     #[account(
         mut,
-        constraint = challenger_pool.owner == challenger.key() @ TribunalCraftError::Unauthorized,
+        constraint = challenger_pool.owner == challenger.key() @ ScaleCraftError::Unauthorized,
         seeds = [CHALLENGER_POOL_SEED, challenger.key().as_ref()],
         bump = challenger_pool.bump
     )]
@@ -598,7 +598,7 @@ pub fn add_challenger_stake(ctx: Context<AddChallengerStake>, amount: u64) -> Re
     let challenger_pool = &mut ctx.accounts.challenger_pool;
     let clock = Clock::get()?;
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(amount > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Transfer SOL
     let cpi_context = CpiContext::new(
@@ -632,7 +632,7 @@ pub struct WithdrawChallengerStake<'info> {
 
     #[account(
         mut,
-        constraint = challenger_pool.owner == challenger.key() @ TribunalCraftError::Unauthorized,
+        constraint = challenger_pool.owner == challenger.key() @ ScaleCraftError::Unauthorized,
         seeds = [CHALLENGER_POOL_SEED, challenger.key().as_ref()],
         bump = challenger_pool.bump
     )]
@@ -649,7 +649,7 @@ pub struct WithdrawChallengerStake<'info> {
     /// CHECK: Validated against protocol_config.treasury
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+        constraint = treasury.key() == protocol_config.treasury @ ScaleCraftError::InvalidConfig
     )]
     pub treasury: AccountInfo<'info>,
 
@@ -660,8 +660,8 @@ pub fn withdraw_challenger_stake(ctx: Context<WithdrawChallengerStake>, amount: 
     let challenger_pool = &mut ctx.accounts.challenger_pool;
     let clock = Clock::get()?;
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
-    require!(challenger_pool.balance >= amount, TribunalCraftError::InsufficientAvailableStake);
+    require!(amount > 0, ScaleCraftError::StakeBelowMinimum);
+    require!(challenger_pool.balance >= amount, ScaleCraftError::InsufficientAvailableStake);
 
     // Calculate withdrawal with reputation-based slashing
     let (return_amount, slash_amount) = calculate_withdrawal(challenger_pool.reputation, amount, SLASH_THRESHOLD);

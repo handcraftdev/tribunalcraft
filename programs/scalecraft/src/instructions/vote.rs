@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::{JUROR_RECORD_SEED, JUROR_POOL_SEED, SUBJECT_SEED, DISPUTE_SEED};
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{VoteEvent, RestoreVoteEvent, AddToVoteEvent};
 
 /// Vote on a dispute
@@ -12,7 +12,7 @@ pub struct VoteOnDispute<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump
     )]
@@ -28,8 +28,8 @@ pub struct VoteOnDispute<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
-        constraint = !dispute.is_restore @ TribunalCraftError::InvalidConfig, // Use vote_on_restore for restorations
+        constraint = dispute.status == DisputeStatus::Pending @ ScaleCraftError::DisputeAlreadyResolved,
+        constraint = !dispute.is_restore @ ScaleCraftError::InvalidConfig, // Use vote_on_restore for restorations
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -56,16 +56,16 @@ pub fn vote_on_dispute(
     stake_allocation: u64,
     rationale_cid: String,
 ) -> Result<()> {
-    require!(rationale_cid.len() <= JurorRecord::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+    require!(rationale_cid.len() <= JurorRecord::MAX_CID_LEN, ScaleCraftError::InvalidConfig);
     let juror_pool = &mut ctx.accounts.juror_pool;
     let subject = &ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
     let juror_record = &mut ctx.accounts.juror_record;
     let clock = Clock::get()?;
 
-    require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
-    require!(stake_allocation > 0, TribunalCraftError::VoteAllocationBelowMinimum);
-    require!(stake_allocation <= juror_pool.balance, TribunalCraftError::InsufficientAvailableStake);
+    require!(!dispute.is_voting_ended(clock.unix_timestamp), ScaleCraftError::VotingEnded);
+    require!(stake_allocation > 0, ScaleCraftError::VoteAllocationBelowMinimum);
+    require!(stake_allocation <= juror_pool.balance, ScaleCraftError::InsufficientAvailableStake);
 
     // Calculate voting power using juror pool reputation
     let voting_power = juror_pool.calculate_voting_power(stake_allocation);
@@ -121,7 +121,7 @@ pub struct VoteOnRestore<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump
     )]
@@ -137,8 +137,8 @@ pub struct VoteOnRestore<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
-        constraint = dispute.is_restore @ TribunalCraftError::InvalidConfig, // Must be a restoration
+        constraint = dispute.status == DisputeStatus::Pending @ ScaleCraftError::DisputeAlreadyResolved,
+        constraint = dispute.is_restore @ ScaleCraftError::InvalidConfig, // Must be a restoration
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -165,16 +165,16 @@ pub fn vote_on_restore(
     stake_allocation: u64,
     rationale_cid: String,
 ) -> Result<()> {
-    require!(rationale_cid.len() <= JurorRecord::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+    require!(rationale_cid.len() <= JurorRecord::MAX_CID_LEN, ScaleCraftError::InvalidConfig);
     let juror_pool = &mut ctx.accounts.juror_pool;
     let subject = &ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
     let juror_record = &mut ctx.accounts.juror_record;
     let clock = Clock::get()?;
 
-    require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
-    require!(stake_allocation > 0, TribunalCraftError::VoteAllocationBelowMinimum);
-    require!(stake_allocation <= juror_pool.balance, TribunalCraftError::InsufficientAvailableStake);
+    require!(!dispute.is_voting_ended(clock.unix_timestamp), ScaleCraftError::VotingEnded);
+    require!(stake_allocation > 0, ScaleCraftError::VoteAllocationBelowMinimum);
+    require!(stake_allocation <= juror_pool.balance, ScaleCraftError::InsufficientAvailableStake);
 
     // Calculate voting power
     let voting_power = juror_pool.calculate_voting_power(stake_allocation);
@@ -233,7 +233,7 @@ pub struct AddToVote<'info> {
 
     #[account(
         mut,
-        constraint = juror_pool.owner == juror.key() @ TribunalCraftError::Unauthorized,
+        constraint = juror_pool.owner == juror.key() @ ScaleCraftError::Unauthorized,
         seeds = [JUROR_POOL_SEED, juror.key().as_ref()],
         bump = juror_pool.bump
     )]
@@ -249,7 +249,7 @@ pub struct AddToVote<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
+        constraint = dispute.status == DisputeStatus::Pending @ ScaleCraftError::DisputeAlreadyResolved,
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -262,8 +262,8 @@ pub struct AddToVote<'info> {
             &round.to_le_bytes()
         ],
         bump = juror_record.bump,
-        constraint = juror_record.juror == juror.key() @ TribunalCraftError::Unauthorized,
-        constraint = juror_record.round == round @ TribunalCraftError::InvalidRound,
+        constraint = juror_record.juror == juror.key() @ ScaleCraftError::Unauthorized,
+        constraint = juror_record.round == round @ ScaleCraftError::InvalidRound,
     )]
     pub juror_record: Account<'info, JurorRecord>,
 
@@ -280,9 +280,9 @@ pub fn add_to_vote(
     let juror_record = &mut ctx.accounts.juror_record;
     let clock = Clock::get()?;
 
-    require!(!dispute.is_voting_ended(clock.unix_timestamp), TribunalCraftError::VotingEnded);
-    require!(additional_stake > 0, TribunalCraftError::VoteAllocationBelowMinimum);
-    require!(additional_stake <= juror_pool.balance, TribunalCraftError::InsufficientAvailableStake);
+    require!(!dispute.is_voting_ended(clock.unix_timestamp), ScaleCraftError::VotingEnded);
+    require!(additional_stake > 0, ScaleCraftError::VoteAllocationBelowMinimum);
+    require!(additional_stake <= juror_pool.balance, ScaleCraftError::InsufficientAvailableStake);
 
     // Calculate additional voting power using current reputation
     let additional_voting_power = juror_pool.calculate_voting_power(additional_stake);

@@ -5,7 +5,7 @@ use crate::constants::{
     DEFENDER_RECORD_SEED,
     TOTAL_FEE_BPS, JUROR_SHARE_BPS, PLATFORM_SHARE_BPS,
 };
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{DisputeResolvedEvent, BondAddedEvent};
 
 /// Resolve a dispute after voting ends
@@ -26,7 +26,7 @@ pub struct ResolveDispute<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Pending @ TribunalCraftError::DisputeAlreadyResolved,
+        constraint = dispute.status == DisputeStatus::Pending @ ScaleCraftError::DisputeAlreadyResolved,
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -48,7 +48,7 @@ pub struct ResolveDispute<'info> {
     /// CHECK: Validated against protocol_config.treasury
     #[account(
         mut,
-        constraint = treasury.key() == protocol_config.treasury @ TribunalCraftError::InvalidConfig
+        constraint = treasury.key() == protocol_config.treasury @ ScaleCraftError::InvalidConfig
     )]
     pub treasury: AccountInfo<'info>,
 
@@ -83,7 +83,7 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>, next_round: u32) -> Result<
     // Validate next_round matches expected value
     require!(
         next_round == subject.round + 1,
-        TribunalCraftError::InvalidConfig
+        ScaleCraftError::InvalidConfig
     );
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
@@ -91,7 +91,7 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>, next_round: u32) -> Result<
     // Ensure voting has ended
     require!(
         dispute.is_voting_ended(clock.unix_timestamp),
-        TribunalCraftError::VotingNotEnded
+        ScaleCraftError::VotingNotEnded
     );
 
     // Determine outcome
@@ -201,7 +201,7 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>, next_round: u32) -> Result<
                 subject.status = SubjectStatus::Invalid;
             }
             ResolutionOutcome::None => {
-                return Err(TribunalCraftError::InvalidConfig.into());
+                return Err(ScaleCraftError::InvalidConfig.into());
             }
         }
     } else {
@@ -232,7 +232,7 @@ pub fn resolve_dispute(ctx: Context<ResolveDispute>, next_round: u32) -> Result<
                 )?;
             }
             ResolutionOutcome::None => {
-                return Err(TribunalCraftError::InvalidConfig.into());
+                return Err(ScaleCraftError::InvalidConfig.into());
             }
         }
     }

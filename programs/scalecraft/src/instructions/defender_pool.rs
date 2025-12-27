@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::DEFENDER_POOL_SEED;
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::{PoolDepositEvent, PoolWithdrawEvent, PoolType};
 
 /// Create a defender pool
@@ -67,7 +67,7 @@ pub struct StakePool<'info> {
 
     #[account(
         mut,
-        constraint = defender_pool.owner == owner.key() @ TribunalCraftError::Unauthorized,
+        constraint = defender_pool.owner == owner.key() @ ScaleCraftError::Unauthorized,
         seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
         bump = defender_pool.bump
     )]
@@ -80,7 +80,7 @@ pub fn stake_pool(ctx: Context<StakePool>, amount: u64) -> Result<()> {
     let defender_pool = &mut ctx.accounts.defender_pool;
     let clock = Clock::get()?;
 
-    require!(amount > 0, TribunalCraftError::StakeBelowMinimum);
+    require!(amount > 0, ScaleCraftError::StakeBelowMinimum);
 
     // Transfer to pool
     let cpi_context = CpiContext::new(
@@ -115,7 +115,7 @@ pub struct WithdrawPool<'info> {
 
     #[account(
         mut,
-        constraint = defender_pool.owner == owner.key() @ TribunalCraftError::Unauthorized,
+        constraint = defender_pool.owner == owner.key() @ ScaleCraftError::Unauthorized,
         seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
         bump = defender_pool.bump
     )]
@@ -128,7 +128,7 @@ pub fn withdraw_pool(ctx: Context<WithdrawPool>, amount: u64) -> Result<()> {
     let defender_pool = &mut ctx.accounts.defender_pool;
     let clock = Clock::get()?;
 
-    require!(amount <= defender_pool.balance, TribunalCraftError::InsufficientAvailableStake);
+    require!(amount <= defender_pool.balance, ScaleCraftError::InsufficientAvailableStake);
 
     // Transfer from pool to owner
     **defender_pool.to_account_info().try_borrow_mut_lamports()? -= amount;
@@ -158,7 +158,7 @@ pub struct UpdateMaxBond<'info> {
 
     #[account(
         mut,
-        constraint = defender_pool.owner == owner.key() @ TribunalCraftError::Unauthorized,
+        constraint = defender_pool.owner == owner.key() @ ScaleCraftError::Unauthorized,
         seeds = [DEFENDER_POOL_SEED, owner.key().as_ref()],
         bump = defender_pool.bump
     )]

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 
 /// Juror's pool for holding voting stake
 /// Seeds: [JUROR_POOL_SEED, owner]
@@ -38,7 +38,7 @@ impl JurorPool {
 
     /// Withdraw SOL from balance
     pub fn withdraw(&mut self, amount: u64) -> Result<()> {
-        require!(self.balance >= amount, TribunalCraftError::InsufficientAvailableStake);
+        require!(self.balance >= amount, ScaleCraftError::InsufficientAvailableStake);
         self.balance = self.balance.saturating_sub(amount);
         Ok(())
     }

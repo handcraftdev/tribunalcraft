@@ -3,7 +3,7 @@ use crate::state::*;
 use crate::constants::{
     SUBJECT_SEED, DISPUTE_SEED, ESCROW_SEED, CHALLENGER_RECORD_SEED,
 };
-use crate::errors::TribunalCraftError;
+use crate::errors::ScaleCraftError;
 use crate::events::RestoreSubmittedEvent;
 
 /// Submit a restoration request for an invalidated subject
@@ -19,7 +19,7 @@ pub struct SubmitRestore<'info> {
         mut,
         seeds = [SUBJECT_SEED, subject.subject_id.as_ref()],
         bump = subject.bump,
-        constraint = subject.can_restore() @ TribunalCraftError::SubjectCannotBeRestored,
+        constraint = subject.can_restore() @ ScaleCraftError::SubjectCannotBeRestored,
     )]
     pub subject: Account<'info, Subject>,
 
@@ -27,7 +27,7 @@ pub struct SubmitRestore<'info> {
         mut,
         seeds = [DISPUTE_SEED, subject.subject_id.as_ref()],
         bump = dispute.bump,
-        constraint = dispute.status == DisputeStatus::Resolved @ TribunalCraftError::DisputeAlreadyExists,
+        constraint = dispute.status == DisputeStatus::Resolved @ ScaleCraftError::DisputeAlreadyExists,
     )]
     pub dispute: Account<'info, Dispute>,
 
@@ -62,7 +62,7 @@ pub fn submit_restore(
     details_cid: String,
     stake_amount: u64,
 ) -> Result<()> {
-    require!(details_cid.len() <= Dispute::MAX_CID_LEN, TribunalCraftError::InvalidConfig);
+    require!(details_cid.len() <= Dispute::MAX_CID_LEN, ScaleCraftError::InvalidConfig);
 
     let subject = &mut ctx.accounts.subject;
     let dispute = &mut ctx.accounts.dispute;
@@ -73,7 +73,7 @@ pub fn submit_restore(
     // Validate stake meets minimum requirement (previous dispute's stake + bond)
     require!(
         stake_amount >= subject.min_restore_stake(),
-        TribunalCraftError::RestoreStakeBelowMinimum
+        ScaleCraftError::RestoreStakeBelowMinimum
     );
 
     // Transfer full stake to subject PDA (fees taken during resolution)
