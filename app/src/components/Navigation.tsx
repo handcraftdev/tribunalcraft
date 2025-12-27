@@ -47,7 +47,7 @@ export const Navigation = () => {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group">
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
-              <ScaleIcon size={18} className="text-gold" />
+              <ScaleIcon className="w-4 h-4 text-gold" />
             </div>
             <span className="font-display text-lg text-ivory hidden sm:block">ScaleCraft</span>
           </Link>

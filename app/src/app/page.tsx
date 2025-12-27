@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { ScaleIcon } from "@/components/Icons";
 
 // ============================================
 // ANIMATED COMPONENTS
@@ -137,15 +138,6 @@ const LockIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </svg>
-);
-
-const ScaleIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
-    <path d="M12 3v18" />
-    <path d="M3 7h18" />
-    <path d="M5 7l2 8h-4l2-8" />
-    <path d="M17 7l2 8h-4l2-8" />
   </svg>
 );
 
