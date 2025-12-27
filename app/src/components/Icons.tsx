@@ -93,3 +93,18 @@ export const MoonIcon = () => (
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
   </svg>
 );
+
+export const ScaleIcon = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    {/* Center pillar */}
+    <line x1="12" y1="3" x2="12" y2="21" />
+    {/* Base */}
+    <line x1="8" y1="21" x2="16" y2="21" />
+    {/* Balance beam */}
+    <line x1="3" y1="7" x2="21" y2="7" />
+    {/* Left pan */}
+    <path d="M3 7l2 8h4l2-8" />
+    {/* Right pan */}
+    <path d="M13 7l2 8h4l2-8" />
+  </svg>
+);

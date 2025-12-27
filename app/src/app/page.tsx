@@ -212,7 +212,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 group">
             <div className="w-8 h-8 border border-gold/50 flex items-center justify-center group-hover:border-gold transition-colors">
-              <span className="font-display text-gold text-sm font-semibold">T</span>
+              <ScaleIcon className="w-4 h-4 text-gold" />
             </div>
             <span className="font-display text-lg text-ivory hidden sm:block">ScaleCraft</span>
           </Link>
@@ -671,7 +671,7 @@ export default function LandingPage() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-6 h-6 border border-gold/50 flex items-center justify-center">
-                  <span className="font-display text-gold text-xs">T</span>
+                  <ScaleIcon className="w-3 h-3 text-gold" />
                 </div>
                 <span className="font-display text-ivory">ScaleCraft</span>
               </div>
