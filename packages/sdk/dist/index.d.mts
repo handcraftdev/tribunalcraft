@@ -2,7 +2,7 @@ import { PublicKey, Connection, Transaction, VersionedTransaction } from '@solan
 import { BN, Wallet, Program, EventParser } from '@coral-xyz/anchor';
 
 /**
- * PDA derivation helpers for TribunalCraft accounts
+ * PDA derivation helpers for ScaleCraft accounts
  * Updated for V2 round-based design
  */
 declare class PDA {
@@ -68,10 +68,10 @@ declare const pda: PDA;
  * Note that this is only a type helper and is not the actual IDL. The original
  * IDL can be found at `target/idl/tribunalcraft.json`.
  */
-type Tribunalcraft = {
+type Scalecraft = {
     "address": "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz";
     "metadata": {
-        "name": "tribunalcraft";
+        "name": "scalecraft";
         "version": "0.1.0";
         "spec": "0.1.0";
         "description": "Decentralized arbitration protocol";
@@ -6116,7 +6116,7 @@ interface SimulationResult$1 {
     logs?: string[];
     unitsConsumed?: number;
 }
-interface TribunalCraftClientConfig {
+interface ScaleCraftClientConfig {
     connection: Connection;
     wallet?: Wallet;
     programId?: PublicKey;
@@ -6128,33 +6128,33 @@ interface TransactionResult {
     accounts?: Record<string, PublicKey>;
 }
 /**
- * TribunalCraft SDK Client
+ * ScaleCraft SDK Client
  *
- * Framework-agnostic client for interacting with the TribunalCraft Solana program.
+ * Framework-agnostic client for interacting with the ScaleCraft Solana program.
  * Can be used in Node.js, browser, React, Vue, or any JavaScript/TypeScript environment.
  *
  * @example
  * ```ts
- * import { TribunalCraftClient } from "@tribunalcraft/sdk";
+ * import { ScaleCraftClient } from "@scalecraft/sdk";
  * import { Connection, Keypair } from "@solana/web3.js";
  *
  * const connection = new Connection("https://api.devnet.solana.com");
  * const wallet = new Wallet(keypair);
- * const client = new TribunalCraftClient({ connection, wallet });
+ * const client = new ScaleCraftClient({ connection, wallet });
  *
  * // Register as a juror
  * const result = await client.registerJuror(new BN(100_000_000));
  * console.log("Signature:", result.signature);
  * ```
  */
-declare class TribunalCraftClient {
+declare class ScaleCraftClient {
     readonly connection: Connection;
     readonly programId: PublicKey;
     readonly pda: PDA;
     simulateFirst: boolean;
     private wallet;
     private anchorProgram;
-    constructor(config: TribunalCraftClientConfig);
+    constructor(config: ScaleCraftClientConfig);
     private initProgram;
     /**
      * Set or update the wallet
@@ -6167,7 +6167,7 @@ declare class TribunalCraftClient {
     /**
      * Get the Anchor program instance (for advanced usage)
      */
-    get program(): Program<Tribunalcraft> | null;
+    get program(): Program<Scalecraft> | null;
     /**
      * Get wallet and program, throwing if not connected
      */
@@ -6681,7 +6681,7 @@ declare class TribunalCraftClient {
      */
     private static readonly INSTRUCTION_DISCRIMINATORS;
     /**
-     * Fetch transaction history for a user and parse TribunalCraft activity
+     * Fetch transaction history for a user and parse ScaleCraft activity
      * This allows showing historical activity even for closed records
      */
     fetchUserActivity(user: PublicKey, options?: {
@@ -6729,7 +6729,7 @@ declare class TribunalCraftClient {
     /**
      * Extract dispute and subject pubkeys from transaction accounts
      *
-     * Account layout for most TribunalCraft instructions:
+     * Account layout for most ScaleCraft instructions:
      * [0] signer (user)
      * [1] user's main account (juror_account, challenger_account, etc.)
      * [2] dispute PDA
@@ -6742,6 +6742,46 @@ declare class TribunalCraftClient {
      * Extract balance changes for the user from transaction
      */
     private extractBalanceChanges;
+    /**
+     * Account types that can be batch fetched
+     */
+    static readonly ACCOUNT_TYPES: readonly ["dispute", "escrow", "jurorRecord", "challengerRecord", "defenderRecord", "jurorPool", "challengerPool", "defenderPool", "subject"];
+    /**
+     * Batch fetch multiple accounts in a single RPC call
+     *
+     * @example
+     * ```ts
+     * const results = await client.fetchMultiple([
+     *   { address: disputePda, type: "dispute" },
+     *   { address: escrowPda, type: "escrow" },
+     *   { address: jurorRecordPda, type: "jurorRecord" },
+     * ]);
+     * // results[0] is Dispute | null
+     * // results[1] is Escrow | null
+     * // results[2] is JurorRecord | null
+     * ```
+     */
+    fetchMultiple<T extends {
+        address: PublicKey;
+        type: string;
+    }[]>(requests: T): Promise<Array<any | null>>;
+    /**
+     * Batch fetch for modal - fetches all required data in minimal RPC calls
+     *
+     * This is optimized for the SubjectModal use case where we need:
+     * - Dispute (current round)
+     * - Escrow
+     * - User's records (juror, challenger, defender) for current round
+     *
+     * @returns Object with all fetched data, nulls for missing accounts
+     */
+    fetchModalData(subjectId: PublicKey, disputeRound: number, userPubkey?: PublicKey | null): Promise<{
+        dispute: Dispute | null;
+        escrow: Escrow | null;
+        jurorRecord: JurorRecord | null;
+        challengerRecord: ChallengerRecord | null;
+        defenderRecord: DefenderRecord | null;
+    }>;
 }
 
 declare const PROGRAM_ID: PublicKey;
@@ -6958,7 +6998,7 @@ interface DisputeResolvedEvent {
     timestamp: number;
 }
 /** Union of all parsed events */
-type TribunalEvent = {
+type ScaleCraftEvent = {
     type: "RewardClaimed";
     data: RewardClaimedEvent;
 } | {
@@ -6972,13 +7012,13 @@ type TribunalEvent = {
     data: DisputeResolvedEvent;
 };
 /**
- * Create an event parser for TribunalCraft events
+ * Create an event parser for ScaleCraft events
  */
 declare function createEventParser(): EventParser;
 /**
  * Parse events from transaction logs
  */
-declare function parseEventsFromLogs(logs: string[]): TribunalEvent[];
+declare function parseEventsFromLogs(logs: string[]): ScaleCraftEvent[];
 /**
  * Fetch claim history for a user from transaction signatures
  * Returns all RewardClaimedEvents for the given claimer
@@ -7006,7 +7046,7 @@ declare function getClaimSummaryFromHistory(connection: Connection, claimer: Pub
 /**
  * Parse events from a single transaction
  */
-declare function parseEventsFromTransaction(connection: Connection, signature: string): Promise<TribunalEvent[]>;
+declare function parseEventsFromTransaction(connection: Connection, signature: string): Promise<ScaleCraftEvent[]>;
 
 interface TransactionError {
     code: number | null;
@@ -7036,7 +7076,7 @@ declare function simulateTransaction(connection: Connection, transaction: Transa
 /**
  * Custom error class with parsed error info
  */
-declare class TribunalError extends Error {
+declare class ScaleCraftError extends Error {
     code: number | null;
     errorName: string;
     raw?: string;
@@ -7044,7 +7084,7 @@ declare class TribunalError extends Error {
     constructor(error: TransactionError);
 }
 /**
- * Wrap a function that may throw and convert errors to TribunalError
+ * Wrap a function that may throw and convert errors to ScaleCraftError
  */
 declare function withErrorHandling<T>(fn: () => Promise<T>): Promise<T>;
 /**
@@ -7071,7 +7111,7 @@ declare function getErrorByName(name: string): {
 } | undefined;
 
 /**
- * TribunalCraft Content Types
+ * ScaleCraft Content Types
  *
  * These types define the JSON structure stored at CIDs on IPFS.
  * The protocol only stores CIDs - content interpretation is platform-specific.
@@ -7174,7 +7214,7 @@ declare function validateVoteRationaleContent(content: unknown): content is Vote
 
 var address = "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz";
 var metadata = {
-	name: "tribunalcraft",
+	name: "scalecraft",
 	version: "0.1.0",
 	spec: "0.1.0",
 	description: "Decentralized arbitration protocol"
@@ -12983,4 +13023,4 @@ var idl = {
 	types: types
 };
 
-export { BASE_CHALLENGER_BOND, BOT_REWARD_BPS, type BondSource, BondSourceEnum, CHALLENGER_POOL_SEED, CHALLENGER_RECORD_SEED, CLAIM_GRACE_PERIOD, type ChallengerPool, type ChallengerRecord, type ChallengerRecordInput, type ChallengerRewardBreakdown, type ClaimRole, type ContentDisputeType, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type DefenderRecordInput, type DefenderRewardBreakdown, type Dispute, type DisputeContent, type DisputeResolvedEvent, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, ESCROW_SEED, type SimulationResult as ErrorSimulationResult, type Escrow, type Evidence, idl as IDL, INITIAL_REPUTATION, JUROR_POOL_SEED, JUROR_RECORD_SEED, JUROR_SHARE_BPS, type JurorPool, type JurorRecord, type JurorRecordInput, type JurorRewardBreakdown, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type Party, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT, REP_PRECISION, type RecordClosedEvent, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, type RewardClaimedEvent, type RoundResult, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, type SimulationResult$1 as SimulationResult, type StakeUnlockedEvent, type Subject, type SubjectCategory, type SubjectContent, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, TREASURY_SWEEP_PERIOD, type TransactionError, type TransactionResult, TribunalCraftClient, type TribunalCraftClientConfig, TribunalError, type TribunalEvent, type Tribunalcraft, type UserActivity, type UserRewardSummary, type VoteChoice, VoteChoiceEnum, type VoteRationaleContent, WINNER_SHARE_BPS, calculateChallengerReward, calculateDefenderReward, calculateJurorReward, calculateMinBond, calculateUserRewards, createDisputeContent, createEventParser, createSubjectContent, createVoteRationaleContent, fetchClaimHistory, fetchClaimHistoryForSubject, formatReputation, getBondSourceName, getClaimSummaryFromHistory, getDisputeTypeName, getErrorByCode, getErrorByName, getOutcomeName, getProgramErrors, integerSqrt, isChallengerRewardClaimable, isChallengerWins, isDefenderRewardClaimable, isDefenderWins, isDisputeNone, isDisputePending, isDisputeResolved, isJurorRewardClaimable, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, lamportsToSol, parseEventsFromLogs, parseEventsFromTransaction, parseSimulationError, parseTransactionError, pda, simulateTransaction, validateDisputeContent, validateSubjectContent, validateVoteRationaleContent, withErrorHandling };
+export { BASE_CHALLENGER_BOND, BOT_REWARD_BPS, type BondSource, BondSourceEnum, CHALLENGER_POOL_SEED, CHALLENGER_RECORD_SEED, CLAIM_GRACE_PERIOD, type ChallengerPool, type ChallengerRecord, type ChallengerRecordInput, type ChallengerRewardBreakdown, type ClaimRole, type ContentDisputeType, DEFENDER_POOL_SEED, DEFENDER_RECORD_SEED, DISPUTE_SEED, type DefenderPool, type DefenderRecord, type DefenderRecordInput, type DefenderRewardBreakdown, type Dispute, type DisputeContent, type DisputeResolvedEvent, type DisputeStatus, DisputeStatusEnum, type DisputeType, DisputeTypeEnum, ESCROW_SEED, type SimulationResult as ErrorSimulationResult, type Escrow, type Evidence, idl as IDL, INITIAL_REPUTATION, JUROR_POOL_SEED, JUROR_RECORD_SEED, JUROR_SHARE_BPS, type JurorPool, type JurorRecord, type JurorRecordInput, type JurorRewardBreakdown, MAX_VOTING_PERIOD, MIN_CHALLENGER_BOND, MIN_DEFENDER_STAKE, MIN_JUROR_STAKE, MIN_VOTING_PERIOD, PDA, PLATFORM_SHARE_BPS, PROGRAM_ID, PROTOCOL_CONFIG_SEED, type Party, type ProtocolConfig, REPUTATION_GAIN_RATE, REPUTATION_LOSS_RATE, REP_100_PERCENT, REP_PRECISION, type RecordClosedEvent, type ResolutionOutcome, ResolutionOutcomeEnum, type RestoreVoteChoice, RestoreVoteChoiceEnum, type RewardClaimedEvent, type RoundResult, STAKE_UNLOCK_BUFFER, SUBJECT_SEED, ScaleCraftClient, type ScaleCraftClientConfig, ScaleCraftError, type ScaleCraftEvent, type Scalecraft, type SimulationResult$1 as SimulationResult, type StakeUnlockedEvent, type Subject, type SubjectCategory, type SubjectContent, type SubjectStatus, SubjectStatusEnum, TOTAL_FEE_BPS, TREASURY_SWEEP_PERIOD, type TransactionError, type TransactionResult, type UserActivity, type UserRewardSummary, type VoteChoice, VoteChoiceEnum, type VoteRationaleContent, WINNER_SHARE_BPS, calculateChallengerReward, calculateDefenderReward, calculateJurorReward, calculateMinBond, calculateUserRewards, createDisputeContent, createEventParser, createSubjectContent, createVoteRationaleContent, fetchClaimHistory, fetchClaimHistoryForSubject, formatReputation, getBondSourceName, getClaimSummaryFromHistory, getDisputeTypeName, getErrorByCode, getErrorByName, getOutcomeName, getProgramErrors, integerSqrt, isChallengerRewardClaimable, isChallengerWins, isDefenderRewardClaimable, isDefenderWins, isDisputeNone, isDisputePending, isDisputeResolved, isJurorRewardClaimable, isNoParticipation, isSubjectDisputed, isSubjectDormant, isSubjectInvalid, isSubjectRestoring, isSubjectValid, lamportsToSol, parseEventsFromLogs, parseEventsFromTransaction, parseSimulationError, parseTransactionError, pda, simulateTransaction, validateDisputeContent, validateSubjectContent, validateVoteRationaleContent, withErrorHandling };

@@ -4,10 +4,10 @@
  * Note that this is only a type helper and is not the actual IDL. The original
  * IDL can be found at `target/idl/tribunalcraft.json`.
  */
-export type Tribunalcraft = {
+export type Scalecraft = {
   "address": "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz",
   "metadata": {
-    "name": "tribunalcraft",
+    "name": "scalecraft",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Decentralized arbitration protocol"

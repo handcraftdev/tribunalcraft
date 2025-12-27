@@ -54,11 +54,11 @@ __export(index_exports, {
   RestoreVoteChoiceEnum: () => RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER: () => STAKE_UNLOCK_BUFFER,
   SUBJECT_SEED: () => SUBJECT_SEED,
+  ScaleCraftClient: () => ScaleCraftClient,
+  ScaleCraftError: () => ScaleCraftError,
   SubjectStatusEnum: () => SubjectStatusEnum,
   TOTAL_FEE_BPS: () => TOTAL_FEE_BPS,
   TREASURY_SWEEP_PERIOD: () => TREASURY_SWEEP_PERIOD,
-  TribunalCraftClient: () => TribunalCraftClient,
-  TribunalError: () => TribunalError,
   VoteChoiceEnum: () => VoteChoiceEnum,
   WINNER_SHARE_BPS: () => WINNER_SHARE_BPS,
   calculateChallengerReward: () => calculateChallengerReward,
@@ -304,7 +304,7 @@ var pda = new PDA();
 var idl_default = {
   address: "YxF3CEwUr5Nhk8FjzZDhKFcSHfgRHYA31Ccm3vd2Mrz",
   metadata: {
-    name: "tribunalcraft",
+    name: "scalecraft",
     version: "0.1.0",
     spec: "0.1.0",
     description: "Decentralized arbitration protocol"
@@ -6130,7 +6130,7 @@ var ERROR_CODES = {
   6022: "NotRestorer",
   6023: "RestorationFailed"
 };
-var _TribunalCraftClient = class _TribunalCraftClient {
+var _ScaleCraftClient = class _ScaleCraftClient {
   constructor(config) {
     this.connection = config.connection;
     this.programId = config.programId ?? PROGRAM_ID;
@@ -7544,7 +7544,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
     };
   }
   /**
-   * Fetch transaction history for a user and parse TribunalCraft activity
+   * Fetch transaction history for a user and parse ScaleCraft activity
    * This allows showing historical activity even for closed records
    */
   async fetchUserActivity(user, options) {
@@ -7819,7 +7819,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
    * Uses pre-computed EVENT_DISCRIMINATORS to avoid crypto dependency
    */
   matchesEventName(discriminator, eventName) {
-    const expected = _TribunalCraftClient.EVENT_DISCRIMINATORS[eventName];
+    const expected = _ScaleCraftClient.EVENT_DISCRIMINATORS[eventName];
     return expected ? discriminator === expected : false;
   }
   /**
@@ -7885,7 +7885,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
   /**
    * Extract dispute and subject pubkeys from transaction accounts
    *
-   * Account layout for most TribunalCraft instructions:
+   * Account layout for most ScaleCraft instructions:
    * [0] signer (user)
    * [1] user's main account (juror_account, challenger_account, etc.)
    * [2] dispute PDA
@@ -7988,6 +7988,74 @@ var _TribunalCraftClient = class _TribunalCraftClient {
       return { received: 0, sent: 0, rentReclaimed: 0 };
     }
   }
+  /**
+   * Batch fetch multiple accounts in a single RPC call
+   *
+   * @example
+   * ```ts
+   * const results = await client.fetchMultiple([
+   *   { address: disputePda, type: "dispute" },
+   *   { address: escrowPda, type: "escrow" },
+   *   { address: jurorRecordPda, type: "jurorRecord" },
+   * ]);
+   * // results[0] is Dispute | null
+   * // results[1] is Escrow | null
+   * // results[2] is JurorRecord | null
+   * ```
+   */
+  async fetchMultiple(requests) {
+    if (requests.length === 0) return [];
+    const addresses = requests.map((r) => r.address);
+    const accountInfos = await this.connection.getMultipleAccountsInfo(addresses);
+    return accountInfos.map((info, i) => {
+      if (!info || !info.data) return null;
+      const { type } = requests[i];
+      try {
+        const anchorName = type.charAt(0).toUpperCase() + type.slice(1);
+        return this.anchorProgram.coder.accounts.decode(anchorName, info.data);
+      } catch (err) {
+        return null;
+      }
+    });
+  }
+  /**
+   * Batch fetch for modal - fetches all required data in minimal RPC calls
+   *
+   * This is optimized for the SubjectModal use case where we need:
+   * - Dispute (current round)
+   * - Escrow
+   * - User's records (juror, challenger, defender) for current round
+   *
+   * @returns Object with all fetched data, nulls for missing accounts
+   */
+  async fetchModalData(subjectId, disputeRound, userPubkey) {
+    const [disputePda] = this.pda.dispute(subjectId);
+    const [escrowPda] = this.pda.escrow(subjectId);
+    const requests = [
+      { address: disputePda, type: "dispute" },
+      { address: escrowPda, type: "escrow" }
+    ];
+    let jurorIdx = -1, challengerIdx = -1, defenderIdx = -1;
+    if (userPubkey) {
+      jurorIdx = requests.length;
+      const [jurorPda] = this.pda.jurorRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: jurorPda, type: "jurorRecord" });
+      challengerIdx = requests.length;
+      const [challengerPda] = this.pda.challengerRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: challengerPda, type: "challengerRecord" });
+      defenderIdx = requests.length;
+      const [defenderPda] = this.pda.defenderRecord(subjectId, userPubkey, disputeRound);
+      requests.push({ address: defenderPda, type: "defenderRecord" });
+    }
+    const results = await this.fetchMultiple(requests);
+    return {
+      dispute: results[0],
+      escrow: results[1],
+      jurorRecord: jurorIdx >= 0 ? results[jurorIdx] : null,
+      challengerRecord: challengerIdx >= 0 ? results[challengerIdx] : null,
+      defenderRecord: defenderIdx >= 0 ? results[defenderIdx] : null
+    };
+  }
 };
 // ===========================================================================
 // Transaction History (for closed records)
@@ -7995,7 +8063,7 @@ var _TribunalCraftClient = class _TribunalCraftClient {
 /**
  * Activity types that can be parsed from transaction history
  */
-_TribunalCraftClient.ACTIVITY_TYPES = {
+_ScaleCraftClient.ACTIVITY_TYPES = {
   VOTE: "vote",
   CHALLENGE: "challenge",
   DEFEND: "defend",
@@ -8010,7 +8078,7 @@ _TribunalCraftClient.ACTIVITY_TYPES = {
 /**
  * Instruction discriminators (first 8 bytes of sha256("global:<instruction_name>"))
  */
-_TribunalCraftClient.INSTRUCTION_DISCRIMINATORS = {
+_ScaleCraftClient.INSTRUCTION_DISCRIMINATORS = {
   vote_on_dispute: "07d560abfc3b3717",
   vote_on_restore: "7a7b5cf0fbcdbd20",
   submit_dispute: "d40f5c9c6f3c6d3c",
@@ -8019,7 +8087,7 @@ _TribunalCraftClient.INSTRUCTION_DISCRIMINATORS = {
 };
 // Pre-computed event discriminators: sha256("event:<EventName>")[0..8]
 // These are constants and don't change, so we avoid runtime crypto usage
-_TribunalCraftClient.EVENT_DISCRIMINATORS = {
+_ScaleCraftClient.EVENT_DISCRIMINATORS = {
   VoteEvent: "c347fa697877ea86",
   RestoreVoteEvent: "36daf12c5af7d2ee",
   DisputeCreatedEvent: "59a2309e1e7491f7",
@@ -8028,7 +8096,24 @@ _TribunalCraftClient.EVENT_DISCRIMINATORS = {
   RecordClosedEvent: "7fc441d571b25037",
   DefenderStakedEvent: "03ba63387dd7d992"
 };
-var TribunalCraftClient = _TribunalCraftClient;
+// ===========================================================================
+// Batch Fetching - Single RPC call for multiple accounts
+// ===========================================================================
+/**
+ * Account types that can be batch fetched
+ */
+_ScaleCraftClient.ACCOUNT_TYPES = [
+  "dispute",
+  "escrow",
+  "jurorRecord",
+  "challengerRecord",
+  "defenderRecord",
+  "jurorPool",
+  "challengerPool",
+  "defenderPool",
+  "subject"
+];
+var ScaleCraftClient = _ScaleCraftClient;
 
 // src/types.ts
 var SubjectStatusEnum = {
@@ -8338,7 +8423,7 @@ async function fetchClaimHistory(connection, claimer, options) {
     before: options?.before
   });
   console.log("[SDK:fetchClaimHistory] Found signatures:", signatures.length);
-  let tribunalTxCount = 0;
+  let scaleTxCount = 0;
   for (const sig of signatures) {
     try {
       const tx = await connection.getParsedTransaction(sig.signature, {
@@ -8346,11 +8431,11 @@ async function fetchClaimHistory(connection, claimer, options) {
       });
       if (!tx?.meta?.logMessages) continue;
       const programIdStr = PROGRAM_ID.toString();
-      const involvesTribunal = tx.meta.logMessages.some(
+      const involvesScale = tx.meta.logMessages.some(
         (log) => log.includes(programIdStr)
       );
-      if (!involvesTribunal) continue;
-      tribunalTxCount++;
+      if (!involvesScale) continue;
+      scaleTxCount++;
       const events = parseEventsFromLogs(tx.meta.logMessages);
       if (events.length > 0) {
         console.log("[SDK:fetchClaimHistory] Tx", sig.signature.slice(0, 8), "events:", events.map((e) => e.type));
@@ -8374,7 +8459,7 @@ async function fetchClaimHistory(connection, claimer, options) {
       console.warn(`Failed to parse transaction ${sig.signature}:`, error);
     }
   }
-  console.log("[SDK:fetchClaimHistory] Tribunal txs:", tribunalTxCount, "claims found:", claims.length);
+  console.log("[SDK:fetchClaimHistory] Scale txs:", scaleTxCount, "claims found:", claims.length);
   return claims;
 }
 async function fetchClaimHistoryForSubject(connection, subjectId, escrowAddress, options) {
@@ -8871,10 +8956,10 @@ async function simulateTransaction(connection, transaction) {
     };
   }
 }
-var TribunalError = class extends Error {
+var ScaleCraftError = class extends Error {
   constructor(error) {
     super(error.message);
-    this.name = "TribunalError";
+    this.name = "ScaleCraftError";
     this.code = error.code;
     this.errorName = error.name;
     this.raw = error.raw;
@@ -8886,7 +8971,7 @@ async function withErrorHandling(fn) {
     return await fn();
   } catch (error) {
     const parsed = parseTransactionError(error);
-    throw new TribunalError(parsed);
+    throw new ScaleCraftError(parsed);
   }
 }
 function getProgramErrors() {
@@ -8978,11 +9063,11 @@ function validateVoteRationaleContent(content) {
   RestoreVoteChoiceEnum,
   STAKE_UNLOCK_BUFFER,
   SUBJECT_SEED,
+  ScaleCraftClient,
+  ScaleCraftError,
   SubjectStatusEnum,
   TOTAL_FEE_BPS,
   TREASURY_SWEEP_PERIOD,
-  TribunalCraftClient,
-  TribunalError,
   VoteChoiceEnum,
   WINNER_SHARE_BPS,
   calculateChallengerReward,

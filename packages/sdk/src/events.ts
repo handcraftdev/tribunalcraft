@@ -1,6 +1,6 @@
 import { PublicKey, Connection, ParsedTransactionWithMeta } from "@solana/web3.js";
 import { BorshCoder, EventParser, Program } from "@coral-xyz/anchor";
-import type { Tribunalcraft } from "./idl-types";
+import type { Scalecraft } from "./idl-types";
 import IDL from "./idl.json";
 import { PROGRAM_ID } from "./constants";
 
@@ -54,7 +54,7 @@ export interface DisputeResolvedEvent {
 }
 
 /** Union of all parsed events */
-export type TribunalEvent =
+export type ScaleCraftEvent =
   | { type: "RewardClaimed"; data: RewardClaimedEvent }
   | { type: "RecordClosed"; data: RecordClosedEvent }
   | { type: "StakeUnlocked"; data: StakeUnlockedEvent }
@@ -85,19 +85,19 @@ function parseOutcome(outcome: Record<string, unknown>): string {
 }
 
 /**
- * Create an event parser for TribunalCraft events
+ * Create an event parser for ScaleCraft events
  */
 export function createEventParser(): EventParser {
-  const coder = new BorshCoder(IDL as Tribunalcraft);
+  const coder = new BorshCoder(IDL as Scalecraft);
   return new EventParser(new PublicKey(PROGRAM_ID), coder);
 }
 
 /**
  * Parse events from transaction logs
  */
-export function parseEventsFromLogs(logs: string[]): TribunalEvent[] {
+export function parseEventsFromLogs(logs: string[]): ScaleCraftEvent[] {
   const parser = createEventParser();
-  const events: TribunalEvent[] = [];
+  const events: ScaleCraftEvent[] = [];
 
   for (const event of parser.parseLogs(logs)) {
     switch (event.name) {
@@ -193,7 +193,7 @@ export async function fetchClaimHistory(
   console.log("[SDK:fetchClaimHistory] Found signatures:", signatures.length);
 
   // Fetch and parse each transaction
-  let tribunalTxCount = 0;
+  let scaleTxCount = 0;
   for (const sig of signatures) {
     try {
       const tx = await connection.getParsedTransaction(sig.signature, {
@@ -204,12 +204,12 @@ export async function fetchClaimHistory(
 
       // Check if this transaction involves our program
       const programIdStr = PROGRAM_ID.toString();
-      const involvesTribunal = tx.meta.logMessages.some(
+      const involvesScale = tx.meta.logMessages.some(
         (log) => log.includes(programIdStr)
       );
-      if (!involvesTribunal) continue;
+      if (!involvesScale) continue;
 
-      tribunalTxCount++;
+      scaleTxCount++;
 
       // Parse events from logs
       const events = parseEventsFromLogs(tx.meta.logMessages);
@@ -239,7 +239,7 @@ export async function fetchClaimHistory(
     }
   }
 
-  console.log("[SDK:fetchClaimHistory] Tribunal txs:", tribunalTxCount, "claims found:", claims.length);
+  console.log("[SDK:fetchClaimHistory] Scale txs:", scaleTxCount, "claims found:", claims.length);
   return claims;
 }
 
@@ -358,7 +358,7 @@ export async function getClaimSummaryFromHistory(
 export async function parseEventsFromTransaction(
   connection: Connection,
   signature: string
-): Promise<TribunalEvent[]> {
+): Promise<ScaleCraftEvent[]> {
   const tx = await connection.getParsedTransaction(signature, {
     maxSupportedTransactionVersion: 0,
   });
